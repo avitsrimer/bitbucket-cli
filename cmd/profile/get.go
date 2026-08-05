@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
-	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -22,12 +21,12 @@ var getCmd = &cobra.Command{
 
 var getOptions struct {
 	Current bool
-	Columns *flags.EnumSliceFlag
+	Columns *common.EnumSliceFlag
 }
 
 func init() {
 	Command.AddCommand(getCmd)
-	getOptions.Columns = flags.NewEnumSliceFlag(columns.Columns()...)
+	getOptions.Columns = common.NewEnumSliceFlag(columns.Columns()...)
 
 	getCmd.Flags().BoolVar(&getOptions.Current, "current", false, "Get the current profile")
 	getCmd.Flags().Var(getOptions.Columns, "columns", "Comma-separated list of columns to display")

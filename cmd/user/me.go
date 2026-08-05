@@ -3,8 +3,8 @@ package user
 import (
 	"fmt"
 
+	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
-	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -19,13 +19,13 @@ var meCmd = &cobra.Command{
 
 var meOptions struct {
 	Emails  bool
-	Columns *flags.EnumSliceFlag
+	Columns *common.EnumSliceFlag
 }
 
 func init() {
 	Command.AddCommand(meCmd)
 
-	meOptions.Columns = flags.NewEnumSliceFlag(columns.Columns()...)
+	meOptions.Columns = common.NewEnumSliceFlag(columns.Columns()...)
 	meCmd.Flags().BoolVar(&meOptions.Emails, "emails", false, "Display the email addresses of the current authenticated user")
 	meCmd.Flags().Var(meOptions.Columns, "columns", "Comma-separated list of columns to display")
 	_ = meCmd.RegisterFlagCompletionFunc(meOptions.Columns.CompletionFunc("columns"))

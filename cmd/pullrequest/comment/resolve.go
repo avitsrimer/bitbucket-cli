@@ -7,7 +7,6 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
-	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -21,13 +20,13 @@ var resolveCmd = &cobra.Command{
 }
 
 var resolveOptions struct {
-	PullRequestID *flags.EnumFlag
+	PullRequestID *common.EnumFlag
 }
 
 func init() {
 	Command.AddCommand(resolveCmd)
 
-	resolveOptions.PullRequestID = flags.NewEnumFlagWithFunc(resolveCmd, "", prcommon.GetPullRequestIDs)
+	resolveOptions.PullRequestID = common.NewEnumFlagWithFunc(resolveCmd, "", prcommon.GetPullRequestIDs)
 	resolveCmd.Flags().Var(resolveOptions.PullRequestID, "pullrequest", "Pullrequest to resolve comments from")
 	_ = resolveCmd.MarkFlagRequired("pullrequest")
 	_ = resolveCmd.RegisterFlagCompletionFunc(resolveOptions.PullRequestID.CompletionFunc("pullrequest"))

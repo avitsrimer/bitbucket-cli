@@ -9,7 +9,6 @@ import (
 	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/go-core"
-	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -23,16 +22,16 @@ var commitsCmd = &cobra.Command{
 }
 
 var commitsOptions struct {
-	Columns    *flags.EnumSliceFlag
-	SortBy     *flags.EnumFlag
+	Columns    *common.EnumSliceFlag
+	SortBy     *common.EnumFlag
 	PageLength int
 }
 
 func init() {
 	Command.AddCommand(commitsCmd)
 
-	commitsOptions.Columns = flags.NewEnumSliceFlagWithAllAllowed(commit.Commit{}.GetColumnDefinitions().Columns()...)
-	commitsOptions.SortBy = flags.NewEnumFlag(commit.Commit{}.GetColumnDefinitions().Sorters()...)
+	commitsOptions.Columns = common.NewEnumSliceFlagWithAllAllowed(commit.Commit{}.GetColumnDefinitions().Columns()...)
+	commitsOptions.SortBy = common.NewEnumFlag(commit.Commit{}.GetColumnDefinitions().Sorters()...)
 	commitsCmd.Flags().Var(commitsOptions.Columns, "columns", "Comma-separated list of columns to display")
 	commitsCmd.Flags().Var(commitsOptions.SortBy, "sort", "Column to sort by")
 	commitsCmd.Flags().IntVar(&commitsOptions.PageLength, "page-length", 0, "Number of items per page to retrieve from Bitbucket. Default is the profile's default page length")

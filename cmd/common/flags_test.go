@@ -1,0 +1,286 @@
+package common
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestNewEnumFlag(t *testing.T) {
+	t.Run("has no default value when none is prefixed with +", func(t *testing.T) {
+		flag := NewEnumFlag("one", "two", "three")
+
+		assert.Equal(t, []string{"one", "two", "three"}, flag.Allowed)
+		assert.Empty(t, flag.Value)
+	})
+
+	t.Run("uses the +prefixed value as the default and strips the prefix", func(t *testing.T) {
+		flag := NewEnumFlag("one", "+two", "three")
+
+		assert.Equal(t, []string{"one", "two", "three"}, flag.Allowed)
+		assert.Equal(t, "two", flag.Value)
+	})
+
+	t.Run("uses the first +prefixed value when more than one is given", func(t *testing.T) {
+		flag := NewEnumFlag("+one", "+two", "three")
+
+		assert.Equal(t, []string{"one", "two", "three"}, flag.Allowed)
+		assert.Equal(t, "one", flag.Value)
+	})
+}
+
+func TestEnumFlagTypeAndString(t *testing.T) {
+	flag := NewEnumFlag("+one", "two")
+
+	assert.Equal(t, "string", flag.Type())
+	assert.Equal(t, "one", flag.String())
+}
+
+func TestEnumFlagSet(t *testing.T) {
+	t.Run("accepts an allowed value", func(t *testing.T) {
+		flag := NewEnumFlag("one", "two", "three")
+
+		err := flag.Set("two")
+
+		require.NoError(t, err)
+		assert.Equal(t, "two", flag.Value)
+	})
+
+	t.Run("rejects a value outside the allowed list and lists the allowed values", func(t *testing.T) {
+		flag := NewEnumFlag("one", "two", "three")
+
+		err := flag.Set("four")
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "four")
+		assert.Contains(t, err.Error(), "one, two, three")
+		assert.Empty(t, flag.Value)
+	})
+
+	t.Run("resolves the allowed values from AllowedFunc on first use", func(t *testing.T) {
+		cmd := &cobra.Command{Use: "test"}
+		flag := NewEnumFlagWithFunc(cmd, "", func(context.Context, *cobra.Command, []string, string) ([]string, error) {
+			return []string{"alpha", "beta"}, nil
+		})
+
+		err := flag.Set("beta")
+
+		require.NoError(t, err)
+		assert.Equal(t, "beta", flag.Value)
+		assert.Equal(t, []string{"alpha", "beta"}, flag.Allowed)
+	})
+
+	t.Run("rejects a value when AllowedFunc errors and leaves it unresolved", func(t *testing.T) {
+		cmd := &cobra.Command{Use: "test"}
+		flag := NewEnumFlagWithFunc(cmd, "", func(context.Context, *cobra.Command, []string, string) ([]string, error) {
+			return nil, errors.New("boom")
+		})
+
+		err := flag.Set("beta")
+
+		require.Error(t, err)
+	})
+}
+
+func TestNewEnumFlagWithFuncPanicsOnNilCommand(t *testing.T) {
+	assert.Panics(t, func() {
+		NewEnumFlagWithFunc(nil, "", nil)
+	})
+}
+
+func TestEnumFlagCompletionFunc(t *testing.T) {
+	t.Run("returns the fixed allowed values", func(t *testing.T) {
+		flag := NewEnumFlag("one", "two")
+		cmd := &cobra.Command{Use: "test"}
+
+		name, completeFunc := flag.CompletionFunc("output")
+		values, directive := completeFunc(cmd, nil, "")
+
+		assert.Equal(t, "output", name)
+		assert.Equal(t, []string{"one", "two"}, values)
+		assert.Equal(t, cobra.ShellCompDirectiveDefault, directive)
+	})
+
+	t.Run("resolves values dynamically via AllowedFunc", func(t *testing.T) {
+		cmd := &cobra.Command{Use: "test"}
+		flag := NewEnumFlagWithFunc(cmd, "", func(context.Context, *cobra.Command, []string, string) ([]string, error) {
+			return []string{"dynamic-one", "dynamic-two"}, nil
+		})
+
+		_, completeFunc := flag.CompletionFunc("workspace")
+		values, directive := completeFunc(cmd, nil, "")
+
+		assert.Equal(t, []string{"dynamic-one", "dynamic-two"}, values)
+		assert.Equal(t, cobra.ShellCompDirectiveDefault, directive)
+	})
+
+	t.Run("returns an error directive when AllowedFunc fails", func(t *testing.T) {
+		cmd := &cobra.Command{Use: "test"}
+		flag := NewEnumFlagWithFunc(cmd, "", func(context.Context, *cobra.Command, []string, string) ([]string, error) {
+			return nil, errors.New("boom")
+		})
+
+		_, completeFunc := flag.CompletionFunc("workspace")
+		values, directive := completeFunc(cmd, nil, "")
+
+		assert.Empty(t, values)
+		assert.Equal(t, cobra.ShellCompDirectiveError, directive)
+	})
+}
+
+func TestNewEnumSliceFlag(t *testing.T) {
+	t.Run("has no default values when none is prefixed with +", func(t *testing.T) {
+		flag := NewEnumSliceFlag("one", "two")
+
+		assert.Equal(t, []string{"one", "two"}, flag.Allowed)
+		assert.Empty(t, flag.Default)
+	})
+
+	t.Run("collects every +prefixed value into the default selection", func(t *testing.T) {
+		flag := NewEnumSliceFlag("+one", "+two", "three")
+
+		assert.Equal(t, []string{"one", "two", "three"}, flag.Allowed)
+		assert.Equal(t, []string{"one", "two"}, flag.Default)
+	})
+}
+
+func TestEnumSliceFlagTypeAndString(t *testing.T) {
+	flag := NewEnumSliceFlag("one", "two")
+	require.NoError(t, flag.Set("one"))
+
+	assert.Equal(t, "stringSlice", flag.Type())
+	assert.Equal(t, "[one]", flag.String())
+}
+
+func TestEnumSliceFlagSet(t *testing.T) {
+	t.Run("accepts a single allowed value", func(t *testing.T) {
+		flag := NewEnumSliceFlag("one", "two", "three")
+
+		err := flag.Set("two")
+
+		require.NoError(t, err)
+		assert.Equal(t, []string{"two"}, flag.Values)
+	})
+
+	t.Run("accepts a comma-separated list of allowed values", func(t *testing.T) {
+		flag := NewEnumSliceFlag("one", "two", "three")
+
+		err := flag.Set("one,three")
+
+		require.NoError(t, err)
+		assert.Equal(t, []string{"one", "three"}, flag.Values)
+	})
+
+	t.Run("deduplicates repeated values", func(t *testing.T) {
+		flag := NewEnumSliceFlag("one", "two")
+
+		require.NoError(t, flag.Set("one"))
+		require.NoError(t, flag.Set("one"))
+
+		assert.Equal(t, []string{"one"}, flag.Values)
+	})
+
+	t.Run("rejects a value outside the allowed list", func(t *testing.T) {
+		flag := NewEnumSliceFlag("one", "two")
+
+		err := flag.Set("four")
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "four")
+		assert.Contains(t, err.Error(), "one, two")
+	})
+
+	t.Run("selects every allowed value on \"all\" when AllAllowed is set", func(t *testing.T) {
+		flag := NewEnumSliceFlagWithAllAllowed("one", "two", "three")
+
+		err := flag.Set("all")
+
+		require.NoError(t, err)
+		assert.Equal(t, []string{"one", "two", "three"}, flag.Values)
+		assert.Equal(t, []string{"all", "one", "two", "three"}, flag.GetSlice())
+	})
+
+	t.Run("rejects \"all\" when AllAllowed is not set", func(t *testing.T) {
+		flag := NewEnumSliceFlag("one", "two")
+
+		err := flag.Set("all")
+
+		require.Error(t, err)
+	})
+}
+
+func TestNewEnumSliceFlagWithAllAllowedAndFuncPanicsOnNilCommand(t *testing.T) {
+	assert.Panics(t, func() {
+		NewEnumSliceFlagWithAllAllowedAndFunc(nil, nil)
+	})
+}
+
+func TestEnumSliceFlagAppendAndReplace(t *testing.T) {
+	flag := NewEnumSliceFlag("one", "two", "three")
+
+	require.NoError(t, flag.Append("one,two"))
+	assert.Equal(t, []string{"one", "two"}, flag.Values)
+
+	require.NoError(t, flag.Replace([]string{"three", "one"}))
+	assert.Equal(t, []string{"three", "one"}, flag.Values)
+}
+
+func TestEnumSliceFlagGetSlice(t *testing.T) {
+	t.Run("returns the default values when nothing was set", func(t *testing.T) {
+		flag := NewEnumSliceFlag("+one", "two")
+
+		assert.Equal(t, []string{"one"}, flag.GetSlice())
+	})
+
+	t.Run("returns the set values when some were set", func(t *testing.T) {
+		flag := NewEnumSliceFlag("+one", "two")
+		require.NoError(t, flag.Set("two"))
+
+		assert.Equal(t, []string{"two"}, flag.GetSlice())
+	})
+}
+
+func TestEnumSliceFlagCompletionFunc(t *testing.T) {
+	t.Run("excludes already-selected values and appends \"all\" when AllAllowed is set", func(t *testing.T) {
+		flag := NewEnumSliceFlagWithAllAllowed("one", "two", "three")
+		cmd := &cobra.Command{Use: "test"}
+		cmd.Flags().Var(flag, "columns", "columns to display")
+		require.NoError(t, cmd.Flags().Set("columns", "one"))
+
+		_, completeFunc := flag.CompletionFunc("columns")
+		values, directive := completeFunc(cmd, nil, "")
+
+		assert.ElementsMatch(t, []string{"two", "three", "all"}, values)
+		assert.Equal(t, cobra.ShellCompDirectiveDefault, directive)
+	})
+
+	t.Run("resolves values dynamically via AllowedFunc", func(t *testing.T) {
+		cmd := &cobra.Command{Use: "test"}
+		flag := NewEnumSliceFlagWithAllAllowedAndFunc(cmd, func(context.Context, *cobra.Command, []string, string) ([]string, error) {
+			return []string{"dyn-one", "dyn-two"}, nil
+		})
+
+		_, completeFunc := flag.CompletionFunc("reviewer")
+		values, directive := completeFunc(cmd, nil, "")
+
+		assert.ElementsMatch(t, []string{"dyn-one", "dyn-two", "all"}, values)
+		assert.Equal(t, cobra.ShellCompDirectiveDefault, directive)
+	})
+
+	t.Run("returns an error directive when AllowedFunc fails", func(t *testing.T) {
+		cmd := &cobra.Command{Use: "test"}
+		flag := NewEnumSliceFlagWithAllAllowedAndFunc(cmd, func(context.Context, *cobra.Command, []string, string) ([]string, error) {
+			return nil, errors.New("boom")
+		})
+
+		_, completeFunc := flag.CompletionFunc("reviewer")
+		values, directive := completeFunc(cmd, nil, "")
+
+		assert.Empty(t, values)
+		assert.Equal(t, cobra.ShellCompDirectiveError, directive)
+	})
+}

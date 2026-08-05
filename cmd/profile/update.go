@@ -7,7 +7,6 @@ import (
 	"runtime"
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
-	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -24,10 +23,10 @@ var updateCmd = &cobra.Command{
 
 var updateOptions struct {
 	Profile
-	DefaultWorkspace *flags.EnumFlag
-	DefaultProject   *flags.EnumFlag
-	OutputFormat     *flags.EnumFlag
-	CloneProtocol    *flags.EnumFlag
+	DefaultWorkspace *common.EnumFlag
+	DefaultProject   *common.EnumFlag
+	OutputFormat     *common.EnumFlag
+	CloneProtocol    *common.EnumFlag
 	ToVault          bool
 	NoVault          bool
 }
@@ -35,10 +34,10 @@ var updateOptions struct {
 func init() {
 	Command.AddCommand(updateCmd)
 
-	updateOptions.DefaultWorkspace = flags.NewEnumFlagWithFunc(updateCmd, "", getWorkspaceSlugs)
-	updateOptions.DefaultProject = flags.NewEnumFlagWithFunc(updateCmd, "", getProjectKeys)
-	updateOptions.OutputFormat = flags.NewEnumFlag("json", "yaml", "table")
-	updateOptions.CloneProtocol = flags.NewEnumFlag("+git", "https", "ssh")
+	updateOptions.DefaultWorkspace = common.NewEnumFlagWithFunc(updateCmd, "", getWorkspaceSlugs)
+	updateOptions.DefaultProject = common.NewEnumFlagWithFunc(updateCmd, "", getProjectKeys)
+	updateOptions.OutputFormat = common.NewEnumFlag("json", "yaml", "table")
+	updateOptions.CloneProtocol = common.NewEnumFlag("+git", "https", "ssh")
 	updateCmd.Flags().StringVarP(&updateOptions.Name, "name", "n", "", "Name of the profile")
 	updateCmd.Flags().StringVar(&updateOptions.Description, "description", "", "Description of the profile")
 	updateCmd.Flags().BoolVar(&updateOptions.Default, "default", false, "True if this is the default profile")

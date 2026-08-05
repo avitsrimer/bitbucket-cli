@@ -12,23 +12,22 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/user"
 	"github.com/gildas/bitbucket-cli/cmd/workspace"
 	"github.com/gildas/go-core"
-	"github.com/gildas/go-flags"
 	"github.com/spf13/cobra"
 )
 
 // RootOptions describes the options for the application
 type RootOptions struct {
-	ConfigFile   string          `mapstructure:"-"`
-	ProfileName  string          `mapstructure:"-"`
-	Repository   string          `mapstructure:"-"`
-	Workspace    *flags.EnumFlag `mapstructure:"-"`
-	OutputFormat flags.EnumFlag  `mapstructure:"-"`
-	DryRun       bool            `mapstructure:"-"`
-	Verbose      bool            `mapstructure:"-"`
-	Debug        bool            `mapstructure:"-"`
-	StopOnError  bool            `mapstructure:"-"`
-	WarnOnError  bool            `mapstructure:"-"`
-	IgnoreErrors bool            `mapstructure:"-"`
+	ConfigFile   string           `mapstructure:"-"`
+	ProfileName  string           `mapstructure:"-"`
+	Repository   string           `mapstructure:"-"`
+	Workspace    *common.EnumFlag `mapstructure:"-"`
+	OutputFormat common.EnumFlag  `mapstructure:"-"`
+	DryRun       bool             `mapstructure:"-"`
+	Verbose      bool             `mapstructure:"-"`
+	Debug        bool             `mapstructure:"-"`
+	StopOnError  bool             `mapstructure:"-"`
+	WarnOnError  bool             `mapstructure:"-"`
+	IgnoreErrors bool             `mapstructure:"-"`
 }
 
 // CmdOptions contains the options for the application
@@ -58,8 +57,8 @@ func init() {
 	cobra.CheckErr(err)
 
 	// Global flags
-	CmdOptions.Workspace = flags.NewEnumFlagWithFunc(RootCmd, "", workspace.GetWorkspaceAllowedSlugs)
-	CmdOptions.OutputFormat = flags.EnumFlag{Allowed: []string{"csv", "json", "yaml", "table", "tsv"}, Value: core.GetEnvAsString("BB_OUTPUT_FORMAT", "")}
+	CmdOptions.Workspace = common.NewEnumFlagWithFunc(RootCmd, "", workspace.GetWorkspaceAllowedSlugs)
+	CmdOptions.OutputFormat = common.EnumFlag{Allowed: []string{"csv", "json", "yaml", "table", "tsv"}, Value: core.GetEnvAsString("BB_OUTPUT_FORMAT", "")}
 	RootCmd.PersistentFlags().StringVar(&CmdOptions.ConfigFile, "config", core.GetEnvAsString("BB_CONFIG", ""), "config file (default is .env, "+filepath.Join(configDir, "bitbucket", "config-cli.yml"))
 	RootCmd.PersistentFlags().StringVarP(&CmdOptions.ProfileName, "profile", "p", core.GetEnvAsString("BB_PROFILE", ""), "Profile to use. Overrides the default profile")
 	RootCmd.PersistentFlags().Var(CmdOptions.Workspace, "workspace", "Workspace to use. Overrides the default workspace of the profile. \nBy default, the workspace is determined from the git or profile configuration")
