@@ -18,14 +18,14 @@ import (
 func GetBranches(context context.Context, cmd *cobra.Command) (branches []Branch, err error) {
 	repository, err := repository.GetRepository(context, cmd)
 	if err != nil {
-		return []Branch{}, err
+		return []Branch{}, fmt.Errorf("cannot get repository: %w", err)
 	}
 
 	uripath := repository.GetPath("refs/branches")
 	if cmd != nil && cmd.Flag("query") != nil && cmd.Flag("query").Changed {
 		query, err := cmd.Flags().GetString("query")
 		if err != nil {
-			return []Branch{}, err
+			return []Branch{}, fmt.Errorf("cannot read query flag: %w", err)
 		}
 		uripath = fmt.Sprintf("%s?q=%s", uripath, url.QueryEscape(query))
 	}

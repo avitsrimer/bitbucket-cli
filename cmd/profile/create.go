@@ -1,12 +1,12 @@
 package profile
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
-	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
@@ -75,7 +75,7 @@ func createProcess(cmd *cobra.Command, args []string) (err error) {
 	ctx := cmd.Context()
 
 	_, err = GetProfileFromCommand(ctx, cmd)
-	if err != nil && !errors.Is(err, errors.Empty) {
+	if err != nil && !errors.Is(err, ErrNoProfiles) {
 		return err
 	}
 
@@ -87,7 +87,7 @@ func createProcess(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 	if _, found := Profiles.Find(createOptions.Name); found {
-		return errors.DuplicateFound.With("name", createOptions.Name)
+		return fmt.Errorf("profile %s already exists", createOptions.Name)
 	}
 
 	if !common.WhatIf(cmd, "Creating profile %s", createOptions.Name) {
@@ -131,11 +131,11 @@ func resolveCreateSecrets() error {
 	if createOptions.NoVault {
 		switch {
 		case createOptions.ClientID != "" && createOptions.ClientSecret == "":
-			return errors.ArgumentMissing.With("clientSecret", "A client secret is required when using a client ID since it is not stored in the vault.")
+			return errors.New("argument clientSecret is missing: a client secret is required when using a client ID since it is not stored in the vault")
 		case createOptions.User != "" && createOptions.Password == "":
-			return errors.ArgumentMissing.With("password", "A password is required when using a user since it is not stored in the vault.")
+			return errors.New("argument password is missing: a password is required when using a user since it is not stored in the vault")
 		case createOptions.ClientID == "" && createOptions.User == "" && createOptions.AccessToken == "":
-			return errors.ArgumentMissing.With("accessToken", "An access token is required when using a user since it is not stored in the vault")
+			return errors.New("argument accessToken is missing: an access token is required when using a user since it is not stored in the vault")
 		}
 		return nil
 	}
@@ -144,13 +144,13 @@ func resolveCreateSecrets() error {
 	case createOptions.ClientID != "":
 		secret, err := resolveVaultSecret("client secret", createOptions.VaultKey, createOptions.ClientID, createOptions.ClientSecret, createOptions.SetCredentialInVault, createOptions.GetCredentialFromVault)
 		if err != nil {
-			return errors.New("A client secret is required when using a client ID since it is not stored in the vault. Please provide it with --client-secret or store it in the vault with the command")
+			return errors.New("a client secret is required when using a client ID since it is not stored in the vault. Please provide it with --client-secret or store it in the vault with the command")
 		}
 		createOptions.ClientSecret = secret
 	case createOptions.User != "":
 		secret, err := resolveVaultSecret("user password", createOptions.VaultKey, createOptions.User, createOptions.Password, createOptions.SetCredentialInVault, createOptions.GetCredentialFromVault)
 		if err != nil {
-			return errors.New("A password is required when using a user since it is not stored in the vault. Please provide it with --password or store it in the vault with the command")
+			return errors.New("a password is required when using a user since it is not stored in the vault. Please provide it with --password or store it in the vault with the command")
 		}
 		createOptions.Password = secret
 	case createOptions.AccessToken != "":

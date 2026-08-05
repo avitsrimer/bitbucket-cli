@@ -1,12 +1,12 @@
 package profile
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
-	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
@@ -84,11 +84,11 @@ func updateProcess(cmd *cobra.Command, args []string) (err error) {
 	ctx := cmd.Context()
 
 	if len(args) == 0 {
-		return errors.ArgumentMissing.With("profile")
+		return errors.New("argument profile is missing")
 	}
 	_, err = GetProfileFromCommand(ctx, cmd)
-	if errors.Is(err, errors.Empty) || len(Profiles) == 0 {
-		return errors.Errorf("No profiles found")
+	if errors.Is(err, ErrNoProfiles) || len(Profiles) == 0 {
+		return errors.New("no profiles found")
 	}
 	if err != nil {
 		return err
@@ -99,7 +99,7 @@ func updateProcess(cmd *cobra.Command, args []string) (err error) {
 	lgr.Printf("[DEBUG] loading profile %s (valid names: %v)", args[0], Profiles.Names())
 	profile, found := Profiles.Find(args[0])
 	if !found {
-		return errors.NotFound.With("profile", args[0])
+		return fmt.Errorf("profile %s not found", args[0])
 	}
 
 	// profile.Redact() masks secrets before they hit the debug log
@@ -201,21 +201,21 @@ func moveCredentialsToVault(profile *Profile, vaultKey string) error {
 	switch {
 	case profile.ClientSecret != "":
 		if err := profile.SetCredentialInVault(vaultKey, profile.ClientID, profile.ClientSecret); err != nil {
-			return errors.Join(errors.Errorf("Failed to store client secret in the vault"), err)
+			return fmt.Errorf("failed to store client secret in the vault: %w", err)
 		}
 		lgr.Printf("[DEBUG] stored client secret in the vault for %s", profile.ClientID)
 		profile.ClientSecret = ""
 		updateOptions.ClientSecret = ""
 	case profile.Password != "":
 		if err := profile.SetCredentialInVault(vaultKey, profile.User, profile.Password); err != nil {
-			return errors.Join(errors.Errorf("Failed to store user password in the vault"), err)
+			return fmt.Errorf("failed to store user password in the vault: %w", err)
 		}
 		lgr.Printf("[DEBUG] stored user password in the vault for %s", profile.User)
 		profile.Password = ""
 		updateOptions.Password = ""
 	case profile.AccessToken != "":
 		if err := profile.SetCredentialInVault(vaultKey, profile.Name, profile.AccessToken); err != nil {
-			return errors.Join(errors.Errorf("Failed to store access token in the vault"), err)
+			return fmt.Errorf("failed to store access token in the vault: %w", err)
 		}
 		lgr.Printf("[DEBUG] stored access token in the vault for %s", profile.Name)
 		profile.AccessToken = ""

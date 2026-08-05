@@ -1,9 +1,9 @@
 package common
 
 import (
+	"fmt"
 	"strings"
 
-	"github.com/gildas/go-errors"
 	"github.com/spf13/cobra"
 )
 
@@ -39,7 +39,7 @@ func (ep *ErrorProcessing) Set(value string) error {
 	case "IgnoreErrors":
 		*ep = IgnoreErrors
 	default:
-		return errors.ArgumentInvalid.With("value", value, strings.Join(ep.Values(), ", "))
+		return fmt.Errorf("argument value is invalid (value: %s, expected one of: %s)", value, strings.Join(ep.Values(), ", "))
 	}
 	return nil
 }

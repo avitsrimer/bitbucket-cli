@@ -1,11 +1,11 @@
 package profile
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
-	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
@@ -39,9 +39,9 @@ func getProcess(cmd *cobra.Command, args []string) (err error) {
 	ctx := cmd.Context()
 
 	_, err = GetProfileFromCommand(ctx, cmd)
-	if errors.Is(err, errors.Empty) || len(Profiles) == 0 {
+	if errors.Is(err, ErrNoProfiles) || len(Profiles) == 0 {
 		if cmd.Flag("stop-on-error").Value.String() == "true" {
-			return errors.Errorf("No profiles found")
+			return errors.New("no profiles found")
 		}
 		common.Verbose(cmd, "No profile is currently configured")
 		return nil
@@ -54,7 +54,7 @@ func getProcess(cmd *cobra.Command, args []string) (err error) {
 		lgr.Printf("[DEBUG] displaying current profile")
 		if Current == nil {
 			if cmd.Flag("stop-on-error").Value.String() == "true" {
-				return errors.Errorf("There is no profile configured")
+				return errors.New("there is no profile configured")
 			}
 			common.Verbose(cmd, "No profile is currently configured")
 			return nil
@@ -63,7 +63,7 @@ func getProcess(cmd *cobra.Command, args []string) (err error) {
 	}
 
 	if len(args) == 0 {
-		return errors.ArgumentMissing.With("profile")
+		return errors.New("argument profile is missing")
 	}
 
 	lgr.Printf("[DEBUG] displaying profile %s (valid names: %v)", args[0], Profiles.Names())
@@ -73,7 +73,7 @@ func getProcess(cmd *cobra.Command, args []string) (err error) {
 
 	profile, found := Profiles.Find(args[0])
 	if !found {
-		return errors.NotFound.With("profile", args[0])
+		return fmt.Errorf("profile %s not found", args[0])
 	}
 	if err := profile.Validate(); err != nil {
 		if cmd.Flag("stop-on-error").Value.String() == "true" {

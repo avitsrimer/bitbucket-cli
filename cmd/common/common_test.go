@@ -2,6 +2,7 @@ package common_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"reflect"
 	"strings"
@@ -44,7 +45,10 @@ func (suite *CommonSuite) LoadTestData(filename string) []byte {
 
 func (suite *CommonSuite) UnmarshalData(filename string, v any) error {
 	data := suite.LoadTestData(filename)
-	return json.Unmarshal(data, v)
+	if err := json.Unmarshal(data, v); err != nil {
+		return fmt.Errorf("cannot unmarshal test data: %w", err)
+	}
+	return nil
 }
 
 // *****************************************************************************

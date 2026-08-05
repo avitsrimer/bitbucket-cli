@@ -1,7 +1,9 @@
 package common
 
 import (
-	"github.com/gildas/go-errors"
+	"errors"
+	"fmt"
+
 	"github.com/google/uuid"
 )
 
@@ -30,7 +32,7 @@ func (u UUID) MarshalJSON() ([]byte, error) {
 
 func (u *UUID) UnmarshalJSON(payload []byte) error {
 	if len(payload) < 2 {
-		return errors.JSONUnmarshalError.Wrap(errors.Errorf("unexpected end of JSON input"))
+		return errors.New("cannot unmarshal uuid: unexpected end of JSON input")
 	}
 	value := string(payload[1 : len(payload)-1])
 	if value == "" {
@@ -39,7 +41,7 @@ func (u *UUID) UnmarshalJSON(payload []byte) error {
 	}
 	parsed, err := ParseUUID(value)
 	if err != nil {
-		return errors.JSONUnmarshalError.Wrap(err)
+		return fmt.Errorf("cannot unmarshal uuid: %w", err)
 	}
 	*u = parsed
 	return nil

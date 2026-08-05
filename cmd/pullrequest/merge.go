@@ -1,11 +1,12 @@
 package pullrequest
 
 import (
+	"fmt"
+
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
-	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
@@ -53,17 +54,17 @@ func mergeValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]str
 func mergeProcess(cmd *cobra.Command, args []string) (err error) {
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
-		return errors.Join(errors.Errorf("Cannot merge Pull Request"), err)
+		return fmt.Errorf("cannot merge pull request: %w", err)
 	}
 
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
-		return errors.Join(errors.Errorf("Cannot merge Pull Request"), err)
+		return fmt.Errorf("cannot merge pull request: %w", err)
 	}
 
 	pullRequestID, err := GetPullRequestIDFromArgs(cmd.Context(), cmd, repository, args)
 	if err != nil {
-		return errors.Join(errors.Errorf("Cannot merge Pull Request"), err)
+		return fmt.Errorf("cannot merge pull request: %w", err)
 	}
 
 	uripath := repository.GetPath("pullrequests", pullRequestID, "merge")
@@ -90,21 +91,27 @@ func mergeProcess(cmd *cobra.Command, args []string) (err error) {
 	if mergeOptions.Async {
 		result, asyncErr := profile.PostWithResult(cmd.Context(), cmd, uripath, payload)
 		if asyncErr != nil {
-			return errors.Join(errors.Errorf("Failed to merge Pull Request %s", pullRequestID), asyncErr)
+			return fmt.Errorf("failed to merge pull request %s: %w", pullRequestID, asyncErr)
 		}
 		status, asyncErr := NewPullRequestMergeStatusFromLocation(result.Headers.Get("Location"))
 		if asyncErr != nil {
-			return errors.Join(errors.Errorf("Failed to get merge status for Pull Request %s", pullRequestID), asyncErr)
+			return fmt.Errorf("failed to get merge status for pull request %s: %w", pullRequestID, asyncErr)
 		}
 		lgr.Printf("[DEBUG] merge request accepted, task ID: %s", status.ID)
-		return profile.Print(cmd.Context(), cmd, status)
+		if err = profile.Print(cmd.Context(), cmd, status); err != nil {
+			return fmt.Errorf("cannot print result: %w", err)
+		}
+		return nil
 	}
 
 	var pullrequest PullRequest
 
 	err = profile.Post(cmd.Context(), cmd, uripath, payload, &pullrequest)
 	if err != nil {
-		return errors.Join(errors.Errorf("Failed to merge Pull Request %s", pullRequestID), err)
+		return fmt.Errorf("failed to merge pull request %s: %w", pullRequestID, err)
 	}
-	return profile.Print(cmd.Context(), cmd, pullrequest)
+	if err := profile.Print(cmd.Context(), cmd, pullrequest); err != nil {
+		return fmt.Errorf("cannot print result: %w", err)
+	}
+	return nil
 }

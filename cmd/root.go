@@ -50,7 +50,7 @@ You can manage your pull requests, issues, profiles, etc.`,
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute(context context.Context) error {
-	return RootCmd.ExecuteContext(context)
+	return RootCmd.ExecuteContext(context) //nolint:wrapcheck // main.go prints this error verbatim; wrapping would prefix every command failure with redundant noise
 }
 
 func init() {

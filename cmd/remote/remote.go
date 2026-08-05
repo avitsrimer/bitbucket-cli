@@ -2,12 +2,13 @@ package remote
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"regexp"
 	"strings"
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
-	"github.com/gildas/go-errors"
 	"github.com/spf13/cobra"
 )
 
@@ -21,7 +22,7 @@ type Remote struct {
 func GetRemoteFromGitConfig(context context.Context, name string) (remote *Remote, err error) {
 	file, err := common.OpenGitConfig(context)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cannot open git config: %w", err)
 	}
 	defer file.Close()
 	return GetRemoteFromReader(context, file, name)
@@ -36,10 +37,10 @@ func GetRemoteFromReader(context context.Context, reader io.Reader, name string)
 	if name == "" {
 		sections, sectionsErr := common.GetGitSectionsMatching(context, reader, regexp.MustCompile("remote \".*\""))
 		if sectionsErr != nil {
-			return nil, sectionsErr
+			return nil, fmt.Errorf("cannot read git config: %w", sectionsErr)
 		}
 		if len(sections) == 0 {
-			return nil, errors.NotFound.With("remote", "any")
+			return nil, errors.New("no remote found")
 		}
 		for _, section := range sections {
 			url := section.Key("url").String()
@@ -50,15 +51,15 @@ func GetRemoteFromReader(context context.Context, reader io.Reader, name string)
 				}, nil
 			}
 		}
-		return nil, errors.NotFound.With("remote", "any")
+		return nil, errors.New("no remote found")
 	}
 	section, err := common.GetGitSection(context, reader, "remote \""+name+"\"")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cannot read git config: %w", err)
 	}
 	url := section.Key("url").String()
 	if !strings.Contains(url, "bitbucket.org") {
-		return nil, errors.ArgumentInvalid.With("remote", name)
+		return nil, fmt.Errorf("argument remote is invalid (value: %s)", name)
 	}
 	return &Remote{
 		URL:   url,

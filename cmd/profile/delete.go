@@ -1,10 +1,11 @@
 package profile
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
-	"github.com/gildas/go-errors"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -43,9 +44,9 @@ func deleteProcess(cmd *cobra.Command, args []string) (err error) {
 	var deleted int
 
 	_, err = GetProfileFromCommand(ctx, cmd)
-	if errors.Is(err, errors.Empty) || len(Profiles) == 0 {
+	if errors.Is(err, ErrNoProfiles) || len(Profiles) == 0 {
 		if cmd.Flag("stop-on-error").Value.String() == "true" {
-			return errors.Errorf("No profiles found")
+			return errors.New("no profiles found")
 		}
 		common.Verbose(cmd, "Profiles list is empty, nothing to delete")
 		return nil
@@ -69,7 +70,10 @@ func deleteProcess(cmd *cobra.Command, args []string) (err error) {
 		return nil
 	}
 	viper.Set("profiles", Profiles)
-	return viper.WriteConfig()
+	if err := viper.WriteConfig(); err != nil {
+		return fmt.Errorf("cannot write config file: %w", err)
+	}
+	return nil
 }
 
 // deleteProfileCredentials deletes the vault credential of each named profile, if any

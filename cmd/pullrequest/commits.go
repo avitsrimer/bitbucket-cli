@@ -1,13 +1,14 @@
 package pullrequest
 
 import (
+	"fmt"
+
 	"github.com/gildas/bitbucket-cli/cmd/commit"
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/go-core"
-	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
@@ -55,12 +56,12 @@ func commitsValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]s
 func commitsProcess(cmd *cobra.Command, args []string) (err error) {
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
-		return errors.Join(errors.Errorf("Cannot list commits of Pull Request"), err)
+		return fmt.Errorf("cannot list commits of pull request: %w", err)
 	}
 
 	pullRequestID, err := GetPullRequestIDFromArgs(cmd.Context(), cmd, repository, args)
 	if err != nil {
-		return errors.Join(errors.Errorf("Cannot list commits of Pull Request"), err)
+		return fmt.Errorf("cannot list commits of pull request: %w", err)
 	}
 
 	lgr.Printf("[DEBUG] listing commits of pullrequest %s", pullRequestID)
@@ -74,8 +75,11 @@ func commitsProcess(cmd *cobra.Command, args []string) (err error) {
 		repository.GetPath("pullrequests", pullRequestID, "commits"),
 	)
 	if err != nil {
-		return errors.Join(errors.Errorf("Failed to get the commits of Pull Request %s", pullRequestID), err)
+		return fmt.Errorf("failed to get the commits of pull request %s: %w", pullRequestID, err)
 	}
 	core.Sort(commits, commit.Commit{}.GetColumnDefinitions().SortBy(commitsOptions.SortBy.Value))
-	return profile.Current.Print(cmd.Context(), cmd, commit.Commits(commits))
+	if err := profile.Current.Print(cmd.Context(), cmd, commit.Commits(commits)); err != nil {
+		return fmt.Errorf("cannot print result: %w", err)
+	}
+	return nil
 }

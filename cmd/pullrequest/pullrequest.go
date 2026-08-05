@@ -3,6 +3,7 @@ package pullrequest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -20,7 +21,6 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/user"
 	"github.com/gildas/bitbucket-cli/cmd/workspace"
 	"github.com/gildas/go-core"
-	"github.com/gildas/go-errors"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -192,9 +192,7 @@ func (pullrequest PullRequest) GetRow(headers []string) []string {
 
 // Validate validates a PullRequest
 func (pullrequest *PullRequest) Validate() error {
-	var merr errors.MultiError
-
-	return merr.AsError()
+	return nil
 }
 
 // String gets a string representation of this pullrequest
@@ -209,18 +207,18 @@ func GetPullRequestIDFromArgs(ctx context.Context, cmd *cobra.Command, repositor
 	if len(args) == 0 {
 		pullRequestIDs, err := prcommon.GetPullRequestIDsFromRepositoryWithState(cmd.Context(), cmd, repository, "OPEN")
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("cannot list pull requests: %w", err)
 		}
 		if len(pullRequestIDs) == 0 {
-			return "", errors.Errorf("No open pullrequest found for repository %s", repository.FullName)
+			return "", fmt.Errorf("no open pullrequest found for repository %s", repository.FullName)
 		}
 		if len(pullRequestIDs) > 1 {
-			return "", errors.Errorf("Too many pullrequests to merge: %s", strings.Join(pullRequestIDs, ", "))
+			return "", fmt.Errorf("too many pullrequests to merge: %s", strings.Join(pullRequestIDs, ", "))
 		}
 		return pullRequestIDs[0], nil
 	}
 	if _, err := strconv.Atoi(args[0]); err != nil {
-		return "", errors.ArgumentInvalid.With("pullrequest-id", args[0])
+		return "", fmt.Errorf("argument pullrequest-id is invalid (value: %s)", args[0])
 	}
 	return args[0], nil
 }
@@ -229,14 +227,14 @@ func GetPullRequestIDFromArgs(ctx context.Context, cmd *cobra.Command, repositor
 func GetReviewerNicknames(ctx context.Context, cmd *cobra.Command, args []string, toComplete string) (nicknames []string, err error) {
 	if cmd == nil {
 		fmt.Fprintln(os.Stderr, "cmd is nil")
-		return []string{}, errors.ArgumentMissing.With("cmd")
+		return []string{}, errors.New("argument cmd is missing")
 	}
 
 	lgr.Printf("[DEBUG] getting reviewer nicknames for profile %s", profile.Current)
 	pullrequestWorkspace, err := workspace.GetWorkspace(cmd.Context(), cmd)
 	if err != nil {
 		lgr.Printf("[ERROR] failed to get repository: %v", err)
-		return []string{}, err
+		return []string{}, fmt.Errorf("cannot get workspace: %w", err)
 	}
 	lgr.Printf("[DEBUG] getting members of workspace %s", pullrequestWorkspace)
 	members, _ := pullrequestWorkspace.GetMembers(ctx, cmd)
@@ -258,5 +256,8 @@ func (pullrequest PullRequest) MarshalJSON() (data []byte, err error) {
 		CreatedOn: pullrequest.CreatedOn.Format("2006-01-02T15:04:05.999999999-07:00"),
 		UpdatedOn: pullrequest.UpdatedOn.Format("2006-01-02T15:04:05.999999999-07:00"),
 	})
-	return data, errors.JSONMarshalError.Wrap(err)
+	if err != nil {
+		return nil, fmt.Errorf("cannot marshal pullrequest to json: %w", err)
+	}
+	return data, nil
 }

@@ -1,11 +1,12 @@
 package pullrequest
 
 import (
+	"fmt"
+
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
-	"github.com/gildas/go-errors"
 	"github.com/spf13/cobra"
 )
 
@@ -37,17 +38,17 @@ func unapproveValidArgs(cmd *cobra.Command, args []string, toComplete string) ([
 func unapproveProcess(cmd *cobra.Command, args []string) (err error) {
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
-		return errors.Join(errors.Errorf("Cannot unapprove Pull Request"), err)
+		return fmt.Errorf("cannot unapprove pull request: %w", err)
 	}
 
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
-		return errors.Join(errors.Errorf("Cannot unapprove Pull Request"), err)
+		return fmt.Errorf("cannot unapprove pull request: %w", err)
 	}
 
 	pullRequestID, err := GetPullRequestIDFromArgs(cmd.Context(), cmd, repository, args)
 	if err != nil {
-		return errors.Join(errors.Errorf("Cannot unapprove Pull Request"), err)
+		return fmt.Errorf("cannot unapprove pull request: %w", err)
 	}
 
 	if !common.WhatIf(cmd, "Unapproving pullrequest %s", pullRequestID) {
@@ -60,7 +61,7 @@ func unapproveProcess(cmd *cobra.Command, args []string) (err error) {
 		nil,
 	)
 	if err != nil {
-		return errors.Join(errors.Errorf("Failed to unapprove Pull Request %s", pullRequestID), err)
+		return fmt.Errorf("failed to unapprove pull request %s: %w", pullRequestID, err)
 	}
-	return err
+	return nil
 }

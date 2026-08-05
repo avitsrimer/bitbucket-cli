@@ -3,15 +3,20 @@ package profile
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/gildas/go-core"
-	"github.com/gildas/go-errors"
 	"github.com/go-pkgz/lgr"
 )
+
+// ErrUnmarshalJSON is returned when the access-token JSON payload from BitBucket, or the local
+// access-token cache file, fails to unmarshal.
+var ErrUnmarshalJSON = errors.New("cannot unmarshal json")
 
 type Token struct {
 	TokenType    string         `json:"token_type"`
@@ -67,7 +72,7 @@ func (profile *Profile) loadAccessToken(_ context.Context) (err error) {
 		}
 		return nil
 	}
-	return err
+	return fmt.Errorf("cannot determine cache directory: %w", err)
 }
 
 // isTokenExpired tells if the token is expired
@@ -146,14 +151,15 @@ func UnmarshalTokenFromBitbucketData(data []byte) (token *Token, err error) {
 		ExpiresIn    int64  `json:"expires_in"`
 		Scopes       string `json:"scopes"`
 	}
-	if err = json.Unmarshal(data, &result); err == nil {
-		token = &Token{
-			TokenType:    result.TokenType,
-			AccessToken:  result.AccessToken,
-			RefreshToken: result.RefreshToken,
-			ExpiresOn:    core.Timestamp(time.Now().Add(time.Duration(result.ExpiresIn) * time.Second)),
-			Scope:        result.Scopes,
-		}
+	if err = json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrUnmarshalJSON, err)
 	}
-	return token, errors.JSONUnmarshalError.WrapIfNotMe(err)
+	token = &Token{
+		TokenType:    result.TokenType,
+		AccessToken:  result.AccessToken,
+		RefreshToken: result.RefreshToken,
+		ExpiresOn:    core.Timestamp(time.Now().Add(time.Duration(result.ExpiresIn) * time.Second)),
+		Scope:        result.Scopes,
+	}
+	return token, nil
 }

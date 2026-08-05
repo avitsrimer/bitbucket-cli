@@ -9,7 +9,6 @@ import (
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
-	"github.com/gildas/go-errors"
 	"github.com/go-pkgz/lgr"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -173,14 +172,17 @@ func (user User) MarshalJSON() (data []byte, err error) {
 		surrogate: surrogate(user),
 		CreatedOn: createdOn,
 	})
-	return data, errors.JSONMarshalError.Wrap(err)
+	if err != nil {
+		return nil, fmt.Errorf("cannot marshal json: %w", err)
+	}
+	return data, nil
 }
 
 // GetMe gets the current user
 func GetMe(context context.Context, cmd *cobra.Command) (user *User, err error) {
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cannot get profile: %w", err)
 	}
 	if user, err = UserCache.Get(profile.Name + ":me"); err == nil {
 		lgr.Printf("[DEBUG] user found in cache")
@@ -202,7 +204,7 @@ func GetMe(context context.Context, cmd *cobra.Command) (user *User, err error) 
 func GetUser(context context.Context, cmd *cobra.Command, userid string) (user *User, err error) {
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cannot get profile: %w", err)
 	}
 	if userid == "" || strings.EqualFold(userid, "me") || strings.EqualFold(userid, "myself") {
 		me, meErr := GetMe(context, cmd)
@@ -231,7 +233,7 @@ func GetUser(context context.Context, cmd *cobra.Command, userid string) (user *
 // GetUserFromFlags gets the user from the command
 func GetUserFromFlags(context context.Context, cmd *cobra.Command) (*User, error) {
 	if cmd.Flag("user") == nil {
-		return nil, errors.Errorf("The command %s does not have a --user flag", cmd.Name())
+		return nil, fmt.Errorf("the command %s does not have a --user flag", cmd.Name())
 	}
 	return GetUser(context, cmd, cmd.Flag("user").Value.String())
 }

@@ -3,12 +3,12 @@ package workspace
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	"github.com/gildas/bitbucket-cli/cmd/remote"
-	"github.com/gildas/go-errors"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -61,7 +61,7 @@ func GetWorkspaceName(context context.Context, cmd *cobra.Command) (workspaceNam
 		lgr.Printf("[DEBUG] workspace name found in profile: %s", profile.Current.DefaultWorkspace)
 		return profile.Current.DefaultWorkspace, nil
 	}
-	return "", errors.ArgumentMissing.With("workspace")
+	return "", errors.New("argument workspace is missing")
 }
 
 // GetWorkspace gets the current workspace
@@ -81,7 +81,7 @@ func GetWorkspace(ctx context.Context, cmd *cobra.Command) (workspace *Workspace
 // GetWorkspaceBySlugOrID gets the workspace by its slug name or ID
 func GetWorkspaceBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID string) (workspace *Workspace, err error) {
 	if slugOrID == "" {
-		return nil, errors.ArgumentMissing.With("workspace slug or ID")
+		return nil, errors.New("argument workspace slug or ID is missing")
 	}
 
 	if workspace, err = WorkspaceCache.Get(slugOrID); err == nil {
@@ -91,7 +91,7 @@ func GetWorkspaceBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID st
 
 	currentProfile, err := profile.GetProfileFromCommand(ctx, cmd)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cannot get profile: %w", err)
 	}
 
 	lgr.Printf("[DEBUG] retrieving workspace %s", slugOrID)
@@ -107,10 +107,11 @@ func GetWorkspaceBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID st
 		"/workspaces/"+slugOrID,
 		&workspace,
 	)
-	if err == nil {
-		_ = WorkspaceCache.Set(*workspace, slugOrID)
+	if err != nil {
+		return workspace, fmt.Errorf("failed to get workspace %s: %w", slugOrID, err)
 	}
-	return workspace, errors.Join(errors.Errorf("Failed to get workspace %s", slugOrID), err)
+	_ = WorkspaceCache.Set(*workspace, slugOrID)
+	return workspace, nil
 }
 
 // GetMembers gets the members of the workspace
@@ -139,7 +140,10 @@ func (workspace Workspace) MarshalJSON() ([]byte, error) {
 		Type:      workspace.GetType(),
 		surrogate: surrogate(workspace),
 	})
-	return data, errors.JSONMarshalError.Wrap(err)
+	if err != nil {
+		return nil, fmt.Errorf("cannot marshal workspace to json: %w", err)
+	}
+	return data, nil
 }
 
 // UnmarshalJSON unmarshals the workspace from JSON
@@ -152,7 +156,7 @@ func (workspace *Workspace) UnmarshalJSON(data []byte) error {
 		Type string `json:"type"`
 	}
 	if err := json.Unmarshal(data, &typeholder); err != nil {
-		return errors.JSONUnmarshalError.WrapIfNotMe(err)
+		return fmt.Errorf("cannot unmarshal workspace: %w", err)
 	}
 	switch typeholder.Type {
 	case "workspace_access":
@@ -165,10 +169,10 @@ func (workspace *Workspace) UnmarshalJSON(data []byte) error {
 			} `json:"workspace"`
 		}
 		if err := json.Unmarshal(data, &inner); err != nil {
-			return errors.JSONUnmarshalError.WrapIfNotMe(err)
+			return fmt.Errorf("cannot unmarshal workspace: %w", err)
 		}
 		if inner.Workspace.Type != "workspace_base" {
-			return errors.JSONUnmarshalError.Wrap(errors.InvalidType.With(inner.Workspace.Type, "workspace_base"))
+			return fmt.Errorf("cannot unmarshal workspace: invalid type %s, expected %s", inner.Workspace.Type, "workspace_base")
 		}
 
 		*workspace = Workspace(inner.Workspace.surrogate)
@@ -179,15 +183,15 @@ func (workspace *Workspace) UnmarshalJSON(data []byte) error {
 			surrogate
 		}
 		if err := json.Unmarshal(data, &inner); err != nil {
-			return errors.JSONUnmarshalError.WrapIfNotMe(err)
+			return fmt.Errorf("cannot unmarshal workspace: %w", err)
 		}
 		if inner.Type != workspace.GetType() {
-			return errors.JSONUnmarshalError.Wrap(errors.InvalidType.With(inner.Type, workspace.GetType()))
+			return fmt.Errorf("cannot unmarshal workspace: invalid type %s, expected %s", inner.Type, workspace.GetType())
 		}
 
 		*workspace = Workspace(inner.surrogate)
 	default:
-		return errors.JSONUnmarshalError.Wrap(errors.InvalidType.With(typeholder.Type, Workspace{}.GetType()+", "+"workspace_access"))
+		return fmt.Errorf("cannot unmarshal workspace: invalid type %s, expected %s", typeholder.Type, Workspace{}.GetType()+", "+"workspace_access")
 	}
 
 	return nil

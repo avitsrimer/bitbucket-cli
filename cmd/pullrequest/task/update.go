@@ -7,7 +7,6 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
-	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
@@ -65,12 +64,12 @@ func updateValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]st
 func updateProcess(cmd *cobra.Command, args []string) error {
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot get profile: %w", err)
 	}
 
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot get repository: %w", err)
 	}
 
 	taskID := args[0]
@@ -100,7 +99,10 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 		&updated,
 	)
 	if err != nil {
-		return errors.Join(errors.Errorf("Failed to update Pull Request Task %s on Pull Request %s", taskID, updateOptions.PullRequestID.Value), err)
+		return fmt.Errorf("failed to update pull request task %s on pull request %s: %w", taskID, updateOptions.PullRequestID.Value, err)
 	}
-	return profile.Print(cmd.Context(), cmd, updated)
+	if err := profile.Print(cmd.Context(), cmd, updated); err != nil {
+		return fmt.Errorf("cannot print result: %w", err)
+	}
+	return nil
 }

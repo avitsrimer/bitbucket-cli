@@ -2,12 +2,12 @@ package user
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/go-core"
-	"github.com/gildas/go-errors"
 	"github.com/spf13/cobra"
 )
 
@@ -68,7 +68,10 @@ func (email Email) MarshalJSON() ([]byte, error) {
 		Type:      email.GetType(),
 		surrogate: surrogate(email),
 	})
-	return data, errors.JSONMarshalError.Wrap(err)
+	if err != nil {
+		return nil, fmt.Errorf("cannot marshal json: %w", err)
+	}
+	return data, nil
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface.
@@ -82,10 +85,10 @@ func (email *Email) UnmarshalJSON(data []byte) error {
 
 	err := json.Unmarshal(data, &inner)
 	if err != nil {
-		return errors.JSONUnmarshalError.WrapIfNotMe(err)
+		return fmt.Errorf("cannot unmarshal json: %w", err)
 	}
 	if inner.Type != email.GetType() {
-		return errors.JSONUnmarshalError.Wrap(errors.InvalidType.With(inner.Type, email.GetType()))
+		return fmt.Errorf("invalid type %s, expected %s", inner.Type, email.GetType())
 	}
 
 	*email = Email(inner.surrogate)

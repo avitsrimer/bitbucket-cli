@@ -2,6 +2,7 @@ package commit
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -9,7 +10,6 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/bitbucket-cli/cmd/user"
 	"github.com/gildas/go-core"
-	"github.com/gildas/go-errors"
 	"github.com/spf13/cobra"
 )
 
@@ -127,5 +127,8 @@ func (commit Commit) MarshalJSON() (data []byte, err error) {
 		surrogate: surrogate(commit),
 		Date:      commit.Date.Format("2006-01-02T15:04:05.999999999-07:00"),
 	})
-	return data, errors.JSONMarshalError.Wrap(err)
+	if err != nil {
+		return nil, fmt.Errorf("cannot marshal json: %w", err)
+	}
+	return data, nil
 }

@@ -1,11 +1,12 @@
 package task
 
 import (
+	"fmt"
+
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
-	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
@@ -52,12 +53,12 @@ func getValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]strin
 func getProcess(cmd *cobra.Command, args []string) (err error) {
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot get profile: %w", err)
 	}
 
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot get repository: %w", err)
 	}
 
 	lgr.Printf("[DEBUG] displaying pullrequest task %s", args[0])
@@ -74,7 +75,10 @@ func getProcess(cmd *cobra.Command, args []string) (err error) {
 		&task,
 	)
 	if err != nil {
-		return errors.Join(errors.Errorf("Failed to get pullrequest task %s", args[0]), err)
+		return fmt.Errorf("failed to get pullrequest task %s: %w", args[0], err)
 	}
-	return profile.Print(cmd.Context(), cmd, task)
+	if err := profile.Print(cmd.Context(), cmd, task); err != nil {
+		return fmt.Errorf("cannot print result: %w", err)
+	}
+	return nil
 }

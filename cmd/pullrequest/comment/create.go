@@ -1,10 +1,12 @@
 package comment
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
-	"github.com/gildas/go-errors"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -39,12 +41,12 @@ func init() {
 func createProcess(cmd *cobra.Command, args []string) (err error) {
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot get profile: %w", err)
 	}
 
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot get repository: %w", err)
 	}
 
 	payload := CommentCreator{
@@ -66,7 +68,7 @@ func createProcess(cmd *cobra.Command, args []string) (err error) {
 			payload.Anchor.To = uint64(createOptions.To)
 		}
 	} else if createOptions.From > 0 || createOptions.To > 0 {
-		return errors.RuntimeError.With("Cannot specify from/to without a file")
+		return errors.New("cannot specify from/to without a file")
 	}
 	if cmd.Flag("pending").Changed {
 		payload.Pending = &createOptions.Pending
@@ -86,7 +88,10 @@ func createProcess(cmd *cobra.Command, args []string) (err error) {
 		&comment,
 	)
 	if err != nil {
-		return errors.Join(errors.Errorf("Failed to create comment for pullrequest %s", createOptions.PullRequestID.Value), err)
+		return fmt.Errorf("failed to create comment for pullrequest %s: %w", createOptions.PullRequestID.Value, err)
 	}
-	return profile.Print(cmd.Context(), cmd, comment)
+	if err := profile.Print(cmd.Context(), cmd, comment); err != nil {
+		return fmt.Errorf("cannot print result: %w", err)
+	}
+	return nil
 }

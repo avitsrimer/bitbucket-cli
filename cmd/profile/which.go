@@ -1,8 +1,9 @@
 package profile
 
 import (
+	"errors"
+
 	"github.com/gildas/bitbucket-cli/cmd/common"
-	"github.com/gildas/go-errors"
 	"github.com/spf13/cobra"
 )
 
@@ -24,9 +25,9 @@ func whichProcess(cmd *cobra.Command, args []string) (err error) {
 	ctx := cmd.Context()
 
 	profile, err := GetProfileFromCommand(ctx, cmd)
-	if errors.Is(err, errors.Empty) || len(Profiles) == 0 {
+	if errors.Is(err, ErrNoProfiles) || len(Profiles) == 0 {
 		if cmd.Flag("stop-on-error").Value.String() == "true" {
-			return errors.Errorf("No profiles found")
+			return errors.New("no profiles found")
 		}
 		common.Verbose(cmd, "No profile is currently configured")
 		return nil
@@ -36,7 +37,7 @@ func whichProcess(cmd *cobra.Command, args []string) (err error) {
 	}
 	if Current == nil {
 		if cmd.Flag("stop-on-error").Value.String() == "true" {
-			return errors.Errorf("There is no profile configured")
+			return errors.New("there is no profile configured")
 		}
 		common.Verbose(cmd, "No profile is currently configured")
 		return nil
