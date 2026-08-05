@@ -1,0 +1,218 @@
+package pullrequest
+
+import (
+	"encoding/json"
+	"net/http"
+	"os"
+	"strings"
+	"testing"
+)
+
+// withCreateOptions saves/restores the package-level createOptions (bound to createCmd's flags
+// at init) so tests can set the values they need without leaking state across other tests.
+func withCreateOptions(t *testing.T, mutate func()) {
+	t.Helper()
+	oldTitle, oldDescription := createOptions.Title, createOptions.Description
+	oldSourceValue, oldDestinationValue := createOptions.Source.Value, createOptions.Destination.Value
+	oldReviewerValues := createOptions.Reviewers.Values
+	oldCloseSourceBranch, oldDraft := createOptions.CloseSourceBranch, createOptions.Draft
+	t.Cleanup(func() {
+		createOptions.Title = oldTitle
+		createOptions.Description = oldDescription
+		createOptions.Source.Value = oldSourceValue
+		createOptions.Destination.Value = oldDestinationValue
+		createOptions.Reviewers.Values = oldReviewerValues
+		createOptions.CloseSourceBranch = oldCloseSourceBranch
+		createOptions.Draft = oldDraft
+	})
+	mutate()
+}
+
+func TestCreateProcessSuccessWithDefaultReviewers(t *testing.T) {
+	withCreateOptions(t, func() {
+		createOptions.Title = "Add feature"
+		createOptions.Description = "some description"
+		createOptions.Source.Value = "feature"
+		createOptions.Destination.Value = ""
+		createOptions.Reviewers.Values = nil
+	})
+
+	var requests []*http.Request
+	mux := http.NewServeMux()
+	mux.HandleFunc("/2.0/user", func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"uuid":"{11111111-1111-1111-1111-111111111111}","display_name":"Current User"}`))
+	})
+	mux.HandleFunc("/2.0/repositories/"+fixtureRepositoryFlag+"/effective-default-reviewers", func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[]}`))
+	})
+	mux.HandleFunc("/2.0/repositories/"+fixtureRepositoryFlag+"/pullrequests", func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":99,"title":"Add feature"}`))
+	})
+
+	const profileName = "create-success"
+	cmd := setupTestNamed(t, profileName, mux.ServeHTTP, false)
+	t.Cleanup(func() { removeCacheEntry(profileName + ":me") })
+
+	stdout := captureStdout(t, func() {
+		if err := createProcess(cmd, nil); err != nil {
+			t.Fatalf("createProcess() error = %v", err)
+		}
+	})
+
+	if len(requests) != 3 {
+		t.Fatalf("expected exactly 3 requests (user, effective-default-reviewers, pullrequests), got %d", len(requests))
+	}
+
+	var pr PullRequest
+	if err := json.Unmarshal([]byte(stdout), &pr); err != nil {
+		t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
+	}
+	if pr.ID != 99 || pr.Title != "Add feature" {
+		t.Errorf("printed pullrequest = %+v, want id=99 title=%q", pr, "Add feature")
+	}
+}
+
+func TestCreateProcessMissingTitle(t *testing.T) {
+	withCreateOptions(t, func() {
+		createOptions.Title = ""
+	})
+
+	var requestCount int
+	cmd := setupTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, false)
+
+	err := createProcess(cmd, nil)
+	if err == nil {
+		t.Fatal("createProcess() expected an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "argument title is missing") {
+		t.Errorf("error = %q, want it to mention the missing title argument", err.Error())
+	}
+	if requestCount != 0 {
+		t.Errorf("expected no HTTP request when title is missing, got %d", requestCount)
+	}
+}
+
+func TestCreateProcessDefaultReviewersAPIError(t *testing.T) {
+	withCreateOptions(t, func() {
+		createOptions.Title = "Add feature"
+		createOptions.Source.Value = "feature"
+		createOptions.Destination.Value = ""
+		createOptions.Reviewers.Values = nil
+	})
+
+	var pullrequestRequests int
+	mux := http.NewServeMux()
+	mux.HandleFunc("/2.0/user", func(w http.ResponseWriter, r *http.Request) {
+		// simulate a repo-scoped token without access to /user; createProcess only warns on this
+		w.WriteHeader(http.StatusForbidden)
+	})
+	mux.HandleFunc("/2.0/repositories/"+fixtureRepositoryFlag+"/effective-default-reviewers", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"message":"internal error"}}`))
+	})
+	mux.HandleFunc("/2.0/repositories/"+fixtureRepositoryFlag+"/pullrequests", func(w http.ResponseWriter, r *http.Request) {
+		pullrequestRequests++
+	})
+
+	const profileName = "create-reviewers-error"
+	cmd := setupTestNamed(t, profileName, mux.ServeHTTP, false)
+	t.Cleanup(func() { removeCacheEntry(profileName + ":me") })
+
+	err := createProcess(cmd, nil)
+	if err == nil {
+		t.Fatal("createProcess() expected an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to get the default reviewers") {
+		t.Errorf("error = %q, want it to mention the failed default reviewers lookup", err.Error())
+	}
+	if !strings.Contains(err.Error(), "internal error") {
+		t.Errorf("error = %q, want it to contain the BitBucket error message", err.Error())
+	}
+	if pullrequestRequests != 0 {
+		t.Errorf("expected no pullrequest creation request, got %d", pullrequestRequests)
+	}
+}
+
+func TestCreateProcessPostAPIError(t *testing.T) {
+	withCreateOptions(t, func() {
+		createOptions.Title = "Add feature"
+		createOptions.Source.Value = "dummy"
+		createOptions.Destination.Value = ""
+		createOptions.Reviewers.Values = nil
+	})
+
+	fixture, err := os.ReadFile("../../testdata/error-badrequest-nobranch.json")
+	if err != nil {
+		t.Fatalf("cannot read testdata: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/2.0/repositories/"+fixtureRepositoryFlag+"/effective-default-reviewers", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[]}`))
+	})
+	mux.HandleFunc("/2.0/repositories/"+fixtureRepositoryFlag+"/pullrequests", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write(fixture)
+	})
+
+	const profileName = "create-post-error"
+	cmd := setupTestNamed(t, profileName, mux.ServeHTTP, false)
+	t.Cleanup(func() { removeCacheEntry(profileName + ":me") })
+
+	err = createProcess(cmd, nil)
+	if err == nil {
+		t.Fatal("createProcess() expected an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to create pullrequest") {
+		t.Errorf("error = %q, want it to mention the failed create", err.Error())
+	}
+	if !strings.Contains(err.Error(), "branch not found: dummy") {
+		t.Errorf("error = %q, want it to contain the BitBucket error message", err.Error())
+	}
+}
+
+func TestCreateProcessDryRun(t *testing.T) {
+	withCreateOptions(t, func() {
+		createOptions.Title = "Add feature"
+		createOptions.Source.Value = "feature"
+		createOptions.Destination.Value = ""
+		createOptions.Reviewers.Values = nil
+	})
+
+	var pullrequestRequests int
+	mux := http.NewServeMux()
+	mux.HandleFunc("/2.0/user", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"uuid":"{22222222-2222-2222-2222-222222222222}","display_name":"Current User"}`))
+	})
+	mux.HandleFunc("/2.0/repositories/"+fixtureRepositoryFlag+"/effective-default-reviewers", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[]}`))
+	})
+	mux.HandleFunc("/2.0/repositories/"+fixtureRepositoryFlag+"/pullrequests", func(w http.ResponseWriter, r *http.Request) {
+		pullrequestRequests++
+	})
+
+	const profileName = "create-dry-run"
+	cmd := setupTestNamed(t, profileName, mux.ServeHTTP, true)
+	t.Cleanup(func() { removeCacheEntry(profileName + ":me") })
+
+	if err := createProcess(cmd, nil); err != nil {
+		t.Fatalf("createProcess() error = %v", err)
+	}
+	if pullrequestRequests != 0 {
+		t.Errorf("expected no pullrequest creation request in dry-run mode, got %d", pullrequestRequests)
+	}
+}

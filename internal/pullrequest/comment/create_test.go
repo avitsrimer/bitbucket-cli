@@ -55,7 +55,9 @@ func (suite *CommentCreateSuite) TestCanMarshalCommentCreatorWithParent() {
 
 	parent, ok := result["parent"].(map[string]any)
 	suite.Require().True(ok, "parent should be present")
-	suite.Assert().Equal(float64(759578390), parent["id"])
+	parentID, ok := parent["id"].(float64)
+	suite.Require().True(ok, "parent id should be present")
+	suite.Equal(759578390, int(parentID))
 }
 
 func (suite *CommentCreateSuite) TestCanMarshalCommentCreatorWithoutParent() {

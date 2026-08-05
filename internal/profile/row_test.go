@@ -6,11 +6,12 @@ import (
 
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestProfileGetRow(t *testing.T) {
 	apiRoot, err := url.Parse("https://api.bitbucket.org")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	target := profile.Profile{
 		Name:              "myprofile",
