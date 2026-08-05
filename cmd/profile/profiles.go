@@ -2,14 +2,13 @@ package profile
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 // Profiles is a collection of Profile
@@ -65,8 +64,12 @@ func (profiles profiles) profileFromGitConfig(context context.Context) *Profile 
 		lgr.Printf("[DEBUG] using profile %s from git config", profileName)
 		return profile
 	}
-	lgr.Printf("[WARN] profile %s not found in %s", profileName, viper.ConfigFileUsed())
-	fmt.Fprintf(os.Stderr, "Profile %s from your git config was not found in %s, ignored.\n", profileName, viper.ConfigFileUsed())
+	configPath := ""
+	if config := common.CurrentConfig(); config != nil {
+		configPath = config.Path
+	}
+	lgr.Printf("[WARN] profile %s not found in %s", profileName, configPath)
+	fmt.Fprintf(os.Stderr, "Profile %s from your git config was not found in %s, ignored.\n", profileName, configPath)
 	return nil
 }
 
@@ -152,20 +155,22 @@ func (profiles profiles) SetCurrent(name string) {
 	}
 }
 
-// Load loads the profiles from a viper key
+// Load loads the profiles from the configuration file
 func (profiles *profiles) Load(_ context.Context, cmd *cobra.Command) error {
 	if len(*profiles) > 0 {
 		return nil
 	}
 
-	if len(viper.AllKeys()) == 0 {
+	config := common.CurrentConfig()
+	if config == nil {
 		if err := common.Initialize(cmd); err != nil {
 			return fmt.Errorf("cannot initialize: %w", err)
 		}
+		config = common.CurrentConfig()
 	}
 
-	lgr.Printf("[DEBUG] loading profiles from %s", viper.ConfigFileUsed())
-	if err := viper.UnmarshalKey("profiles", &profiles); err != nil {
+	lgr.Printf("[DEBUG] loading profiles from %s", config.Path)
+	if err := config.GetSection("profiles", profiles); err != nil {
 		return fmt.Errorf("cannot read config file: %w", err)
 	}
 	lgr.Printf("[DEBUG] loaded %d profiles", len(*profiles))
@@ -188,43 +193,13 @@ func ValidProfileNames(cmd *cobra.Command, args []string, toComplete string) ([]
 
 // saveProfilesConfig persists the in-memory Profiles collection to the active config file
 func saveProfilesConfig() error {
-	viper.Set("profiles", Profiles)
-	if viper.ConfigFileUsed() != "" {
-		lgr.Printf("[DEBUG] writing configuration to %s", viper.ConfigFileUsed())
-		if err := viper.WriteConfig(); err != nil {
-			return fmt.Errorf("cannot write config file: %w", err)
-		}
-		return nil
+	config := common.CurrentConfig()
+	if config == nil {
+		return errors.New("configuration not loaded")
 	}
-	if configDir, _ := os.UserConfigDir(); configDir != "" {
-		return writeProfilesConfigToDir(configDir)
-	}
-
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("cannot determine home directory: %w", err)
-	}
-	if err := viper.WriteConfigAs(filepath.Join(homeDir, ".bitbucket-cli")); err != nil {
+	lgr.Printf("[DEBUG] writing configuration to %s", config.Path)
+	if err := config.SetSection("profiles", Profiles); err != nil {
 		return fmt.Errorf("cannot write config file: %w", err)
-	}
-	return nil
-}
-
-// writeProfilesConfigToDir writes the profiles config file into configDir/bitbucket/config-cli.yml,
-// creating the directory as needed and restricting the file to 0600 once written
-func writeProfilesConfigToDir(configDir string) error {
-	configPath := filepath.Join(configDir, "bitbucket")
-	if err := os.MkdirAll(configPath, 0o750); err != nil {
-		return fmt.Errorf("cannot create config directory: %w", err)
-	}
-	configFile := filepath.Join(configPath, "config-cli.yml")
-	if err := viper.WriteConfigAs(configFile); err != nil {
-		return fmt.Errorf("cannot write config file: %w", err)
-	}
-	if info, err := os.Stat(configFile); err == nil && info.Mode() != 0o600 {
-		if err := os.Chmod(configFile, 0o600); err != nil {
-			return fmt.Errorf("cannot set config file permissions: %w", err)
-		}
 	}
 	return nil
 }

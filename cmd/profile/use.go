@@ -7,7 +7,6 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var useCmd = &cobra.Command{
@@ -43,9 +42,8 @@ func useProcess(cmd *cobra.Command, args []string) (err error) {
 	}
 	if common.WhatIf(cmd, "Using profile %s as default", args[0]) {
 		Profiles.SetCurrent(profile.Name)
-		viper.Set("profiles", Profiles)
-		if err := viper.WriteConfig(); err != nil {
-			return fmt.Errorf("cannot write config file: %w", err)
+		if err := saveProfilesConfig(); err != nil {
+			return err
 		}
 	}
 	return nil
