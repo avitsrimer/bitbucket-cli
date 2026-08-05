@@ -1,0 +1,289 @@
+package repository
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"path"
+	"strings"
+	"time"
+
+	"github.com/avitsrimer/bitbucket-cli/internal/common"
+	"github.com/avitsrimer/bitbucket-cli/internal/profile"
+	"github.com/avitsrimer/bitbucket-cli/internal/project"
+	"github.com/avitsrimer/bitbucket-cli/internal/remote"
+	"github.com/avitsrimer/bitbucket-cli/internal/user"
+	"github.com/avitsrimer/bitbucket-cli/internal/workspace"
+	"github.com/go-pkgz/lgr"
+	"github.com/spf13/cobra"
+)
+
+type Repository struct {
+	ID                   common.UUID          `json:"uuid"                  mapstructure:"uuid"`
+	Name                 string               `json:"name,omitempty"                  mapstructure:"name"`
+	FullName             string               `json:"full_name,omitempty"             mapstructure:"full_name"`
+	Slug                 string               `json:"slug,omitempty"                  mapstructure:"slug"`
+	Owner                user.User            `json:"owner"                            mapstructure:"owner"`
+	Workspace            *workspace.Workspace `json:"workspace,omitempty"             mapstructure:"workspace"`
+	Project              project.Project      `json:"project"                         mapstructure:"project"`
+	HasIssues            bool                 `json:"has_issues"            mapstructure:"has_issues"`
+	HasWiki              bool                 `json:"has_wiki"              mapstructure:"has_wiki"`
+	IsPrivate            bool                 `json:"is_private"            mapstructure:"is_private"`
+	ForkPolicy           string               `json:"fork_policy,omitempty" mapstructure:"fork_policy"`
+	Size                 int64                `json:"size,omitempty"                  mapstructure:"size"`
+	Language             string               `json:"language,omitempty"    mapstructure:"language"`
+	MainBranch           string               `json:"-"                     mapstructure:"-"`
+	DefaultMergeStrategy string               `json:"-"                     mapstructure:"-"`
+	BranchingModel       string               `json:"-"                     mapstructure:"-"`
+	Parent               *Repository          `json:"parent,omitempty"      mapstructure:"parent"`
+	Links                common.Links         `json:"links"                 mapstructure:"links"`
+	CreatedOn            time.Time            `json:"created_on"            mapstructure:"created_on"`
+	UpdatedOn            time.Time            `json:"updated_on"            mapstructure:"updated_on"`
+}
+
+type branch struct {
+	Type string `json:"type" mapstructure:"type"`
+	Name string `json:"name" mapstructure:"name"`
+}
+
+var RepositoryCache = common.NewCache[Repository]()
+
+// GetType gets the type of this repository
+//
+// implements core.TypeCarrier
+func (repository Repository) GetType() string {
+	return "repository"
+}
+
+// GetPath gets the API path of the repository
+func (repository Repository) GetPath(paths ...string) string {
+	return path.Join(append([]string{"/repositories", repository.Workspace.Slug, repository.Slug}, paths...)...)
+}
+
+// String returns the string representation of the repository
+//
+// implements fmt.Stringer
+func (repository Repository) String() string {
+	if repository.Slug != "" {
+		return repository.Slug
+	}
+	return repository.Name
+}
+
+// GetRepositoryName gets the name of the repository from the command line or from the git config
+func GetRepositoryName(context context.Context, cmd *cobra.Command) (repositoryName string, err error) {
+	if cmd.Flag("repository") != nil {
+		if repositoryName = cmd.Flag("repository").Value.String(); repositoryName != "" {
+			return
+		}
+	}
+	if remote, err := remote.GetRemote(context, cmd); err == nil {
+		return remote.RepositoryName(), nil
+	}
+	return "", errors.New("argument repository is missing")
+}
+
+// GetRepository gets a repository by its slug
+func GetRepository(ctx context.Context, cmd *cobra.Command) (repository *Repository, err error) {
+	name, err := GetRepositoryName(ctx, cmd)
+	if err != nil {
+		return nil, err
+	}
+	return GetRepositoryBySlugOrID(ctx, cmd, name)
+}
+
+// GetRepositoryBySlugOrID gets a repository by its slug name
+//
+// If the slug is in the format "workspace/repository", the workspace is used to get the repository.
+//
+// Otherwise, the workspace is determined by the git config or the default workspace in the profile.
+func GetRepositoryBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID string) (repository *Repository, err error) {
+	var ws *workspace.Workspace
+
+	if components := strings.Split(slugOrID, "/"); len(components) == 2 {
+		lgr.Printf("[DEBUG] repository slug %s contains a workspace, extracting workspace and repository name", slugOrID)
+		slugOrID = components[1]
+		ws, err = workspace.GetWorkspaceBySlugOrID(ctx, cmd, components[0])
+	} else {
+		lgr.Printf("[DEBUG] repository slug %s does not contain a workspace, using git config or default workspace", slugOrID)
+		ws, err = workspace.GetWorkspace(ctx, cmd)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("cannot get workspace: %w", err)
+	}
+
+	// In case we got a real UUID, get the Bitbucket UUID
+	if parsedID, uuidErr := common.ParseUUID(slugOrID); uuidErr == nil {
+		slugOrID = parsedID.String()
+	}
+
+	if repository, err = RepositoryCache.Get(fmt.Sprintf("%s/%s", ws.Slug, slugOrID)); err == nil {
+		lgr.Printf("[DEBUG] repository %s/%s found in cache", ws.Slug, slugOrID)
+		return repository, nil
+	}
+
+	lgr.Printf("[DEBUG] getting repository %s in workspace %s", slugOrID, ws.Slug)
+	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
+	if err != nil {
+		return nil, fmt.Errorf("cannot get profile: %w", err)
+	}
+
+	err = profile.Get(
+		ctx,
+		cmd,
+		fmt.Sprintf("/repositories/%s/%s", ws.Slug, slugOrID),
+		&repository,
+	)
+	if err != nil {
+		return repository, fmt.Errorf("cannot get resource: %w", err)
+	}
+	_ = RepositoryCache.Set(*repository, fmt.Sprintf("%s/%s", ws.Slug, slugOrID))
+	return repository, nil
+}
+
+// GetEffectiveDefaultReviewers gets the effective default reviewers for a repository
+func (repository Repository) GetEffectiveDefaultReviewers(ctx context.Context, cmd *cobra.Command) (reviewers []project.Reviewer, err error) {
+	lgr.Printf("[DEBUG] getting effective default reviewers of repository %s/%s", repository.Workspace.Slug, repository.Slug)
+	return profile.GetAll[project.Reviewer](ctx, cmd, repository.GetPath("effective-default-reviewers"))
+}
+
+// GetWorkspace gets the workspace of the repository
+func (repository Repository) GetWorkspace(ctx context.Context, cmd *cobra.Command) (*workspace.Workspace, error) {
+	if repository.Workspace != nil && !repository.Workspace.ID.IsNil() && repository.Workspace.Slug != "" {
+		lgr.Printf("[DEBUG] getting workspace of repository %s/%s from cache", repository.Workspace.Slug, repository.Slug)
+		return repository.Workspace, nil
+	}
+
+	if repository.FullName != "" {
+		lgr.Printf("[DEBUG] getting workspace of repository %s/%s from full name", repository.FullName, repository.Slug)
+		components := strings.Split(repository.FullName, "/")
+		if len(components) == 2 {
+			ws, err := workspace.GetWorkspaceBySlugOrID(ctx, cmd, components[0])
+			if err != nil {
+				return nil, fmt.Errorf("cannot get workspace: %w", err)
+			}
+			return ws, nil
+		}
+	}
+	ws, err := workspace.GetWorkspace(ctx, cmd)
+	if err != nil {
+		return nil, fmt.Errorf("cannot get workspace: %w", err)
+	}
+	return ws, nil
+}
+
+// Validate validates a Repository
+func (repository *Repository) Validate() error {
+	var errs []error
+
+	if repository.ID.IsNil() {
+		errs = append(errs, errors.New("argument uuid is missing"))
+	}
+	if repository.Name == "" {
+		errs = append(errs, errors.New("argument name is missing"))
+	}
+	if repository.FullName == "" {
+		errs = append(errs, errors.New("argument full_name is missing"))
+	}
+	if repository.Slug == "" {
+		repository.Slug = repository.Name
+	}
+
+	return errors.Join(errs...)
+}
+
+// MarshalJSON implements the json.Marshaler interface.
+//
+// Implements json.Marshaler
+func (repository Repository) MarshalJSON() (data []byte, err error) {
+	type surrogate Repository
+	var owner *user.User
+	var proj *project.Project
+	var br *branch
+	var createdOn string
+	var updatedOn string
+	var hasIssues *bool
+	var hasWiki *bool
+	var isPrivate *bool
+
+	if !repository.Owner.ID.IsNil() {
+		owner = &repository.Owner
+	}
+	if !repository.Project.ID.IsNil() {
+		proj = &repository.Project
+	}
+	if repository.MainBranch != "" {
+		br = &branch{Type: "branch", Name: repository.MainBranch}
+	}
+	if !repository.CreatedOn.IsZero() {
+		createdOn = repository.CreatedOn.Format("2006-01-02T15:04:05.999999999-07:00")
+	}
+	if !repository.UpdatedOn.IsZero() {
+		updatedOn = repository.UpdatedOn.Format("2006-01-02T15:04:05.999999999-07:00")
+	}
+	if repository.HasIssues {
+		hasIssues = &repository.HasIssues
+	}
+	if repository.HasWiki {
+		hasWiki = &repository.HasWiki
+	}
+	if repository.IsPrivate {
+		isPrivate = &repository.IsPrivate
+	}
+	if repository.Slug == repository.Name {
+		repository.Slug = ""
+	}
+
+	data, err = json.Marshal(struct {
+		Type string `json:"type"`
+		surrogate
+		Owner      *user.User       `json:"owner,omitempty"`
+		Project    *project.Project `json:"project,omitempty"`
+		MainBranch *branch          `json:"mainbranch,omitempty"`
+		CreatedOn  string           `json:"created_on,omitempty"`
+		UpdatedOn  string           `json:"updated_on,omitempty"`
+		HasIssues  *bool            `json:"has_issues,omitempty"`
+		HasWiki    *bool            `json:"has_wiki,omitempty"`
+		IsPrivate  *bool            `json:"is_private,omitempty"`
+	}{
+		Type:       repository.GetType(),
+		surrogate:  surrogate(repository),
+		Owner:      owner,
+		Project:    proj,
+		MainBranch: br,
+		CreatedOn:  createdOn,
+		UpdatedOn:  updatedOn,
+		HasIssues:  hasIssues,
+		HasWiki:    hasWiki,
+		IsPrivate:  isPrivate,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("cannot marshal repository to json: %w", err)
+	}
+	return data, nil
+}
+
+// UnmarshalJSON implements the json.Unmarshaler interface.
+//
+// Implements json.Unmarshaler
+func (repository *Repository) UnmarshalJSON(data []byte) (err error) {
+	type surrogate Repository
+	var inner struct {
+		Type string `json:"type"`
+		surrogate
+		MainBranch branch `json:"mainbranch"`
+	}
+	if err = json.Unmarshal(data, &inner); err != nil {
+		return fmt.Errorf("cannot unmarshal repository: %w", err)
+	}
+	if inner.Type != repository.GetType() {
+		return fmt.Errorf("cannot unmarshal repository: invalid type %s, expected %s", inner.Type, repository.GetType())
+	}
+	*repository = Repository(inner.surrogate)
+	repository.MainBranch = inner.MainBranch.Name
+	if err := repository.Validate(); err != nil {
+		return fmt.Errorf("cannot unmarshal repository: %w", err)
+	}
+	return nil
+}

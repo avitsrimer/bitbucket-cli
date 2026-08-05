@@ -20,12 +20,12 @@ COV_DIR  ?= tmp/coverage
 BRANCH    != git symbolic-ref --short HEAD
 COMMIT    != git rev-parse --short HEAD
 BUILD     := "$(STAMP).$(COMMIT)"
-VERSION   != awk '/^var +VERSION +=/{gsub("\"", "", $$4) ; print $$4}' version.go
+VERSION   != awk '/^var +VERSION +=/{gsub("\"", "", $$4) ; print $$4}' cmd/bb/version.go
 ifeq ($(VERSION),)
 VERSION   != git describe --tags --always --dirty="-dev"
 endif
 REVISION  ?= 1
-PROJECT   != awk '/^const +APP += +/{gsub("\"", "", $$4); print $$4}' version.go
+PROJECT   != awk '/^const +APP += +/{gsub("\"", "", $$4); print $$4}' cmd/bb/version.go
 ifeq (${PROJECT},)
 PROJECT   != basename "$(PWD)"
 endif
@@ -155,7 +155,7 @@ vet:; $(info $(M) Vetting application...) @ ## Run go vet
 	$Q $(GO) vet ./...
 
 run:; $(info $(M) Running application...) @  ## Execute the application
-	$Q $(GO) run . | $(LOGGER)
+	$Q $(GO) run ./cmd/bb | $(LOGGER)
 
 logview:; @ ## Open the project log and follows it
 	$Q tail -f $(LOG_DIR)/$(PROJECT).log | $(LOGGER)
@@ -322,26 +322,26 @@ $(BIN_DIR)/darwin/amd64: $(BIN_DIR)/darwin ; $(MKDIR)
 $(BIN_DIR)/darwin/amd64/$(PROJECT): export GOOS=darwin
 $(BIN_DIR)/darwin/amd64/$(PROJECT): export GOARCH=amd64
 $(BIN_DIR)/darwin/amd64/$(PROJECT): $(GOFILES) $(ASSETS) | $(BIN_DIR)/darwin/amd64; $(info $(M) building application for darwin Intel)
-	$Q $(GO) build $(if $V,-v) $(LDFLAGS) -o $@ .
+	$Q $(GO) build $(if $V,-v) $(LDFLAGS) -o $@ ./cmd/bb
 
 $(BIN_DIR)/darwin/arm64: $(BIN_DIR)/darwin ; $(MKDIR)
 $(BIN_DIR)/darwin/arm64/$(PROJECT): export GOOS=darwin
 $(BIN_DIR)/darwin/arm64/$(PROJECT): export GOARCH=arm64
 $(BIN_DIR)/darwin/arm64/$(PROJECT): $(GOFILES) $(ASSETS) | $(BIN_DIR)/darwin/arm64; $(info $(M) building application for darwin M1)
-	$Q $(GO) build $(if $V,-v) $(LDFLAGS) -o $@ .
+	$Q $(GO) build $(if $V,-v) $(LDFLAGS) -o $@ ./cmd/bb
 
 $(BIN_DIR)/linux: $(BIN_DIR) ; $(MKDIR)
 $(BIN_DIR)/linux/amd64: $(BIN_DIR)/linux ; $(MKDIR)
 $(BIN_DIR)/linux/amd64/$(PROJECT): export GOOS=linux
 $(BIN_DIR)/linux/amd64/$(PROJECT): export GOARCH=amd64
 $(BIN_DIR)/linux/amd64/$(PROJECT): $(GOFILES) $(ASSETS) | $(BIN_DIR)/linux/amd64; $(info $(M) building application for linux amd64)
-	$Q $(GO) build $(if $V,-v) $(LDFLAGS) -o $@ .
+	$Q $(GO) build $(if $V,-v) $(LDFLAGS) -o $@ ./cmd/bb
 
 $(BIN_DIR)/linux/arm64: $(BIN_DIR)/linux ; $(MKDIR)
 $(BIN_DIR)/linux/arm64/$(PROJECT): export GOOS=linux
 $(BIN_DIR)/linux/arm64/$(PROJECT): export GOARCH=arm64
 $(BIN_DIR)/linux/arm64/$(PROJECT): $(GOFILES) $(ASSETS) | $(BIN_DIR)/linux/arm64; $(info $(M) building application for linux arm64)
-	$Q $(GO) build $(if $V,-v) $(LDFLAGS) -o $@ .
+	$Q $(GO) build $(if $V,-v) $(LDFLAGS) -o $@ ./cmd/bb
 
 $(BIN_DIR)/windows: $(BIN_DIR) ; $(MKDIR)
 $(BIN_DIR)/windows/amd64: $(BIN_DIR)/windows ; $(MKDIR)
@@ -349,21 +349,21 @@ $(BIN_DIR)/windows/amd64/$(PROJECT): $(BIN_DIR)/windows/amd64/$(PROJECT).exe;
 $(BIN_DIR)/windows/amd64/$(PROJECT).exe: export GOOS=windows
 $(BIN_DIR)/windows/amd64/$(PROJECT).exe: export GOARCH=amd64
 $(BIN_DIR)/windows/amd64/$(PROJECT).exe: $(GOFILES) $(ASSETS) | $(BIN_DIR)/windows/amd64; $(info $(M) building application for windows amd64)
-	$Q $(GO) build $(if $V,-v) $(LDFLAGS) -o $@ .
+	$Q $(GO) build $(if $V,-v) $(LDFLAGS) -o $@ ./cmd/bb
 
 $(BIN_DIR)/windows/arm64: $(BIN_DIR)/windows ; $(MKDIR)
 $(BIN_DIR)/windows/arm64/$(PROJECT): $(BIN_DIR)/windows/arm64/$(PROJECT).exe;
 $(BIN_DIR)/windows/arm64/$(PROJECT).exe: export GOOS=windows
 $(BIN_DIR)/windows/arm64/$(PROJECT).exe: export GOARCH=arm64
 $(BIN_DIR)/windows/arm64/$(PROJECT).exe: $(GOFILES) $(ASSETS) | $(BIN_DIR)/windows/arm64; $(info $(M) building application for windows arm64)
-	$Q $(GO) build $(if $V,-v) $(LDFLAGS) -o $@ .
+	$Q $(GO) build $(if $V,-v) $(LDFLAGS) -o $@ ./cmd/bb
 
 $(BIN_DIR)/pi:   $(BIN_DIR) ; $(MKDIR)
 $(BIN_DIR)/pi/$(PROJECT): export GOOS=linux
 $(BIN_DIR)/pi/$(PROJECT): export GOARCH=arm
 $(BIN_DIR)/pi/$(PROJECT): export GOARM=6
 $(BIN_DIR)/pi/$(PROJECT): $(GOFILES) $(ASSETS) | $(BIN_DIR)/pi; $(info $(M) building application for pi)
-	$Q $(GO) build $(if $V,-v) $(LDFLAGS) -o $@ .
+	$Q $(GO) build $(if $V,-v) $(LDFLAGS) -o $@ ./cmd/bb
 
 # Watch recipes
 watch: $(TMP_DIR); @ ## Run a command continuously: make watch run="go test"
