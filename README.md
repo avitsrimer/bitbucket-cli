@@ -43,6 +43,19 @@ go install github.com/avitsrimer/bitbucket-cli/cmd/bb@latest
 
 You can download the latest `bb` tar.gz from the [releases](https://github.com/avitsrimer/bitbucket-cli/releases) page and copy the extracted `bb` executable anywhere in your `$PATH`.
 
+> [!NOTE]
+> A binary downloaded this way is unsigned and stays quarantined by macOS Gatekeeper (the
+> Homebrew cask strips the quarantine attribute for you as part of installation, but a manual
+> download does not). Run `xattr -dr com.apple.quarantine /path/to/bb` after extracting it,
+> or use Homebrew instead.
+
+### Version
+
+`bb --version` prints a single git-describe-derived string (e.g. `v0.19.0` or
+`v0.19.0-3-gabc1234-dirty` between tags); there is no separate `bb version` subcommand. A
+`go install`ed or plain `go build` binary reports `dev` unless the build stamps the `version`
+variable via `-ldflags` the way the release `Makefile` does. Building `bb` requires Go 1.26+.
+
 ## Usage
 
 `bb` is a modern command line interface. It uses subcommands to perform actions. You can get help on any subcommand by running `bb <subcommand> --help`.
@@ -162,6 +175,33 @@ $ bb pr list --state all
 +----+---------------------------+--------------------------------+---------------------+-------------+----------+
 ```
 
+### Environment variables
+
+`bb` reads a `.env` file in the current directory on startup, if one exists (via
+[`joho/godotenv`](https://github.com/joho/godotenv)), so any of the variables below can also be
+set there instead of in your shell.
+
+| Variable                        | Equivalent flag | Effect                                                                                                   |
+| -------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------- |
+| `BB_PROFILE`                     | `--profile`       | Profile to use, overriding the default profile.                                                            |
+| `BB_OUTPUT_FORMAT`                | `--output`        | Output format (`csv`, `json`, `table`, `tsv`, `yaml`).                                                      |
+| `BB_CONFIG`                      | `--config`        | Path to the configuration file. See [Profiles](#profiles) for the default search order.                    |
+| `BITBUCKET_CLI_CACHE_DURATION`    | _(none)_          | How long repository/user/workspace lookups are cached on disk. See [Cache](#cache).                        |
+
+### Cache
+
+`bb` caches repository, user, and workspace lookups on disk for 5 minutes by default, to avoid
+repeated round trips to the Bitbucket API. The duration can be changed with the
+`BITBUCKET_CLI_CACHE_DURATION` environment variable (any Go duration string, e.g. `30s`, `10m`):
+
+```bash
+export BITBUCKET_CLI_CACHE_DURATION=10m
+```
+
+The cache is stored under `os.UserCacheDir()/bitbucket` (`~/Library/Caches/bitbucket` on macOS,
+`~/.cache/bitbucket` on Linux). There is no `bb cache clear` command; delete that directory
+directly if you need to invalidate a stale entry.
+
 ### Profiles
 
 #### Setting up OAUTH 2.0
@@ -195,11 +235,11 @@ You should define the default workspace for the profile with the `--default-work
 
 You can also pass the `--default` flag to make this profile the default one, or pass a `--output` flag to change the profile output format. If you use only one profile, it will be used as the default profile.
 
-You can also pass the `--default-project` flag to set the default project for this profile.
-
-You can also pass the `--default-ssh-key-file` flag to set the default SSH key file to use when cloning repositories with the `ssh` protocol.
-
-You can also pass the `--progress` flag to display a progress bar during upload/download operations.
+> [!NOTE]
+> `--default-project`, `--default-ssh-key-file`, and `--progress` are still accepted and stored
+> in the profile (for compatibility with config files written by upstream) but have no effect in
+> this fork: the clone/upload/download commands that read them were removed from the command
+> surface.
 
 By default, the password or client secret is stored in the vault of the operating system (Windows Credential Manager, macOS Keychain, or Linux Secret Service). You can pass the `--no-vault` flag to disable this feature and store the password or client secret in plain text in the configuration file. This is not recommended, but can be useful for testing purposes.
 
@@ -226,9 +266,9 @@ Permission Scopes:
 
 When you use a user/password, the password is stored in the vault of the operating system (Windows Credential Manager, macOS Keychain, or Linux Secret Service). You can pass the `--no-vault` flag to disable this feature and store the password in plain text in the configuration file. This is not recommended, but can be useful for testing purposes. On Linux and macOS, you can also pass the `--vault-key` flag to set the key to use in the system keychain. By default, the key is `bitbucket-cli`. On Windows, this option is not available.
 
-You can also pass the `--clone-protocol` flag to set the default protocol to use when cloning repositories. The supported protocols are `https`, `git`, and `ssh`.
-
-In case you are not using a user/password, you can also pass a `--clone-user` flag to set the username to use when cloning repositories with the `https` protocol. If you use a user/password, you don't need to set this flag, usually, ans the username will be used for cloning repositories.
+> [!NOTE]
+> `--clone-protocol` and `--clone-user` are likewise still accepted and stored but have no
+> effect here: this fork does not clone repositories.
 
 You can get the list of your profiles with the `bb profile list` command:
 
@@ -316,21 +356,22 @@ The current profile comes in order from:
 - the profile marked `default` in the configuration file
 - the first profile in the configuration file
 
-Profiles are stored in the configuration file. By default, the configuration file is located:
+Profiles are stored in the configuration file, a plain YAML file written atomically with `0600`
+permissions. By default, the configuration file is located:
 
-- on Linux: `$XDG_CONFIG_HOME/bitbucket/config-cli.json`, or `~/.config/bitbucket/config-cli.json`, then `~/.bitbucket-cli`
-- on macOS: `$HOME/Library/Application Support/bitbucket/config-cli.json`, then `~/.bitbucket-cli`
-- on Windows: `%AppData%\bitbucket\config-cli.json`, then `$HOME/.bitbucket-cli`
-- on Plan 9: `$home/lib/bitbucket/config-cli.json`, then `~/.bitbucket-cli`
+- on Linux: `$XDG_CONFIG_HOME/bitbucket/config-cli.yml`, or `~/.config/bitbucket/config-cli.yml`, then `~/.bitbucket-cli`
+- on macOS: `$HOME/Library/Application Support/bitbucket/config-cli.yml`, then `~/.bitbucket-cli`
+- on Windows: `%AppData%\bitbucket\config-cli.yml`, then `$HOME/.bitbucket-cli`
+- on Plan 9: `$home/lib/bitbucket/config-cli.yml`, then `~/.bitbucket-cli`
 
 You can also override the location of the configuration file with the environment variable `BB_CONFIG` or the `--config` flag:
 
 ```bash
-export BB_CONFIG=~/.bb/config.json
+export BB_CONFIG=~/.bb/config.yml
 ```
 
 ```bash
-bb --config ~/.bb/config.json pullrequest list
+bb --config ~/.bb/config.yml pullrequest list
 ```
 
 ### Users
@@ -608,7 +649,7 @@ source <(bb completion bash)
 You can also add this line to your `~/.bashrc` file to enable completion for every new shell.
 
 ```bash
-bb completion bash > ~/.bashrc
+bb completion bash >> ~/.bashrc
 ```
 
 #### fish
@@ -674,6 +715,27 @@ bb --debug pullrequest list 2> bb.log
 
 **Note**: `bb` tries hard to not log sensitive information, but be careful when
 sharing logs, and make sure to remove any sensitive information before sharing them.
+
+## Upgrading from upstream 0.18.x
+
+This fork diverges from [gildas/bitbucket-cli](https://github.com/gildas/bitbucket-cli) 0.18.4 in
+ways that break existing scripts and installs:
+
+- **Install source moved.** The Homebrew tap is now `avitsrimer/apps` (`brew tap avitsrimer/apps
+  && brew install --cask bb`), not `gildas/tap/bitbucket-cli`; the snap/chocolatey/scoop packages
+  are gone. `go install` now targets
+  `github.com/avitsrimer/bitbucket-cli/cmd/bb@latest` — the module path changed along with it.
+- **Ten command groups removed**: `repository`, `project`, `workspace`, `issue`, `pipeline`,
+  `branch`, `commit`, `tag`, `artifact`, `gpg-key`, `ssh-key`, `cache`, `remote`, `component`, and
+  the deprecated `pullrequest activity` alias (use `pullrequest activities`) are all gone. Only
+  `pullrequest`, `user`, and `profile` remain.
+- **`--log <file>` / `-l` and the `LOG_DESTINATION`/`LOG_LEVEL`/`DEBUG` environment variables are
+  gone.** Logs always go to stderr; use `--debug 2> bb.log` instead — see
+  [Obtaining logs for debugging](#obtaining-logs-for-debugging).
+- **`bb cache clear` is gone.** Delete the cache directory directly instead — see [Cache](#cache).
+- **Config file format is unchanged** (plain YAML, same `profiles:` shape) but the on-disk
+  filename is `config-cli.yml`, not `config-cli.json` as some older docs suggested — see
+  [Profiles](#profiles).
 
 ## Maturity
 

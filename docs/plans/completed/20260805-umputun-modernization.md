@@ -76,7 +76,8 @@ stdlib errors, lgr logging, strict golangci-lint v2 config, and a repo CLAUDE.md
 
 ## Solution Overview
 
-Ten sequential PRs, ordered so the safety net (CI) lands right after the already-done trim,
+Twelve sequential PRs (ten planned tasks plus 5b/5c, added mid-flight — see Technical Details),
+ordered so the safety net (CI) lands right after the already-done trim,
 then the three big dependency-killing migrations (logging, errors, config) run under CI
 protection, then structure/boilerplate refactors, then release flow, tests, and docs.
 Each migration is mechanical-per-file and parallelizable across sonnet workers within a task.
@@ -168,7 +169,7 @@ Key design decisions:
 - [x] add docs/plans gitignore rules (in-progress plans stay local, jcli convention)
 - [x] verify locally: `go build ./... && go vet ./... && go test -race ./...` all green
 - [x] verify built binary lists only profile/pullrequest/user commands (`go run . -- help` smoke)
-- [x] branch `refactor/trim-to-pullrequest-core`, commit working tree as one commit, push, open PR to `dev`
+- [x] branch `refactor/trim-to-pullrequest-core`, commit working tree as one commit, push, open PR to `master`
 - [x] merge PR (no CI yet — local verification above is the gate)
 
 ### Task 2: CI + lint baseline (PR #2)
@@ -747,7 +748,8 @@ Both libraries are used narrowly and are replaceable with small local code.
 - Run `/release-tools:new` to tag the first modernized release (suggest starting at `v0.19.0`);
   the tag push triggers `release.yml` → goreleaser publishes the GitHub release + Homebrew cask.
 - Verify: `brew tap avitsrimer/apps && brew install --cask bb` (cask token pinned to `bb` via
-  goreleaser `project_name`), then `bb version` shows the tag.
+  goreleaser `project_name`), then `bb --version` shows the tag (there is no `bb version`
+  subcommand, only the `--version` flag — see Task 9's note above).
 
 **Notes:**
 - Single-branch flow on `master` (owner decision 2026-08-05): the upstream-style `dev` branch was
