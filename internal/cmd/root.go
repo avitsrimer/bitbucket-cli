@@ -35,7 +35,9 @@ var CmdOptions RootOptions
 
 // RootCmd represents the base command when called without any subcommands
 var RootCmd = &cobra.Command{
-	Short: "BitBucket Command Line Interface",
+	Use:     "bb",
+	Short:   "BitBucket Command Line Interface",
+	Version: Version(),
 	Long: `BitBucket Command Line Interface is a tool to manage your BitBucket.
 You can manage your pull requests, issues, profiles, etc.`,
 	Run: func(cmd *cobra.Command, args []string) {
