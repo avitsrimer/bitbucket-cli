@@ -403,20 +403,20 @@ func (profile Profile) Print(context context.Context, cmd *cobra.Command, payloa
 	}
 	switch outputFormat {
 	case "json":
-		return profile.PrintJSON(context, cmd, payload)
+		return profile.printJSON(payload)
 	case "yaml":
-		return profile.PrintYAML(context, cmd, payload)
+		return profile.printYAML(payload)
 	case "csv":
-		return profile.PrintCSV(context, cmd, payload)
+		return profile.printDelimited(cmd, payload, ',')
 	case "tsv":
-		return profile.PrintTSV(context, cmd, payload)
+		return profile.printDelimited(cmd, payload, '\t')
 	default:
-		return profile.PrintTable(context, cmd, payload)
+		return profile.printTable(cmd, payload)
 	}
 }
 
-// PrintJSON prints the given payload to the console as JSON
-func (profile Profile) PrintJSON(_ context.Context, cmd *cobra.Command, payload any) error {
+// printJSON prints the given payload to the console as JSON
+func (profile Profile) printJSON(payload any) error {
 	lgr.Printf("[DEBUG] printing payload as JSON")
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
@@ -426,8 +426,8 @@ func (profile Profile) PrintJSON(_ context.Context, cmd *cobra.Command, payload 
 	return nil
 }
 
-// PrintYAML prints the given payload to the console as YAML
-func (profile Profile) PrintYAML(_ context.Context, cmd *cobra.Command, payload any) error {
+// printYAML prints the given payload to the console as YAML
+func (profile Profile) printYAML(payload any) error {
 	lgr.Printf("[DEBUG] printing payload as YAML")
 	data, err := yaml.Marshal(payload)
 	if err != nil {
@@ -437,18 +437,8 @@ func (profile Profile) PrintYAML(_ context.Context, cmd *cobra.Command, payload 
 	return nil
 }
 
-// PrintCSV prints the given payload to the console as CSV
-func (profile Profile) PrintCSV(context context.Context, cmd *cobra.Command, payload any) error {
-	return profile.printDelimited(context, cmd, payload, ',')
-}
-
-// PrintTSV prints the given payload to the console as TSV
-func (profile Profile) PrintTSV(context context.Context, cmd *cobra.Command, payload any) error {
-	return profile.printDelimited(context, cmd, payload, '\t')
-}
-
 // printDelimited prints the given payload to the console as delimiter-separated values
-func (profile Profile) printDelimited(_ context.Context, cmd *cobra.Command, payload any, comma rune) error {
+func (profile Profile) printDelimited(cmd *cobra.Command, payload any, comma rune) error {
 	lgr.Printf("[DEBUG] printing payload as delimited text (comma=%q)", comma)
 	writer := csv.NewWriter(os.Stdout)
 	writer.Comma = comma
@@ -474,8 +464,8 @@ func (profile Profile) printDelimited(_ context.Context, cmd *cobra.Command, pay
 	return nil
 }
 
-// PrintTable prints the given payload to the console as a table
-func (profile Profile) PrintTable(_ context.Context, cmd *cobra.Command, payload any) error {
+// printTable prints the given payload to the console as a table
+func (profile Profile) printTable(cmd *cobra.Command, payload any) error {
 	lgr.Printf("[DEBUG] printing payload as table")
 	table := tablewriter.NewWriter(os.Stdout)
 

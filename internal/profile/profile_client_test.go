@@ -367,7 +367,7 @@ func (suite *ProfileSuite) TestCodeGrantCallbackDoesNotBlockOnDuplicateRequest()
 	resultchan := make(chan error, 1)
 	handler := testProfile.CodeGrantCallback(resultchan)
 
-	req1 := httptest.NewRequest(http.MethodGet, "/callback?code=abc", nil)
+	req1 := httptest.NewRequest(http.MethodGet, "/callback?code=abc", http.NoBody)
 	handler.ServeHTTP(httptest.NewRecorder(), req1)
 
 	select {
@@ -381,7 +381,7 @@ func (suite *ProfileSuite) TestCodeGrantCallbackDoesNotBlockOnDuplicateRequest()
 	// blocking its handler goroutine on the channel send.
 	done := make(chan struct{})
 	go func() {
-		req2 := httptest.NewRequest(http.MethodGet, "/callback?code=abc", nil)
+		req2 := httptest.NewRequest(http.MethodGet, "/callback?code=abc", http.NoBody)
 		handler.ServeHTTP(httptest.NewRecorder(), req2)
 		close(done)
 	}()

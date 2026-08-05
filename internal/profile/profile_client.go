@@ -417,7 +417,7 @@ func sendOAuthTokenRequest(ctx context.Context, clientID, clientSecret string, p
 
 	result, err := doRequestWithRetry(ctx, newReq)
 	if err != nil {
-		return nil, fmt.Errorf("cannot send oauth token request: %w", err)
+		return nil, err
 	}
 	if result.StatusCode >= http.StatusBadRequest {
 		return result, fmt.Errorf("oauth token request failed: %s", result.StatusText)
@@ -448,11 +448,7 @@ func retryDelay(attempt int, headers http.Header) time.Duration {
 			}
 		}
 	}
-	backoff := initialRetryBackoff * time.Duration(1<<attempt)
-	if backoff > maxRetryBackoff {
-		backoff = maxRetryBackoff
-	}
-	return backoff
+	return min(initialRetryBackoff*time.Duration(1<<attempt), maxRetryBackoff)
 }
 
 // doRequest performs a single attempt of the request built by newReq (called with a context
@@ -468,7 +464,7 @@ func doRequest(ctx context.Context, newReq func(context.Context) (*http.Request,
 
 	res, err := httpClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cannot send request: %w", err)
 	}
 	defer func() { _ = res.Body.Close() }()
 
@@ -486,7 +482,7 @@ func doRequest(ctx context.Context, newReq func(context.Context) (*http.Request,
 // time (an *http.Request's body can only be read once).
 func doRequestWithRetry(ctx context.Context, newReq func(context.Context) (*http.Request, error)) (*Response, error) {
 	var lastErr error
-	for attempt := 0; attempt < maxRequestAttempts; attempt++ {
+	for attempt := range maxRequestAttempts {
 		result, err := doRequest(ctx, newReq)
 		if err == nil && !isRetryableStatus(result.StatusCode) {
 			return result, nil
@@ -509,7 +505,7 @@ func doRequestWithRetry(ctx context.Context, newReq func(context.Context) (*http
 		}
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, fmt.Errorf("request canceled: %w", ctx.Err())
 		case <-time.After(delay):
 		}
 	}
@@ -606,9 +602,9 @@ func (profile *Profile) send(ctx context.Context, options *requestOptions, uripa
 		if payload != nil {
 			body = bytes.NewReader(payload)
 		}
-		req, err := http.NewRequestWithContext(reqCtx, options.Method, reqURL.String(), body)
-		if err != nil {
-			return nil, fmt.Errorf("cannot build request: %w", err)
+		req, reqErr := http.NewRequestWithContext(reqCtx, options.Method, reqURL.String(), body)
+		if reqErr != nil {
+			return nil, fmt.Errorf("cannot build request: %w", reqErr)
 		}
 		req.Header.Set("Authorization", authorization)
 		req.Header.Set("User-Agent", userAgent)
@@ -622,7 +618,7 @@ func (profile *Profile) send(ctx context.Context, options *requestOptions, uripa
 	lgr.Printf("[DEBUG] sending %s request to %s", options.Method, reqURL)
 	result, err = doRequestWithRetry(ctx, newReq)
 	if err != nil {
-		return nil, fmt.Errorf("cannot send request: %w", err)
+		return nil, err
 	}
 	lgr.Printf("[DEBUG] received %s for %s %s", result.StatusText, options.Method, reqURL)
 

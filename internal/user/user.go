@@ -3,6 +3,7 @@ package user
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -196,7 +197,7 @@ func GetMe(context context.Context, cmd *cobra.Command) (user *User, err error) 
 	)
 	if err == nil {
 		if user == nil {
-			return nil, fmt.Errorf("received an empty response for the current user")
+			return nil, errors.New("received an empty response for the current user")
 		}
 		_ = UserCache.Set(profile.Name+":me", *user)
 	}
@@ -217,21 +218,24 @@ func GetUser(context context.Context, cmd *cobra.Command, userid string) (user *
 		return me, nil
 	}
 	userUUID, err := common.ParseUUID(userid)
-	if err == nil {
-		if user, err = UserCache.Get(profile.Name + ":" + userUUID.String()); err != nil {
-			err = profile.Get(
-				context,
-				cmd,
-				"/users/"+userUUID.String(),
-				&user,
-			)
-			if err == nil {
-				if user == nil {
-					return nil, fmt.Errorf("received an empty response for user %s", userUUID.String())
-				}
-				_ = UserCache.Set(profile.Name+":"+userUUID.String(), *user)
-			}
-		}
+	if err != nil {
+		return nil, fmt.Errorf("cannot parse user id %s: %w", userid, err)
 	}
-	return
+	if user, err = UserCache.Get(profile.Name + ":" + userUUID.String()); err == nil {
+		return user, nil
+	}
+	err = profile.Get(
+		context,
+		cmd,
+		"/users/"+userUUID.String(),
+		&user,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("cannot get user %s: %w", userUUID.String(), err)
+	}
+	if user == nil {
+		return nil, fmt.Errorf("received an empty response for user %s", userUUID.String())
+	}
+	_ = UserCache.Set(profile.Name+":"+userUUID.String(), *user)
+	return user, nil
 }

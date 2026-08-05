@@ -36,9 +36,7 @@ func newActionCommand(spec actionSpec) *cobra.Command {
 		Short:   spec.short,
 		Args:    cobra.MaximumNArgs(1),
 	}
-	cmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		return openPullRequestIDsCompletion(cmd, args, toComplete)
-	}
+	cmd.ValidArgsFunction = openPullRequestIDsCompletion
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		return runAction(cmd, args, spec)
 	}
