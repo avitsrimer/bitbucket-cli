@@ -1,7 +1,11 @@
 package profile
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,16 +14,39 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gildas/go-core"
-	// gildas/go-errors stays imported here only: gildas/go-request returns error values of that
-	// package's Error type (JSON unmarshal failures, FromHTTPStatusCode HTTP errors), and this
-	// file has to inspect them (errors.Is/errors.As, errors.NewSentinel) to preserve behavior.
-	// Task 5b replaces go-request with net/http and drops this import for good.
-	"github.com/gildas/go-errors"
-	"github.com/gildas/go-request"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
+
+// requestTimeout is the deadline applied to every request sent to the BitBucket API and to
+// the OAuth2 token endpoint.
+const requestTimeout = 30 * time.Second
+
+// userAgent is sent with every outgoing request.
+const userAgent = "bitbucket-cli"
+
+// oauthTokenURL is BitBucket's OAuth2 token endpoint.
+const oauthTokenURL = "https://bitbucket.org/site/oauth2/access_token" //nolint:gosec // endpoint URL, not a credential
+
+// httpClient is the shared HTTP client used for every request; per-request deadlines come
+// from the context passed to send/sendOAuthTokenRequest, so the client itself carries no
+// default timeout.
+var httpClient = &http.Client{}
+
+// Response carries the raw result of a request: status, headers, and body.
+type Response struct {
+	StatusCode int
+	StatusText string
+	Headers    http.Header
+	Body       []byte
+}
+
+// requestOptions describes a single request to the BitBucket API
+type requestOptions struct {
+	Method  string
+	Payload any
+	Accept  string
+}
 
 type PaginatedResources[T any] struct {
 	Values   []T    `json:"values"`
@@ -32,52 +59,45 @@ type PaginatedResources[T any] struct {
 
 // Post posts a resource
 func (profile *Profile) Post(ctx context.Context, cmd *cobra.Command, uripath string, body, response any) (err error) {
-	options := &request.Options{Method: http.MethodPost, Payload: body}
-	_, err = profile.send(ctx, options, uripath, response)
+	_, err = profile.send(ctx, &requestOptions{Method: http.MethodPost, Payload: body}, uripath, response)
 	return
 }
 
 // PostWithResult posts a resource and returns the raw result
-func (profile *Profile) PostWithResult(ctx context.Context, cmd *cobra.Command, uripath string, body any) (result *request.Content, err error) {
-	options := &request.Options{Method: http.MethodPost, Payload: body}
-	return profile.send(ctx, options, uripath, nil)
+func (profile *Profile) PostWithResult(ctx context.Context, cmd *cobra.Command, uripath string, body any) (result *Response, err error) {
+	return profile.send(ctx, &requestOptions{Method: http.MethodPost, Payload: body}, uripath, nil)
 }
 
 // Get gets a resource
 func (profile *Profile) Get(ctx context.Context, cmd *cobra.Command, uripath string, response any) (err error) {
-	options := &request.Options{Method: http.MethodGet}
-	_, err = profile.send(ctx, options, uripath, response)
+	_, err = profile.send(ctx, &requestOptions{Method: http.MethodGet}, uripath, response)
 	return
 }
 
 // GetRaw gets a resource without unmarshaling it
 func (profile *Profile) GetRaw(ctx context.Context, cmd *cobra.Command, uripath string) (raw io.Reader, err error) {
-	options := &request.Options{
-		Method: http.MethodGet,
-		Accept: "*/*",
+	result, err := profile.send(ctx, &requestOptions{Method: http.MethodGet, Accept: "*/*"}, uripath, nil)
+	if result == nil {
+		return nil, err
 	}
-	result, err := profile.send(ctx, options, uripath, nil)
-	return result.Reader(), err
+	return bytes.NewReader(result.Body), err
 }
 
 // Put puts/updates a resource
 func (profile *Profile) Put(ctx context.Context, cmd *cobra.Command, uripath string, body, response any) (err error) {
-	options := &request.Options{Method: http.MethodPut, Payload: body}
-	_, err = profile.send(ctx, options, uripath, response)
+	_, err = profile.send(ctx, &requestOptions{Method: http.MethodPut, Payload: body}, uripath, response)
 	return
 }
 
 // Delete deletes a resource
 func (profile *Profile) Delete(ctx context.Context, cmd *cobra.Command, uripath string, response any) (err error) {
-	options := &request.Options{Method: http.MethodDelete}
-	_, err = profile.send(ctx, options, uripath, response)
+	_, err = profile.send(ctx, &requestOptions{Method: http.MethodDelete}, uripath, response)
 	return
 }
 
 // Patch patches a resource
 func (profile *Profile) Patch(ctx context.Context, cmd *cobra.Command, uripath string, body, response any) (err error) {
-	options := &request.Options{Method: http.MethodPatch, Payload: body}
-	_, err = profile.send(ctx, options, uripath, response)
+	_, err = profile.send(ctx, &requestOptions{Method: http.MethodPatch, Payload: body}, uripath, response)
 	return
 }
 
@@ -221,19 +241,16 @@ func (profile *Profile) CodeGrantCallback(resultchan chan error) http.Handler {
 		}
 
 		lgr.Printf("[DEBUG] requesting authorization token for profile %s", profile.Name)
-		result, err := request.Send(&request.Options{
-			Method:        http.MethodPost,
-			Authorization: request.BasicAuthorization(profile.ClientID, clientSecret),
-			URL:           core.Must(url.Parse("https://bitbucket.org/site/oauth2/access_token")),
-			Payload:       map[string]string{"grant_type": "authorization_code", "code": code},
-			Timeout:       30 * time.Second,
-		}, nil)
+		result, err := sendOAuthTokenRequest(r.Context(), profile.ClientID, clientSecret, map[string]string{
+			"grant_type": "authorization_code",
+			"code":       code,
+		})
 		if err != nil {
 			writeAuthorizationErrorResponse(w, err, result)
 			resultchan <- err
 			return
 		}
-		if _, err := profile.saveAccessToken(r.Context(), result.Data); err != nil {
+		if _, err := profile.saveAccessToken(r.Context(), result.Body); err != nil {
 			lgr.Printf("[ERROR] failed to save access token for profile %s: %v", profile.Name, err)
 			if errors.Is(err, ErrUnmarshalJSON) {
 				http.Error(w, "Failed to parse access token response from BitBucket: "+err.Error(), http.StatusBadRequest)
@@ -250,7 +267,7 @@ func (profile *Profile) CodeGrantCallback(resultchan chan error) http.Handler {
 
 // writeAuthorizationErrorResponse writes the appropriate HTTP error response for a failed
 // authorization token request
-func writeAuthorizationErrorResponse(w http.ResponseWriter, err error, result *request.Content) {
+func writeAuthorizationErrorResponse(w http.ResponseWriter, err error, result *Response) {
 	if result == nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -259,13 +276,13 @@ func writeAuthorizationErrorResponse(w http.ResponseWriter, err error, result *r
 		Error            string `json:"error"`
 		ErrorDescription string `json:"error_description"`
 	}
-	if jerr := result.UnmarshalContentJSON(&errorResponse); jerr != nil {
+	if jerr := json.Unmarshal(result.Body, &errorResponse); jerr != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	var details *errors.Error
-	status := http.StatusInternalServerError
-	if errors.As(err, &details) {
-		status = details.Code
+	status := result.StatusCode
+	if status == 0 {
+		status = http.StatusInternalServerError
 	}
 	http.Error(w, errorResponse.ErrorDescription, status)
 }
@@ -275,7 +292,7 @@ func (profile *Profile) authorize(ctx context.Context) (authorization string, er
 		if !profile.isTokenExpired() {
 			lgr.Printf("[DEBUG] using access token for profile %s", profile.Name)
 			lgr.Printf("[DEBUG] token expires on %s in %s", profile.token.GetExpiresOn().Format(time.RFC3339), profile.token.GetExpiresIn())
-			return request.BearerAuthorization(profile.token.AccessToken), nil
+			return bearerAuthorization(profile.token.AccessToken), nil
 		}
 	}
 
@@ -299,26 +316,20 @@ func (profile *Profile) authorize(ctx context.Context) (authorization string, er
 		return "", err
 	}
 	lgr.Printf("[DEBUG] authorizing profile %s", profile.Name)
-	result, err := request.Send(&request.Options{
-		Method:        http.MethodPost,
-		Authorization: request.BasicAuthorization(profile.ClientID, clientSecret),
-		URL:           core.Must(url.Parse("https://bitbucket.org/site/oauth2/access_token")),
-		Payload:       payload,
-		Timeout:       30 * time.Second,
-	}, nil)
+	result, err := sendOAuthTokenRequest(ctx, profile.ClientID, clientSecret, payload)
 	if err != nil {
 		return "", bitbucketAuthError(err, result)
 	}
-	accessToken, err := profile.saveAccessToken(ctx, result.Data)
+	accessToken, err := profile.saveAccessToken(ctx, result.Body)
 	if err != nil {
 		return "", err
 	}
-	return request.BearerAuthorization(accessToken), err
+	return bearerAuthorization(accessToken), err
 }
 
-// bitbucketAuthError turns a failed authorization request into a sentinel error carrying
-// BitBucket's own error payload, when one is available
-func bitbucketAuthError(err error, result *request.Content) error {
+// bitbucketAuthError turns a failed authorization request into an error carrying BitBucket's
+// own error payload, when one is available
+func bitbucketAuthError(err error, result *Response) error {
 	if result == nil {
 		return err
 	}
@@ -326,72 +337,189 @@ func bitbucketAuthError(err error, result *request.Content) error {
 		Error            string `json:"error"`
 		ErrorDescription string `json:"error_description"`
 	}
-	if jerr := result.UnmarshalContentJSON(&errorResponse); jerr != nil {
+	if jerr := json.Unmarshal(result.Body, &errorResponse); jerr != nil {
 		return err
 	}
-	var details *errors.Error
-	if errors.As(err, &details) {
-		return errors.NewSentinel(details.Code, errorResponse.Error, errorResponse.ErrorDescription)
+	status := result.StatusCode
+	if status == 0 {
+		status = http.StatusInternalServerError
 	}
-	return errors.NewSentinel(500, errorResponse.Error, errorResponse.ErrorDescription)
+	return &oauthError{StatusCode: status, Code: errorResponse.Error, Description: errorResponse.ErrorDescription}
 }
 
-func (profile *Profile) send(ctx context.Context, options *request.Options, uripath string, response any) (result *request.Content, err error) {
-	if profile.User != "" {
-		password, passErr := profile.GetPassword(ctx)
-		if passErr != nil {
-			return nil, passErr
-		}
-		options.Authorization = request.BasicAuthorization(profile.User, password)
-	} else if options.Authorization, err = profile.authorize(ctx); err != nil {
-		return nil, err
+// oauthError represents an error response from BitBucket's OAuth2 token endpoint.
+type oauthError struct {
+	StatusCode  int
+	Code        string
+	Description string
+}
+
+func (e *oauthError) Error() string {
+	if e.Description != "" {
+		return e.Description
+	}
+	if e.Code != "" {
+		return e.Code
+	}
+	return "oauth error"
+}
+
+// basicAuthorization builds a Basic authorization header value
+func basicAuthorization(user, password string) string {
+	return "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+password))
+}
+
+// bearerAuthorization builds a Bearer authorization header value
+func bearerAuthorization(token string) string {
+	return "Bearer " + token
+}
+
+// sendOAuthTokenRequest sends a form-encoded request to BitBucket's OAuth2 token endpoint,
+// as required by that endpoint (it does not accept JSON payloads)
+func sendOAuthTokenRequest(ctx context.Context, clientID, clientSecret string, payload map[string]string) (*Response, error) {
+	form := url.Values{}
+	for key, value := range payload {
+		form.Set(key, value)
 	}
 
-	apiRoot := profile.APIRoot
+	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, oauthTokenURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("cannot build oauth token request: %w", err)
+	}
+	req.Header.Set("Authorization", basicAuthorization(clientID, clientSecret))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("User-Agent", userAgent)
+
+	res, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("cannot send oauth token request: %w", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("cannot read oauth token response: %w", err)
+	}
+
+	result := &Response{StatusCode: res.StatusCode, StatusText: res.Status, Headers: res.Header, Body: data}
+	if res.StatusCode >= http.StatusBadRequest {
+		return result, fmt.Errorf("oauth token request failed: %s", res.Status)
+	}
+	return result, nil
+}
+
+// resolveAuthorization computes the Authorization header value for a request: Basic auth from
+// the profile's User/password when set, otherwise the OAuth2 bearer token (refreshing it first
+// if needed)
+func (profile *Profile) resolveAuthorization(ctx context.Context) (string, error) {
+	if profile.User != "" {
+		password, err := profile.GetPassword(ctx)
+		if err != nil {
+			return "", err
+		}
+		return basicAuthorization(profile.User, password), nil
+	}
+	return profile.authorize(ctx)
+}
+
+// resolveRequestURL turns a uripath (either an absolute URL or a path relative to the profile's
+// API root) into the final request URL
+func resolveRequestURL(apiRoot *url.URL, uripath string) (*url.URL, error) {
 	if apiRoot == nil {
 		apiRoot = &url.URL{Scheme: "https", Host: "api.bitbucket.org"}
 	}
-
-	if strings.HasPrefix(uripath, "/") {
-		components := strings.Split(uripath, "?")
-		options.URL = apiRoot.JoinPath("2.0", components[0])
-		if len(components) > 1 {
-			options.URL.RawQuery = components[1]
-		}
-	} else {
-		if options.URL, err = url.Parse(uripath); err != nil {
+	if !strings.HasPrefix(uripath, "/") {
+		reqURL, err := url.Parse(uripath)
+		if err != nil {
 			return nil, fmt.Errorf("cannot parse url: %w", err)
 		}
+		return reqURL, nil
+	}
+	components := strings.Split(uripath, "?")
+	reqURL := apiRoot.JoinPath("2.0", components[0])
+	if len(components) > 1 {
+		reqURL.RawQuery = components[1]
+	}
+	return reqURL, nil
+}
+
+// mapErrorResponse turns a non-2xx response into an error: BitBucket's own error payload when
+// the body carries one, a generic status error otherwise
+func mapErrorResponse(result *Response) error {
+	var bberr BitBucketError
+	if jerr := json.Unmarshal(result.Body, &bberr); jerr == nil {
+		lgr.Printf("[WARN] we have a BitBucketError: %#+v", bberr)
+		return &bberr
+	}
+	return fmt.Errorf("cannot send request: %s", result.StatusText)
+}
+
+func (profile *Profile) send(ctx context.Context, options *requestOptions, uripath string, response any) (result *Response, err error) {
+	authorization, err := profile.resolveAuthorization(ctx)
+	if err != nil {
+		return nil, err
 	}
 
-	if options.Timeout == 0 {
-		options.Timeout = 30 * time.Second
-	}
-	if options.RequestBodyLogSize == 0 {
-		options.RequestBodyLogSize = 16 * 1024
-	}
-	if options.ResponseBodyLogSize == 0 {
-		options.ResponseBodyLogSize = 16 * 1024
-	}
-	if options.ProgressWriter != nil {
-		lgr.Printf("[WARN] we have a ProgressWriter for uploading content")
-	}
-	lgr.Printf("[DEBUG] sending %s request to %s", options.Method, options.URL)
-	result, err = request.Send(options, response)
+	reqURL, err := resolveRequestURL(profile.APIRoot, uripath)
 	if err != nil {
-		if errors.Is(err, errors.JSONUnmarshalError) {
-			return result, fmt.Errorf("cannot unmarshal response: %w", err)
+		return nil, err
+	}
+
+	var body io.Reader
+	if options.Payload != nil {
+		payload, jerr := json.Marshal(options.Payload)
+		if jerr != nil {
+			return nil, fmt.Errorf("cannot marshal payload: %w", jerr)
 		}
-		if result != nil {
-			var bberr *BitBucketError
-			jerr := result.UnmarshalContentJSON(&bberr)
-			if jerr == nil {
-				lgr.Printf("[WARN] we have a BitBucketError: %#+v", bberr)
-				return result, bberr
-			}
-			lgr.Printf("[DEBUG] the error %s is not a bitbucket error: %s", err.Error(), jerr.Error())
+		body = bytes.NewReader(payload)
+	}
+
+	requestCtx, cancel := context.WithTimeout(ctx, requestTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(requestCtx, options.Method, reqURL.String(), body)
+	if err != nil {
+		return nil, fmt.Errorf("cannot build request: %w", err)
+	}
+	req.Header.Set("Authorization", authorization)
+	req.Header.Set("User-Agent", userAgent)
+	accept := options.Accept
+	if accept == "" {
+		accept = "*/*"
+		if response != nil {
+			accept = "application/json"
 		}
-		return result, fmt.Errorf("cannot send request: %w", err)
+	}
+	req.Header.Set("Accept", accept)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	lgr.Printf("[DEBUG] sending %s request to %s", options.Method, reqURL)
+	res, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("cannot send request: %w", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("cannot read response body: %w", err)
+	}
+	result = &Response{StatusCode: res.StatusCode, StatusText: res.Status, Headers: res.Header, Body: data}
+	lgr.Printf("[DEBUG] received %s for %s %s", res.Status, options.Method, reqURL)
+
+	if res.StatusCode >= http.StatusBadRequest {
+		return result, mapErrorResponse(result)
+	}
+
+	if response != nil && len(data) > 0 {
+		if jerr := json.Unmarshal(data, response); jerr != nil {
+			return result, fmt.Errorf("cannot unmarshal response: %w", jerr)
+		}
 	}
 	return result, nil
 }
