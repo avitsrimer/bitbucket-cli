@@ -6,9 +6,9 @@ import (
 )
 
 type FileAnchor struct {
-	From uint64 `json:"from,omitempty" mapstructure:"from"`
-	To   uint64 `json:"to,omitempty"   mapstructure:"to"`
-	Path string `json:"path"           mapstructure:"path"`
+	From uint64 `json:"from,omitempty"`
+	To   uint64 `json:"to,omitempty"`
+	Path string `json:"path"`
 }
 
 // String gets a string representation of this FileAnchor

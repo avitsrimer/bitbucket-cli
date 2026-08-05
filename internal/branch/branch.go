@@ -9,11 +9,11 @@ import (
 )
 
 type Branch struct {
-	Name                 string        `json:"name"                             mapstructure:"name"`
-	Target               commit.Commit `json:"target"                           mapstructure:"target"`
-	Links                common.Links  `json:"links"                            mapstructure:"links"`
-	MergeStrategies      []string      `json:"merge_strategies,omitempty"       mapstructure:"merge_strategies"`
-	DefaultMergeStrategy string        `json:"default_merge_strategy,omitempty" mapstructure:"default_merge_strategy"`
+	Name                 string        `json:"name"`
+	Target               commit.Commit `json:"target"`
+	Links                common.Links  `json:"links"`
+	MergeStrategies      []string      `json:"merge_strategies,omitempty"`
+	DefaultMergeStrategy string        `json:"default_merge_strategy,omitempty"`
 }
 
 // GetType returns the branch type

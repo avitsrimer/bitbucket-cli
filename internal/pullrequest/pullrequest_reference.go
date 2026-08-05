@@ -9,11 +9,11 @@ import (
 
 // PullRequestReference describes a reference to a PullRequest
 type PullRequestReference struct {
-	ID       uint64       `json:"id"               mapstructure:"id"`
-	Title    string       `json:"title,omitempty"  mapstructure:"title"`
-	IsDraft  bool         `json:"draft,omitempty"  mapstructure:"draft"`
-	IsQueued bool         `json:"queued,omitempty" mapstructure:"queued"`
-	Links    common.Links `json:"links"            mapstructure:"links"`
+	ID       uint64       `json:"id"`
+	Title    string       `json:"title,omitempty"`
+	IsDraft  bool         `json:"draft,omitempty"`
+	IsQueued bool         `json:"queued,omitempty"`
+	Links    common.Links `json:"links"`
 }
 
 // GetType returns the type of the PullRequestReference.

@@ -16,17 +16,17 @@ import (
 )
 
 type User struct {
-	Type          string       `json:"type"                     mapstructure:"type"`
-	ID            common.UUID  `json:"uuid"                     mapstructure:"uuid"`
-	AccountID     string       `json:"account_id"               mapstructure:"account_id"`
-	Username      string       `json:"username,omitempty"       mapstructure:"username"`
-	Name          string       `json:"display_name"             mapstructure:"display_name"`
-	Nickname      string       `json:"nickname,omitempty"       mapstructure:"nickname"`
-	Raw           string       `json:"raw,omitempty"            mapstructure:"raw"`
-	Kind          string       `json:"kind,omitempty"           mapstructure:"kind"`
-	Links         common.Links `json:"links"                    mapstructure:"links"`
-	CreatedOn     time.Time    `json:"created_on"               mapstructure:"created_on"`
-	AccountStatus string       `json:"account_status,omitempty" mapstructure:"account_status"`
+	Type          string       `json:"type"`
+	ID            common.UUID  `json:"uuid"`
+	AccountID     string       `json:"account_id"`
+	Username      string       `json:"username,omitempty"`
+	Name          string       `json:"display_name"`
+	Nickname      string       `json:"nickname,omitempty"`
+	Raw           string       `json:"raw,omitempty"`
+	Kind          string       `json:"kind,omitempty"`
+	Links         common.Links `json:"links"`
+	CreatedOn     time.Time    `json:"created_on"`
+	AccountStatus string       `json:"account_status,omitempty"`
 }
 
 var UserCache = common.NewCache[User]()

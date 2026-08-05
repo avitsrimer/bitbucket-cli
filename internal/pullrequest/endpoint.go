@@ -6,7 +6,7 @@ import (
 )
 
 type Endpoint struct {
-	Branch     Branch                  `json:"branch"               mapstructure:"branch"`
-	Commit     *commit.CommitReference `json:"commit,omitempty"     mapstructure:"commit"`
-	Repository *repository.Repository  `json:"repository,omitempty" mapstructure:"repository"`
+	Branch     Branch                  `json:"branch"`
+	Commit     *commit.CommitReference `json:"commit,omitempty"`
+	Repository *repository.Repository  `json:"repository,omitempty"`
 }

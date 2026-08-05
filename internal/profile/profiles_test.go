@@ -71,9 +71,9 @@ func (suite *ProfileSuite) TestLoadParsesTestdataConfigYAMLProfilesIdentically()
 }
 
 // TestLoadParsesCamelCaseConfigKeys is a regression test proving camelCase config keys (the
-// spelling documented by Profile's mapstructure tags, and the shape viper used to accept before
-// the plain-YAML loader replaced it) still populate their fields instead of being silently
-// dropped by yaml.v3's case-sensitive key matching.
+// spelling documented by Profile's json tags, and the shape viper used to accept before the
+// plain-YAML loader replaced it) still populate their fields instead of being silently dropped
+// by yaml.v3's case-sensitive key matching.
 func (suite *ProfileSuite) TestLoadParsesCamelCaseConfigKeys() {
 	defer resetProfilesState()()
 

@@ -14,11 +14,11 @@ import (
 )
 
 type Workspace struct {
-	ID            common.UUID  `json:"uuid"  mapstructure:"uuid"`
-	Name          string       `json:"name"  mapstructure:"name"`
-	Slug          string       `json:"slug"  mapstructure:"slug"`
-	Administrator bool         `json:"administrator" mapstructure:"administrator"`
-	Links         common.Links `json:"links" mapstructure:"links"`
+	ID            common.UUID  `json:"uuid"`
+	Name          string       `json:"name"`
+	Slug          string       `json:"slug"`
+	Administrator bool         `json:"administrator"`
+	Links         common.Links `json:"links"`
 }
 
 var WorkspaceCache = common.NewCache[Workspace]()

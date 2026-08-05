@@ -12,12 +12,12 @@ import (
 )
 
 type TaskUpdator struct {
-	Content *ContentUpdator `json:"content,omitempty" mapstructure:"content,omitempty"`
-	State   string          `json:"state,omitempty"   mapstructure:"state,omitempty"`
+	Content *ContentUpdator `json:"content,omitempty"`
+	State   string          `json:"state,omitempty"`
 }
 
 type ContentUpdator struct {
-	Raw string `json:"raw" mapstructure:"raw"`
+	Raw string `json:"raw"`
 }
 
 var updateCmd = &cobra.Command{

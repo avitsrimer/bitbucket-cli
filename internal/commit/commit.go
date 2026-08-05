@@ -14,19 +14,19 @@ import (
 )
 
 type Commit struct {
-	Hash       string                `json:"hash"               mapstructure:"hash"`
-	Author     user.Author           `json:"author"             mapstructure:"author"`
-	Message    string                `json:"message"            mapstructure:"message"`
-	Summary    *common.RenderedText  `json:"summary,omitempty"  mapstructure:"summary"`
-	Rendered   *RenderedMessage      `json:"rendered,omitempty" mapstructure:"rendered"`
-	Parents    []CommitReference     `json:"parents,omitempty"  mapstructure:"parents"`
-	Date       time.Time             `json:"date"               mapstructure:"date"`
-	Repository repository.Repository `json:"repository"         mapstructure:"repository"`
-	Links      common.Links          `json:"links"              mapstructure:"links"`
+	Hash       string                `json:"hash"`
+	Author     user.Author           `json:"author"`
+	Message    string                `json:"message"`
+	Summary    *common.RenderedText  `json:"summary,omitempty"`
+	Rendered   *RenderedMessage      `json:"rendered,omitempty"`
+	Parents    []CommitReference     `json:"parents,omitempty"`
+	Date       time.Time             `json:"date"`
+	Repository repository.Repository `json:"repository"`
+	Links      common.Links          `json:"links"`
 }
 
 type RenderedMessage struct {
-	Message common.RenderedText `json:"message" mapstructure:"message"`
+	Message common.RenderedText `json:"message"`
 }
 
 var columns = common.Columns[Commit]{

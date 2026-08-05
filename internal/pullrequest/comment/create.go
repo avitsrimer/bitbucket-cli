@@ -12,14 +12,14 @@ import (
 )
 
 type CommentCreator struct {
-	Content ContentCreator     `json:"content"           mapstructure:"content"`
-	Anchor  *common.FileAnchor `json:"inline,omitempty"  mapstructure:"inline"`
-	Parent  *ParentReference   `json:"parent,omitempty"  mapstructure:"parent"`
-	Pending *bool              `json:"pending,omitempty" mapstructure:"pending"`
+	Content ContentCreator     `json:"content"`
+	Anchor  *common.FileAnchor `json:"inline,omitempty"`
+	Parent  *ParentReference   `json:"parent,omitempty"`
+	Pending *bool              `json:"pending,omitempty"`
 }
 
 type ContentCreator struct {
-	Raw string `json:"raw" mapstructure:"raw"`
+	Raw string `json:"raw"`
 }
 
 var createCmd = &cobra.Command{

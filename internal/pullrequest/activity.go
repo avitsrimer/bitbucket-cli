@@ -18,40 +18,40 @@ import (
 
 // Activity describes an activity on a PullRequest, which can be an approval, a comment or an update
 type Activity struct {
-	PullRequest PullRequestReference `json:"pull_request" mapstructure:"pullrequest"`
-	Approval    *ActivityApproval    `json:"approval,omitempty"     mapstructure:"approval"`
-	Comment     *comment.Comment     `json:"comment,omitempty"      mapstructure:"comment"`
-	Update      *ActivityUpdate      `json:"update,omitempty"       mapstructure:"update"`
+	PullRequest PullRequestReference `json:"pull_request"`
+	Approval    *ActivityApproval    `json:"approval,omitempty"`
+	Comment     *comment.Comment     `json:"comment,omitempty"`
+	Update      *ActivityUpdate      `json:"update,omitempty"`
 }
 
 // ActivityApproval describes an approval activity on a PullRequest
 type ActivityApproval struct {
-	Date        time.Time             `json:"date"        mapstructure:"date"`
-	User        user.User             `json:"user"        mapstructure:"user"`
-	PullRequest *PullRequestReference `json:"pullrequest" mapstructure:"pullrequest"`
+	Date        time.Time             `json:"date"`
+	User        user.User             `json:"user"`
+	PullRequest *PullRequestReference `json:"pullrequest"`
 }
 
 // ActivityUpdate describes an update activity on a PullRequest
 type ActivityUpdate struct {
-	Date              time.Time           `json:"date"                   mapstructure:"date"`
-	Type              string              `json:"type"                   mapstructure:"type"`
-	ID                uint64              `json:"id"                     mapstructure:"id"`
-	Title             string              `json:"title"                  mapstructure:"title"`
-	Description       string              `json:"description"            mapstructure:"description"`
-	Summary           common.RenderedText `json:"summary"                mapstructure:"summary"`
-	State             string              `json:"state"                  mapstructure:"state"`
-	MergeCommit       *commit.Commit      `json:"merge_commit,omitempty" mapstructure:"merge_commit"`
-	CloseSourceBranch bool                `json:"close_source_branch"    mapstructure:"close_source_branch"`
-	ClosedBy          user.User           `json:"closed_by"              mapstructure:"closed_by"`
-	Author            user.User           `json:"author"                 mapstructure:"author"`
-	Reason            string              `json:"reason"                 mapstructure:"reason"`
-	Destination       Endpoint            `json:"destination"            mapstructure:"destination"`
-	Source            Endpoint            `json:"source"                 mapstructure:"source"`
-	Links             common.Links        `json:"links"                  mapstructure:"links"`
-	CommentCount      uint64              `json:"comment_count"          mapstructure:"comment_count"`
-	TaskCount         uint64              `json:"task_count"             mapstructure:"task_count"`
-	CreatedOn         time.Time           `json:"created_on"             mapstructure:"created_on"`
-	UpdatedOn         time.Time           `json:"updated_on"             mapstructure:"updated_on"`
+	Date              time.Time           `json:"date"`
+	Type              string              `json:"type"`
+	ID                uint64              `json:"id"`
+	Title             string              `json:"title"`
+	Description       string              `json:"description"`
+	Summary           common.RenderedText `json:"summary"`
+	State             string              `json:"state"`
+	MergeCommit       *commit.Commit      `json:"merge_commit,omitempty"`
+	CloseSourceBranch bool                `json:"close_source_branch"`
+	ClosedBy          user.User           `json:"closed_by"`
+	Author            user.User           `json:"author"`
+	Reason            string              `json:"reason"`
+	Destination       Endpoint            `json:"destination"`
+	Source            Endpoint            `json:"source"`
+	Links             common.Links        `json:"links"`
+	CommentCount      uint64              `json:"comment_count"`
+	TaskCount         uint64              `json:"task_count"`
+	CreatedOn         time.Time           `json:"created_on"`
+	UpdatedOn         time.Time           `json:"updated_on"`
 }
 
 var activityColumns = common.Columns[Activity]{

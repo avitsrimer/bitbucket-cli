@@ -37,27 +37,27 @@ func redactWithHash(value string) string {
 
 // Profile describes the configuration needed to connect to BitBucket
 type Profile struct {
-	Name              string                 `json:"name"                        mapstructure:"name"`
-	Description       string                 `json:"description,omitempty"       mapstructure:"description,omitempty"       yaml:",omitempty"`
-	Default           bool                   `json:"default"                     mapstructure:"default"                     yaml:",omitempty"`
-	APIRoot           *url.URL               `json:"apiRoot,omitempty"           mapstructure:"apiRoot,omitempty"           yaml:",omitempty"`
-	DefaultWorkspace  string                 `json:"defaultWorkspace,omitempty"  mapstructure:"defaultWorkspace,omitempty"  yaml:",omitempty"`
-	DefaultProject    string                 `json:"defaultProject,omitempty"    mapstructure:"defaultProject,omitempty"    yaml:",omitempty"`
-	ErrorProcessing   common.ErrorProcessing `json:"errorProcessing,omitempty"   mapstructure:"errorProcessing,omitempty"   yaml:",omitempty"`
-	DefaultPageLength int                    `json:"defaultPageLength,omitempty" mapstructure:"defaultPageLength,omitempty" yaml:",omitempty"`
-	OutputFormat      string                 `json:"outputFormat,omitempty"      mapstructure:"outputFormat,omitempty"      yaml:",omitempty"`
-	Progress          bool                   `json:"progress,omitempty"          mapstructure:"progress,omitempty"          yaml:",omitempty"`
-	CloneProtocol     string                 `json:"cloneProtocol,omitempty"     mapstructure:"cloneProtocol,omitempty"     yaml:",omitempty"`
-	CloneUser         string                 `json:"cloneUser,omitempty"         mapstructure:"cloneUser,omitempty"         yaml:",omitempty"`
-	SshKeyFilename    string                 `json:"sshKeyFilename,omitempty"    mapstructure:"sshKeyFilename,omitempty"    yaml:",omitempty"`
-	VaultKey          string                 `json:"vaultKey,omitempty"          mapstructure:"vaultKey,omitempty"          yaml:",omitempty"`
-	User              string                 `json:"user,omitempty"              mapstructure:"user"                        yaml:",omitempty"`
-	Password          string                 `json:"password,omitempty"          mapstructure:"password"                    yaml:",omitempty"`
-	ClientID          string                 `json:"clientID,omitempty"          mapstructure:"clientID"                    yaml:",omitempty"`
-	ClientSecret      string                 `json:"clientSecret,omitempty"      mapstructure:"clientSecret"                yaml:",omitempty"`
-	CallbackPort      uint16                 `json:"callbackPort,omitempty"      mapstructure:"callbackPort"                yaml:",omitempty"`
-	AccessToken       string                 `json:"accessToken,omitempty"       mapstructure:"accessToken,omitempty"       yaml:",omitempty"`
-	token             *Token                 `json:"-"                           mapstructure:"-"                           yaml:"-"`
+	Name              string                 `json:"name"`
+	Description       string                 `json:"description,omitempty"       yaml:",omitempty"`
+	Default           bool                   `json:"default"                     yaml:",omitempty"`
+	APIRoot           *url.URL               `json:"apiRoot,omitempty"           yaml:",omitempty"`
+	DefaultWorkspace  string                 `json:"defaultWorkspace,omitempty"  yaml:",omitempty"`
+	DefaultProject    string                 `json:"defaultProject,omitempty"    yaml:",omitempty"`
+	ErrorProcessing   common.ErrorProcessing `json:"errorProcessing,omitempty"   yaml:",omitempty"`
+	DefaultPageLength int                    `json:"defaultPageLength,omitempty" yaml:",omitempty"`
+	OutputFormat      string                 `json:"outputFormat,omitempty"      yaml:",omitempty"`
+	Progress          bool                   `json:"progress,omitempty"          yaml:",omitempty"`
+	CloneProtocol     string                 `json:"cloneProtocol,omitempty"     yaml:",omitempty"`
+	CloneUser         string                 `json:"cloneUser,omitempty"         yaml:",omitempty"`
+	SshKeyFilename    string                 `json:"sshKeyFilename,omitempty"    yaml:",omitempty"`
+	VaultKey          string                 `json:"vaultKey,omitempty"          yaml:",omitempty"`
+	User              string                 `json:"user,omitempty"                        yaml:",omitempty"`
+	Password          string                 `json:"password,omitempty"                    yaml:",omitempty"`
+	ClientID          string                 `json:"clientID,omitempty"                    yaml:",omitempty"`
+	ClientSecret      string                 `json:"clientSecret,omitempty"                yaml:",omitempty"`
+	CallbackPort      uint16                 `json:"callbackPort,omitempty"                yaml:",omitempty"`
+	AccessToken       string                 `json:"accessToken,omitempty"       yaml:",omitempty"`
+	token             *Token                 `json:"-"                           yaml:"-"`
 }
 
 // Current is the current profile

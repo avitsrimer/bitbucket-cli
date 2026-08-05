@@ -9,7 +9,7 @@ import (
 )
 
 type Link struct {
-	Name   string  `json:"name,omitempty" mapstructure:"name"`
+	Name   string  `json:"name,omitempty"`
 	HREF   url.URL `json:"-"`
 	GitRef string  `json:"-"`
 }
