@@ -59,7 +59,12 @@ func authorizeProcess(cmd *cobra.Command, args []string) (err error) {
 		return nil
 	}
 	// Start a web server to listen for the Authorization Code Grant
-	resultchan := make(chan error)
+	// Buffered so a second callback request (browser reload/prefetch) arriving after the first
+	// result was already delivered can send without blocking: CodeGrantCallback's handler uses a
+	// non-blocking send, but a receiver-less unbuffered channel would still make that send race
+	// with this goroutine moving on to server.Shutdown, which itself waits on that same
+	// in-flight handler, hanging the CLI forever.
+	resultchan := make(chan error, 1)
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", profile.CallbackPort),
 		Handler:           profile.CodeGrantCallback(resultchan),

@@ -110,7 +110,10 @@ func GetWorkspaceBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID st
 	if err != nil {
 		return workspace, fmt.Errorf("failed to get workspace %s: %w", slugOrID, err)
 	}
-	_ = WorkspaceCache.Set(*workspace, slugOrID)
+	if workspace == nil {
+		return nil, fmt.Errorf("received an empty response for workspace %s", slugOrID)
+	}
+	_ = WorkspaceCache.Set(slugOrID, *workspace)
 	return workspace, nil
 }
 

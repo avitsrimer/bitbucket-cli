@@ -227,6 +227,14 @@ func (profile Profile) GetRow(headers []string) []string {
 	return row
 }
 
+// redactedProfile is a redacted view of Profile for logging.
+//
+// It is a distinct type (not Profile itself) so that it does NOT inherit Profile's
+// fmt.Stringer implementation (Profile.String returns just the profile name): fmt prefers
+// Stringer over struct field formatting for %v/%+v, so logging a Profile value directly would
+// silently print only the name and discard every redacted field, making Redact's work pointless.
+type redactedProfile Profile
+
 // Redact redacts sensitive information from the profile, for logging purposes
 func (profile Profile) Redact() any {
 	redacted := profile
@@ -248,7 +256,7 @@ func (profile Profile) Redact() any {
 	if redacted.CloneUser != "" {
 		redacted.CloneUser = redactWithHash(redacted.CloneUser)
 	}
-	return redacted
+	return redactedProfile(redacted)
 }
 
 // GetClientSecret gets the client secret from the profile, either from the vault or from the profile
@@ -386,8 +394,11 @@ func (profile Profile) String() string {
 func (profile Profile) Print(context context.Context, cmd *cobra.Command, payload any) error {
 	outputFormat := profile.OutputFormat
 
-	if cmd.Flag("output").Changed {
-		outputFormat = cmd.Flag("output").Value.String()
+	// cmd.Flag("output").Value carries the --output flag's value, which also holds the
+	// BB_OUTPUT_FORMAT environment variable as its default; checking Changed alone would miss
+	// the env-only case, since setting a flag's default never marks it as Changed.
+	if commandFormat := cmd.Flag("output").Value.String(); commandFormat != "" {
+		outputFormat = commandFormat
 		lgr.Printf("[DEBUG] command output format: %s (was: %s)", outputFormat, profile.OutputFormat)
 	}
 	switch outputFormat {

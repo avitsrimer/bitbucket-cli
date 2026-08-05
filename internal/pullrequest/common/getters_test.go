@@ -2,17 +2,16 @@ package prcommon
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/avitsrimer/bitbucket-cli/internal/workspace"
@@ -29,6 +28,49 @@ const (
 	fixtureRepositoryFlag = fixtureWorkspaceSlug + "/" + fixtureRepositorySlug
 )
 
+func TestMain(m *testing.M) {
+	os.Exit(runTests(m))
+}
+
+// runTests points WorkspaceCache/RepositoryCache at a scratch temp directory instead of the real
+// os.UserCacheDir() for the duration of this test binary, removing it afterward so the suite
+// never reads or writes the developer's actual cache.
+func runTests(m *testing.M) int {
+	tempDir, err := os.MkdirTemp("", "bitbucket-cli-test-cache-*")
+	if err != nil {
+		panic("getters_test: cannot create temp cache dir: " + err.Error())
+	}
+	defer func() { _ = os.RemoveAll(tempDir) }()
+
+	oldWorkspaceCache, oldRepositoryCache := workspace.WorkspaceCache, repository.RepositoryCache
+	workspace.WorkspaceCache = common.NewCacheAt[workspace.Workspace](tempDir, time.Minute)
+	repository.RepositoryCache = common.NewCacheAt[repository.Repository](tempDir, time.Minute)
+	defer func() {
+		workspace.WorkspaceCache = oldWorkspaceCache
+		repository.RepositoryCache = oldRepositoryCache
+	}()
+
+	return m.Run()
+}
+
+// newFixtureRepository builds a Repository with the fields Repository.UnmarshalJSON's Validate
+// call requires (ID, Name, FullName) set, so priming RepositoryCache actually survives the
+// on-disk JSON round-trip instead of only ever being read back from an in-memory shortcut.
+func newFixtureRepository(t *testing.T, ws *workspace.Workspace) repository.Repository {
+	t.Helper()
+	id, err := common.ParseUUID("{22222222-2222-2222-2222-222222222222}")
+	if err != nil {
+		t.Fatalf("cannot parse fixture repository uuid: %v", err)
+	}
+	return repository.Repository{
+		ID:        id,
+		Name:      "Widgets",
+		FullName:  fixtureRepositoryFlag,
+		Slug:      fixtureRepositorySlug,
+		Workspace: ws,
+	}
+}
+
 // setupTest primes the workspace/repository caches, points the profile client at a fresh
 // httptest server, and returns a standalone command carrying the flags the getters read
 // (profile, repository, output).
@@ -36,17 +78,13 @@ func setupTest(t *testing.T, handler http.HandlerFunc) *cobra.Command {
 	t.Helper()
 
 	ws := workspace.Workspace{Slug: fixtureWorkspaceSlug}
-	repo := repository.Repository{Slug: fixtureRepositorySlug, Workspace: &ws}
-	if err := workspace.WorkspaceCache.Set(ws, fixtureWorkspaceSlug); err != nil {
+	repo := newFixtureRepository(t, &ws)
+	if err := workspace.WorkspaceCache.Set(fixtureWorkspaceSlug, ws); err != nil {
 		t.Fatalf("cannot prime workspace cache: %v", err)
 	}
-	if err := repository.RepositoryCache.Set(repo, fixtureRepositoryFlag); err != nil {
+	if err := repository.RepositoryCache.Set(fixtureRepositoryFlag, repo); err != nil {
 		t.Fatalf("cannot prime repository cache: %v", err)
 	}
-	t.Cleanup(func() {
-		removeCacheEntry(fixtureWorkspaceSlug)
-		removeCacheEntry(fixtureRepositoryFlag)
-	})
 
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
@@ -71,17 +109,6 @@ func setupTest(t *testing.T, handler http.HandlerFunc) *cobra.Command {
 	cmd.Flags().String("repository", fixtureRepositoryFlag, "")
 	cmd.Flags().String("output", "", "")
 	return cmd
-}
-
-// removeCacheEntry deletes the on-disk mirror of a primed cache entry so the test run does not
-// leave residue behind in the real os.UserCacheDir().
-func removeCacheEntry(key string) {
-	dir, err := os.UserCacheDir()
-	if err != nil {
-		return
-	}
-	sum := sha256.Sum256([]byte(key))
-	_ = os.Remove(filepath.Join(dir, "bitbucket", hex.EncodeToString(sum[:])))
 }
 
 func TestGetPullRequestIDsWithStateSuccess(t *testing.T) {

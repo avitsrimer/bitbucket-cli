@@ -9,10 +9,6 @@ import (
 
 type UUID uuid.UUID
 
-func NewUUID() UUID {
-	return UUID(uuid.New())
-}
-
 func ParseUUID(s string) (UUID, error) {
 	u, err := uuid.Parse(s)
 	return UUID(u), err

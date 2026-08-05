@@ -24,7 +24,6 @@ func TestMeProcessSuccess(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"uuid":"{55555555-5555-5555-5555-555555555555}","display_name":"Current User"}`))
 	}, false)
-	t.Cleanup(func() { removeCacheEntry(profileName + ":me") })
 
 	stdout := captureStdout(t, func() {
 		if err := meProcess(cmd, nil); err != nil {
@@ -58,7 +57,6 @@ func TestMeProcessAPIError(t *testing.T) {
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{"type":"error","error":{"message":"invalid credentials"}}`))
 	}, false)
-	t.Cleanup(func() { removeCacheEntry(profileName + ":me") })
 
 	err := meProcess(cmd, nil)
 	if err == nil {
@@ -130,7 +128,6 @@ func TestMeProcessRendersTableOutput(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"uuid":"{66666666-6666-6666-6666-666666666666}","display_name":"Current User","username":"cuser"}`))
 	}, false)
-	t.Cleanup(func() { removeCacheEntry(profileName + ":me") })
 	_ = cmd.Flags().Set("output", "table")
 
 	stdout := captureStdout(t, func() {

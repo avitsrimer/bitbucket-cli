@@ -23,11 +23,15 @@ func (columns Columns[T]) Sorters() []string {
 	})
 }
 
+// SortBy returns the Compare function for the named sorter. Every Columns table defines Compare
+// for each of its columns and EnumFlag only ever accepts a sorter name already in that table, so
+// the never-equal fallback below is unreachable in practice; it exists only to keep this method
+// total (never panics on an unrecognized name) rather than to express real sort behavior.
 func (columns Columns[T]) SortBy(sorter string) func(a, b T) bool {
 	for _, column := range columns {
 		if column.Name == sorter {
 			return column.Compare
 		}
 	}
-	return func(a, b T) bool { return false } // We should never get here!
+	return func(a, b T) bool { return false }
 }

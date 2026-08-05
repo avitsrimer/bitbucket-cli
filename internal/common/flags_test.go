@@ -74,15 +74,16 @@ func TestEnumFlagSet(t *testing.T) {
 		assert.Equal(t, []string{"alpha", "beta"}, flag.Allowed)
 	})
 
-	t.Run("rejects a value when AllowedFunc errors and leaves it unresolved", func(t *testing.T) {
+	t.Run("propagates the AllowedFunc error instead of an empty allowed-values message", func(t *testing.T) {
 		cmd := &cobra.Command{Use: "test"}
 		flag := NewEnumFlagWithFunc(cmd, "", func(context.Context, *cobra.Command, []string, string) ([]string, error) {
-			return nil, errors.New("boom")
+			return nil, errors.New("workspace lookup failed")
 		})
 
 		err := flag.Set("beta")
 
 		require.Error(t, err)
+		assert.Contains(t, err.Error(), "workspace lookup failed")
 	})
 }
 
@@ -133,19 +134,9 @@ func TestEnumFlagCompletionFunc(t *testing.T) {
 }
 
 func TestNewEnumSliceFlag(t *testing.T) {
-	t.Run("has no default values when none is prefixed with +", func(t *testing.T) {
-		flag := NewEnumSliceFlag("one", "two")
+	flag := NewEnumSliceFlag("one", "two")
 
-		assert.Equal(t, []string{"one", "two"}, flag.Allowed)
-		assert.Empty(t, flag.Default)
-	})
-
-	t.Run("collects every +prefixed value into the default selection", func(t *testing.T) {
-		flag := NewEnumSliceFlag("+one", "+two", "three")
-
-		assert.Equal(t, []string{"one", "two", "three"}, flag.Allowed)
-		assert.Equal(t, []string{"one", "two"}, flag.Default)
-	})
+	assert.Equal(t, []string{"one", "two"}, flag.Allowed)
 }
 
 func TestEnumSliceFlagTypeAndString(t *testing.T) {
@@ -194,6 +185,16 @@ func TestEnumSliceFlagSet(t *testing.T) {
 		assert.Contains(t, err.Error(), "one, two")
 	})
 
+	t.Run("rejects a comma-separated list naming the first invalid element instead of silently dropping it", func(t *testing.T) {
+		flag := NewEnumSliceFlag("id", "title")
+
+		err := flag.Set("id,titel")
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "titel")
+		assert.Empty(t, flag.Values, "no value should be appended when any element of the list is invalid")
+	})
+
 	t.Run("selects every allowed value on \"all\" when AllAllowed is set", func(t *testing.T) {
 		flag := NewEnumSliceFlagWithAllAllowed("one", "two", "three")
 
@@ -201,7 +202,15 @@ func TestEnumSliceFlagSet(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, []string{"one", "two", "three"}, flag.Values)
-		assert.Equal(t, []string{"all", "one", "two", "three"}, flag.GetSlice())
+	})
+
+	t.Run("\"all\" does not alias the Allowed backing array", func(t *testing.T) {
+		flag := NewEnumSliceFlagWithAllAllowed("one", "two")
+
+		require.NoError(t, flag.Set("all"))
+		flag.Values = append(flag.Values, "mutated")
+
+		assert.Equal(t, []string{"one", "two"}, flag.Allowed, "appending to Values must not mutate Allowed")
 	})
 
 	t.Run("rejects \"all\" when AllAllowed is not set", func(t *testing.T) {
@@ -211,6 +220,18 @@ func TestEnumSliceFlagSet(t *testing.T) {
 
 		require.Error(t, err)
 	})
+
+	t.Run("propagates the AllowedFunc error instead of an empty allowed-values message", func(t *testing.T) {
+		cmd := &cobra.Command{Use: "test"}
+		flag := NewEnumSliceFlagWithAllAllowedAndFunc(cmd, func(context.Context, *cobra.Command, []string, string) ([]string, error) {
+			return nil, errors.New("workspace lookup failed")
+		})
+
+		err := flag.Set("one")
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "workspace lookup failed")
+	})
 }
 
 func TestNewEnumSliceFlagWithAllAllowedAndFuncPanicsOnNilCommand(t *testing.T) {
@@ -219,25 +240,15 @@ func TestNewEnumSliceFlagWithAllAllowedAndFuncPanicsOnNilCommand(t *testing.T) {
 	})
 }
 
-func TestEnumSliceFlagAppendAndReplace(t *testing.T) {
-	flag := NewEnumSliceFlag("one", "two", "three")
-
-	require.NoError(t, flag.Append("one,two"))
-	assert.Equal(t, []string{"one", "two"}, flag.Values)
-
-	require.NoError(t, flag.Replace([]string{"three", "one"}))
-	assert.Equal(t, []string{"three", "one"}, flag.Values)
-}
-
 func TestEnumSliceFlagGetSlice(t *testing.T) {
-	t.Run("returns the default values when nothing was set", func(t *testing.T) {
-		flag := NewEnumSliceFlag("+one", "two")
+	t.Run("returns nil when nothing was set", func(t *testing.T) {
+		flag := NewEnumSliceFlag("one", "two")
 
-		assert.Equal(t, []string{"one"}, flag.GetSlice())
+		assert.Empty(t, flag.GetSlice())
 	})
 
 	t.Run("returns the set values when some were set", func(t *testing.T) {
-		flag := NewEnumSliceFlag("+one", "two")
+		flag := NewEnumSliceFlag("one", "two")
 		require.NoError(t, flag.Set("two"))
 
 		assert.Equal(t, []string{"two"}, flag.GetSlice())

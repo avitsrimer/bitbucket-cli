@@ -45,7 +45,11 @@ func TestRepositoryValidateAccumulatesErrors(t *testing.T) {
 }
 
 func TestRepositoryValidateDefaultsSlugToName(t *testing.T) {
-	target := &Repository{ID: common.NewUUID(), Name: "bitbucket-cli", FullName: "acme/bitbucket-cli"}
+	id, err := common.ParseUUID("{11111111-1111-1111-1111-111111111111}")
+	if err != nil {
+		t.Fatalf("cannot parse fixture uuid: %v", err)
+	}
+	target := &Repository{ID: id, Name: "bitbucket-cli", FullName: "acme/bitbucket-cli"}
 	if err := target.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
@@ -87,8 +91,12 @@ func TestRepositoryUnmarshalJSONRejectsWrongType(t *testing.T) {
 }
 
 func TestRepositoryMarshalJSONRoundTrip(t *testing.T) {
+	id, err := common.ParseUUID("{11111111-1111-1111-1111-111111111111}")
+	if err != nil {
+		t.Fatalf("cannot parse fixture uuid: %v", err)
+	}
 	original := Repository{
-		ID:         common.NewUUID(),
+		ID:         id,
 		Name:       "bb",
 		FullName:   "acme/bb",
 		Slug:       "bb",

@@ -70,6 +70,33 @@ func (suite *ProfileSuite) TestLoadParsesTestdataConfigYAMLProfilesIdentically()
 	suite.Empty(profile.Profiles[1].User)
 }
 
+// TestLoadParsesCamelCaseConfigKeys is a regression test proving camelCase config keys (the
+// spelling documented by Profile's mapstructure tags, and the shape viper used to accept before
+// the plain-YAML loader replaced it) still populate their fields instead of being silently
+// dropped by yaml.v3's case-sensitive key matching.
+func (suite *ProfileSuite) TestLoadParsesCamelCaseConfigKeys() {
+	defer resetProfilesState()()
+
+	cmd := newTestRootCommand()
+	suite.Require().NoError(cmd.PersistentFlags().Set("config", "../../testdata/config-camelcase.yml"))
+	suite.Require().NoError(common.Initialize(cmd))
+
+	err := profile.Profiles.Load(suite.Context, cmd)
+	suite.Require().NoError(err)
+	suite.Require().Len(profile.Profiles, 1)
+
+	got := profile.Profiles[0]
+	suite.Equal("camel", got.Name)
+	suite.Equal("user1", got.User)
+	suite.Equal("myworkspace", got.DefaultWorkspace)
+	suite.Equal("abc123", got.ClientID)
+	suite.Equal("s3cr3t", got.ClientSecret)
+	suite.Equal("t0k3n", got.AccessToken)
+	suite.Equal(uint16(8080), got.CallbackPort)
+	suite.Equal("json", got.OutputFormat)
+	suite.Equal(common.WarnOnError, got.ErrorProcessing)
+}
+
 // TestProfileCreateAndDeletePersistAcrossReloads drives the real create/delete commands against
 // a temp config file, reloading Profiles from disk between commands, to prove CRUD persistence
 // round-trips through the plain-YAML config the same way the old viper-backed one did.

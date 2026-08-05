@@ -195,7 +195,10 @@ func GetMe(context context.Context, cmd *cobra.Command) (user *User, err error) 
 		&user,
 	)
 	if err == nil {
-		_ = UserCache.Set(*user, profile.Name+":me")
+		if user == nil {
+			return nil, fmt.Errorf("received an empty response for the current user")
+		}
+		_ = UserCache.Set(profile.Name+":me", *user)
 	}
 	return
 }
@@ -223,17 +226,12 @@ func GetUser(context context.Context, cmd *cobra.Command, userid string) (user *
 				&user,
 			)
 			if err == nil {
-				_ = UserCache.Set(*user, profile.Name+":"+userUUID.String())
+				if user == nil {
+					return nil, fmt.Errorf("received an empty response for user %s", userUUID.String())
+				}
+				_ = UserCache.Set(profile.Name+":"+userUUID.String(), *user)
 			}
 		}
 	}
 	return
-}
-
-// GetUserFromFlags gets the user from the command
-func GetUserFromFlags(context context.Context, cmd *cobra.Command) (*User, error) {
-	if cmd.Flag("user") == nil {
-		return nil, fmt.Errorf("the command %s does not have a --user flag", cmd.Name())
-	}
-	return GetUser(context, cmd, cmd.Flag("user").Value.String())
 }

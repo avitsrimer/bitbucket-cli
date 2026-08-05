@@ -17,7 +17,6 @@ func TestGetProcessSuccess(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"uuid":"{` + targetID + `}","display_name":"Jane Doe","account_id":"abc-123"}`))
 	}, false)
-	t.Cleanup(func() { removeCacheEntry(profileName + ":{" + targetID + "}") })
 
 	stdout := captureStdout(t, func() {
 		if err := getProcess(cmd, []string{targetID}); err != nil {
@@ -50,7 +49,6 @@ func TestGetProcessAPIError(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`{"type":"error","error":{"message":"user not found"}}`))
 	}, false)
-	t.Cleanup(func() { removeCacheEntry(profileName + ":{" + targetID + "}") })
 
 	err := getProcess(cmd, []string{targetID})
 	if err == nil {
@@ -69,7 +67,6 @@ func TestGetProcessRendersTableOutput(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"uuid":"{` + targetID + `}","display_name":"Jane Doe","username":"jdoe"}`))
 	}, false)
-	t.Cleanup(func() { removeCacheEntry(profileName + ":{" + targetID + "}") })
 	_ = cmd.Flags().Set("output", "table")
 
 	stdout := captureStdout(t, func() {

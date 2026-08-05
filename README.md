@@ -17,7 +17,6 @@ The supported surface is:
 - **Pull requests** — `bb pullrequest` → `list`, `get`, `create`, `update`, `decline`, `merge`, `merge-status`, `approve`, `unapprove`, `request-changes`, `remove-request-changes`, `diff`, `patch`, `commits`, `activities`
 - **Comments** — `bb pullrequest comment` → `list`, `get`, `create`, `update`, `delete`, `resolve`, `reopen`
 - **Tasks** — `bb pullrequest task` → `list`, `get`, `create`, `update`, `delete`
-- **Activity** — `bb pullrequest activity list`
 - **Users** — `bb user` → `get`, `me`
 - **Authentication** — `bb profile` (including API tokens stored in the macOS Keychain, see [Profiles](#profiles)) and `bb completion`
 

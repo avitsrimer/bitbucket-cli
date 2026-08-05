@@ -1,7 +1,5 @@
 package pullrequest
 
-import "net/http"
-
 var removeRequestChangesSpec = actionSpec{
 	name:     "remove-request-changes",
 	aliases:  []string{"removeRequestChanges", "remove-requestChanges", "removerequestchanges", "cancel-request-changes"},
@@ -9,8 +7,6 @@ var removeRequestChangesSpec = actionSpec{
 	whatIf:   "Removing request changes on",
 	errVerb:  "remove request changes on",
 	endpoint: "request-changes",
-	method:   http.MethodDelete,
-	logFetch: true,
 }
 
 func init() {

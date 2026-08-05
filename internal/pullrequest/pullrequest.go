@@ -13,7 +13,6 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/commit"
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
-	"github.com/avitsrimer/bitbucket-cli/internal/pullrequest/activity"
 	"github.com/avitsrimer/bitbucket-cli/internal/pullrequest/comment"
 	prcommon "github.com/avitsrimer/bitbucket-cli/internal/pullrequest/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/pullrequest/task"
@@ -125,7 +124,6 @@ var columns = common.Columns[PullRequest]{
 
 func init() {
 	Command.AddCommand(comment.Command)
-	Command.AddCommand(activity.Command)
 	Command.AddCommand(task.Command)
 }
 

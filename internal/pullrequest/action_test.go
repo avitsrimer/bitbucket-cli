@@ -2,8 +2,6 @@ package pullrequest
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,11 +9,12 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
@@ -34,33 +33,61 @@ const (
 )
 
 func TestMain(m *testing.M) {
+	os.Exit(runTests(m))
+}
+
+// runTests points every package-level cache this test binary touches (WorkspaceCache,
+// RepositoryCache, UserCache) at a scratch temp directory instead of the real
+// os.UserCacheDir(), so the suite never reads or writes the developer's actual cache and leaves
+// nothing behind even if a test panics, times out, or the run is interrupted: the whole directory
+// is removed in a defer here rather than relying on individual tests to clean up their entries.
+func runTests(m *testing.M) int {
+	tempDir, err := os.MkdirTemp("", "bitbucket-cli-test-cache-*")
+	if err != nil {
+		panic("action_test: cannot create temp cache dir: " + err.Error())
+	}
+	defer func() { _ = os.RemoveAll(tempDir) }()
+
+	oldWorkspaceCache, oldRepositoryCache, oldUserCache := workspace.WorkspaceCache, repository.RepositoryCache, user.UserCache
+	workspace.WorkspaceCache = common.NewCacheAt[workspace.Workspace](tempDir, time.Minute)
+	repository.RepositoryCache = common.NewCacheAt[repository.Repository](tempDir, time.Minute)
+	user.UserCache = common.NewCacheAt[user.User](tempDir, time.Minute)
+	defer func() {
+		workspace.WorkspaceCache = oldWorkspaceCache
+		repository.RepositoryCache = oldRepositoryCache
+		user.UserCache = oldUserCache
+	}()
+
 	primeFixtureCaches()
-	code := m.Run()
-	removeCacheEntry(fixtureWorkspaceSlug)
-	removeCacheEntry(fixtureRepositoryFlag)
-	os.Exit(code)
+	return m.Run()
 }
 
 func primeFixtureCaches() {
 	ws := workspace.Workspace{Slug: fixtureWorkspaceSlug}
-	repo := repository.Repository{Slug: fixtureRepositorySlug, Workspace: &ws}
-	if err := workspace.WorkspaceCache.Set(ws, fixtureWorkspaceSlug); err != nil {
+	repo := newFixtureRepository(&ws)
+	if err := workspace.WorkspaceCache.Set(fixtureWorkspaceSlug, ws); err != nil {
 		panic("action_test: cannot prime workspace cache: " + err.Error())
 	}
-	if err := repository.RepositoryCache.Set(repo, fixtureRepositoryFlag); err != nil {
+	if err := repository.RepositoryCache.Set(fixtureRepositoryFlag, repo); err != nil {
 		panic("action_test: cannot prime repository cache: " + err.Error())
 	}
 }
 
-// removeCacheEntry deletes the on-disk mirror of a primed cache entry so the test run does not
-// leave residue behind in the real os.UserCacheDir().
-func removeCacheEntry(key string) {
-	dir, err := os.UserCacheDir()
+// newFixtureRepository builds a Repository with the fields Repository.UnmarshalJSON's Validate
+// call requires (ID, Name, FullName) set, so priming RepositoryCache actually survives the
+// on-disk JSON round-trip instead of only ever being read back from an in-memory shortcut.
+func newFixtureRepository(ws *workspace.Workspace) repository.Repository {
+	id, err := common.ParseUUID("{22222222-2222-2222-2222-222222222222}")
 	if err != nil {
-		return
+		panic("action_test: cannot parse fixture repository uuid: " + err.Error())
 	}
-	sum := sha256.Sum256([]byte(key))
-	_ = os.Remove(filepath.Join(dir, "bitbucket", hex.EncodeToString(sum[:])))
+	return repository.Repository{
+		ID:        id,
+		Name:      "Widgets",
+		FullName:  fixtureRepositoryFlag,
+		Slug:      fixtureRepositorySlug,
+		Workspace: ws,
+	}
 }
 
 // setupTest points the profile client at a fresh httptest server and returns a standalone
@@ -105,6 +132,11 @@ func setupTestNamed(t *testing.T, profileName string, handler http.HandlerFunc, 
 
 // captureStdout redirects os.Stdout for the duration of fn and returns what was written; used
 // to assert on profile.Print's rendered output (it writes straight to os.Stdout).
+//
+// The reader is drained on a goroutine started before fn runs, so output larger than the pipe
+// buffer cannot deadlock the test, and os.Stdout is restored via defer so a t.Fatalf inside fn
+// (which calls runtime.Goexit, skipping any code after it) still leaves stdout intact for the
+// rest of the test binary.
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 
@@ -114,17 +146,20 @@ func captureStdout(t *testing.T, fn func()) string {
 	}
 	original := os.Stdout
 	os.Stdout = w
+	defer func() {
+		os.Stdout = original
+	}()
+
+	captured := make(chan string, 1)
+	go func() {
+		data, _ := io.ReadAll(r)
+		captured <- string(data)
+	}()
 
 	fn()
 
 	_ = w.Close()
-	os.Stdout = original
-
-	data, err := io.ReadAll(r)
-	if err != nil {
-		t.Fatalf("cannot read captured stdout: %v", err)
-	}
-	return string(data)
+	return <-captured
 }
 
 func TestRunActionSimpleActions(t *testing.T) {
@@ -147,7 +182,7 @@ func testRunActionSuccess(t *testing.T, spec actionSpec) {
 	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r)
 		w.Header().Set("Content-Type", "application/json")
-		if spec.method == http.MethodPost {
+		if spec.post {
 			_, _ = w.Write(responseBody)
 		}
 	}, false)
@@ -158,7 +193,7 @@ func testRunActionSuccess(t *testing.T, spec actionSpec) {
 		}
 	}
 	var stdout string
-	if spec.method == http.MethodPost {
+	if spec.post {
 		stdout = captureStdout(t, call)
 	} else {
 		call()
@@ -167,15 +202,19 @@ func testRunActionSuccess(t *testing.T, spec actionSpec) {
 	if len(requests) != 1 {
 		t.Fatalf("expected exactly 1 request, got %d", len(requests))
 	}
-	if requests[0].Method != spec.method {
-		t.Errorf("method = %s, want %s", requests[0].Method, spec.method)
+	wantMethod := http.MethodDelete
+	if spec.post {
+		wantMethod = http.MethodPost
+	}
+	if requests[0].Method != wantMethod {
+		t.Errorf("method = %s, want %s", requests[0].Method, wantMethod)
 	}
 	wantPath := "/2.0/repositories/" + fixtureRepositoryFlag + "/pullrequests/42/" + spec.endpoint
 	if requests[0].URL.Path != wantPath {
 		t.Errorf("path = %s, want %s", requests[0].URL.Path, wantPath)
 	}
 
-	if spec.method == http.MethodPost {
+	if spec.post {
 		var participant user.Participant
 		if err := json.Unmarshal([]byte(stdout), &participant); err != nil {
 			t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
@@ -240,30 +279,13 @@ func testRunActionInvalidID(t *testing.T, spec actionSpec) {
 	}
 }
 
-func TestRunActionUnsupportedMethod(t *testing.T) {
-	var requestCount int
-	cmd := setupTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, false)
-
-	spec := actionSpec{name: "bogus", errVerb: "bogus", endpoint: "bogus", method: http.MethodGet}
-	err := runAction(cmd, []string{"42"}, spec)
-	if err == nil {
-		t.Fatal("runAction() expected an error for an unsupported method")
-	}
-	if !strings.Contains(err.Error(), "unsupported action method") {
-		t.Errorf("error = %q, want it to mention the unsupported action method", err.Error())
-	}
-	if requestCount != 0 {
-		t.Errorf("expected no HTTP request for an unsupported method, got %d", requestCount)
-	}
-}
-
 func TestOpenPullRequestIDsCompletion(t *testing.T) {
 	t.Run("returns no completions when an argument is already provided", func(t *testing.T) {
 		cmd := setupTest(t, func(http.ResponseWriter, *http.Request) {
 			t.Error("no HTTP request expected")
 		}, false)
 
-		ids, directive := openPullRequestIDsCompletion(cmd, []string{"42"}, "", false)
+		ids, directive := openPullRequestIDsCompletion(cmd, []string{"42"}, "")
 		if ids != nil {
 			t.Errorf("ids = %v, want nil", ids)
 		}
@@ -280,7 +302,7 @@ func TestOpenPullRequestIDsCompletion(t *testing.T) {
 			_, _ = w.Write([]byte(`{"values":[{"id":42},{"id":7}]}`))
 		}, false)
 
-		ids, directive := openPullRequestIDsCompletion(cmd, nil, "", true)
+		ids, directive := openPullRequestIDsCompletion(cmd, nil, "")
 		if directive != cobra.ShellCompDirectiveNoFileComp {
 			t.Errorf("directive = %v, want %v", directive, cobra.ShellCompDirectiveNoFileComp)
 		}

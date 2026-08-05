@@ -2,6 +2,7 @@ package pullrequest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -213,9 +214,16 @@ func removeRequestedReviewers(cmd *cobra.Command, pullrequest *PullRequest, isMe
 	return updateWanted
 }
 
-// resolveDefaultReviewers replaces the "default" sentinel in --add-reviewer with the effective
-// default reviewers of the pullrequest's source repository, excluding the current user
-func resolveDefaultReviewers(ctx context.Context, cmd *cobra.Command, pullrequest *PullRequest) error {
+// resolveDefaultReviewers resolves the "default" sentinel in --add-reviewer to the effective
+// default reviewers of the pullrequest's source repository (excluding the current user),
+// returning the resolved reviewer values with the rest of the original --add-reviewer list
+// appended. It reads updateOptions.AddReviewers.Values but never writes to it, so repeated
+// calls (e.g. across tests reusing the package-level singleton) are idempotent.
+func resolveDefaultReviewers(ctx context.Context, cmd *cobra.Command, pullrequest *PullRequest) ([]string, error) {
+	if pullrequest.Source.Repository == nil {
+		return nil, errors.New("pullrequest has no source repository, cannot resolve default reviewers")
+	}
+
 	lgr.Printf("[DEBUG] finding current user")
 	me, meErr := user.GetMe(ctx, cmd)
 	if meErr != nil {
@@ -230,7 +238,7 @@ func resolveDefaultReviewers(ctx context.Context, cmd *cobra.Command, pullreques
 	reviewers, err := pullrequest.Source.Repository.GetEffectiveDefaultReviewers(ctx, cmd)
 	if err != nil {
 		lgr.Printf("[ERROR] failed to get default reviewers: %v", err)
-		return fmt.Errorf("cannot get default reviewers: %w", err)
+		return nil, fmt.Errorf("cannot get default reviewers: %w", err)
 	}
 	lgr.Printf("[DEBUG] found %d default reviewers", len(reviewers))
 
@@ -240,12 +248,11 @@ func resolveDefaultReviewers(ctx context.Context, cmd *cobra.Command, pullreques
 		lgr.Printf("[DEBUG] filtered reviewers to remove current user: %d reviewers remaining", len(reviewers))
 	}
 
-	// Replace the first reviewer with the list of default reviewers and appends the rest
-	updateOptions.AddReviewers.Values = append(
+	// Replace the first reviewer with the list of default reviewers and append the rest
+	return append(
 		core.Map(reviewers, func(reviewer project.Reviewer) string { return reviewer.User.ID.String() }),
 		updateOptions.AddReviewers.Values[1:]...,
-	)
-	return nil
+	), nil
 }
 
 // addRequestedReviewers adds reviewers listed in --add-reviewer (resolving the "default" sentinel
@@ -255,17 +262,20 @@ func addRequestedReviewers(ctx context.Context, cmd *cobra.Command, pullrequest 
 		return false, nil
 	}
 
-	if updateOptions.AddReviewers.Values[0] == "default" {
-		if err := resolveDefaultReviewers(ctx, cmd, pullrequest); err != nil {
+	reviewerValues := updateOptions.AddReviewers.Values
+	if reviewerValues[0] == "default" {
+		resolved, err := resolveDefaultReviewers(ctx, cmd, pullrequest)
+		if err != nil {
 			return false, err
 		}
+		reviewerValues = resolved
 	}
 
 	updateWanted := false
 	lgr.Printf("[DEBUG] getting all members from workspace %s", pullrequestWorkspace)
 	members, _ := pullrequestWorkspace.GetMembers(ctx, cmd)
 	lgr.Printf("[DEBUG] found %d members in workspace %s", len(members), pullrequestWorkspace)
-	for _, reviewerNameOrID := range updateOptions.AddReviewers.Values {
+	for _, reviewerNameOrID := range reviewerValues {
 		lgr.Printf("[DEBUG] processing reviewer to add: %s", reviewerNameOrID)
 		matches := core.Filter(members, func(member workspace.Member) bool { return isMember(member, reviewerNameOrID) })
 		if len(matches) > 0 {

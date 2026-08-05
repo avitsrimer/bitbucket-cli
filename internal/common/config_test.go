@@ -41,6 +41,22 @@ func TestConfigPath(t *testing.T) {
 		require.NoError(t, dirErr)
 		assert.Equal(t, filepath.Join(configDir, "bitbucket", "config-cli.yml"), path)
 	})
+
+	// This is a regression test for BB_CONFIG being silently ignored: on the real root command
+	// the flag's *default* value is populated from BB_CONFIG (core.GetEnvAsString("BB_CONFIG",
+	// "")), which never marks the flag as Changed. ConfigPath used to check
+	// Changed("config") and therefore only ever honored an explicit --config, falling through to
+	// UserConfigDir even when BB_CONFIG was set.
+	t.Run("honors BB_CONFIG supplied only as the flag's default value", func(t *testing.T) {
+		cmd := &cobra.Command{Use: "test"}
+		cmd.PersistentFlags().String("config", "/from/env/config.yml", "config file")
+
+		path, err := ConfigPath(cmd)
+
+		require.NoError(t, err)
+		assert.Equal(t, "/from/env/config.yml", path)
+		assert.False(t, cmd.PersistentFlags().Changed("config"), "the flag must not be Changed for this regression to be meaningful")
+	})
 }
 
 func TestLoadConfig(t *testing.T) {
@@ -116,4 +132,36 @@ func TestConfigSaveRoundTrip(t *testing.T) {
 		require.NoError(t, config.GetSection("profiles", &got))
 		assert.Empty(t, got)
 	})
+}
+
+// TestGetSectionLowercasesCamelCaseKeys is a regression test for a data-loss bug: yaml.v3 matches
+// mapping keys case-sensitively against the lower-cased field name it defaults to for untagged
+// struct fields, so a camelCase key such as accessToken silently failed to populate AccessToken
+// (no error, just an empty field) instead of matching case-insensitively the way viper used to.
+func TestGetSectionLowercasesCamelCaseKeys(t *testing.T) {
+	type fixture struct {
+		Name        string `yaml:",omitempty"`
+		AccessToken string `yaml:",omitempty"`
+		ClientID    string `yaml:",omitempty"`
+	}
+
+	config := &Config{
+		Path: filepath.Join(t.TempDir(), "config.yml"),
+		Data: map[string]any{
+			"profiles": []any{
+				map[string]any{
+					"name":        "camel",
+					"accessToken": "t0k3n",
+					"clientID":    "abc123",
+				},
+			},
+		},
+	}
+
+	var got []fixture
+	require.NoError(t, config.GetSection("profiles", &got))
+	require.Len(t, got, 1)
+	assert.Equal(t, "camel", got[0].Name)
+	assert.Equal(t, "t0k3n", got[0].AccessToken)
+	assert.Equal(t, "abc123", got[0].ClientID)
 }

@@ -1,11 +1,13 @@
 package profile_test
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"time"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/spf13/cobra"
@@ -189,6 +191,31 @@ func (suite *ProfileSuite) TestGetNon2xxWithoutJSONBodyReturnsGenericError() {
 	suite.Contains(err.Error(), "500")
 }
 
+// TestGetNon2xxWithUnrelatedJSONBodyReturnsGenericError is a regression test for
+// BitBucketError.UnmarshalJSON's last-resort fallback succeeding for any valid JSON object: a
+// proxy's {"message":"..."} shape (not BitBucket's own error shape) used to be mapped to a
+// *BitBucketError with every field blank, so the CLI printed a completely empty error message.
+func (suite *ProfileSuite) TestGetNon2xxWithUnrelatedJSONBodyReturnsGenericError() {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"message":"upstream unavailable"}`))
+	}))
+	defer server.Close()
+
+	apiRoot, err := url.Parse(server.URL)
+	suite.Require().NoError(err)
+	target := &profile.Profile{APIRoot: apiRoot, AccessToken: "dummy-token"}
+
+	var item testItem
+	err = target.Get(suite.Context, &cobra.Command{}, "/repo", &item)
+	suite.Require().Error(err)
+	var bberr *profile.BitBucketError
+	suite.Require().NotErrorAs(err, &bberr, "a JSON body not shaped like a BitBucket error should not be mapped to a blank BitBucketError")
+	suite.Contains(err.Error(), "400")
+	suite.NotEmpty(err.Error())
+}
+
 func (suite *ProfileSuite) TestGetRawUsesWildcardAcceptAndReturnsRawBody() {
 	var gotAccept string
 	const rawBody = "diff --git a/x b/x\n"
@@ -209,6 +236,161 @@ func (suite *ProfileSuite) TestGetRawUsesWildcardAcceptAndReturnsRawBody() {
 	suite.Require().NoError(err)
 	suite.Equal(rawBody, string(data))
 	suite.Equal("*/*", gotAccept)
+}
+
+// TestGetRetriesAfter429ThenSucceeds is a regression test for the request layer sending exactly
+// one attempt with no retry/backoff: BitBucket rate-limits aggressively, and GetAll issues one
+// request per page, so the first 429 used to hard-fail the whole command. This asserts a 429
+// (with a short Retry-After) is retried and the eventual 200 is returned.
+func (suite *ProfileSuite) TestGetRetriesAfter429ThenSucceeds() {
+	var attempts int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts == 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(testItem{ID: "42"})
+	}))
+	defer server.Close()
+
+	apiRoot, err := url.Parse(server.URL)
+	suite.Require().NoError(err)
+	target := &profile.Profile{APIRoot: apiRoot, AccessToken: "dummy-token"}
+
+	var item testItem
+	err = target.Get(suite.Context, &cobra.Command{}, "/repo", &item)
+	suite.Require().NoError(err)
+	suite.Equal("42", item.ID)
+	suite.Equal(2, attempts, "the 429 response should have been retried exactly once")
+}
+
+// TestGetGivesUpAfterExhaustingRetriesOn429 proves the retry loop terminates: a server that
+// always returns 429 must not hang the CLI forever, and the final BitBucket error should still
+// surface to the caller.
+func (suite *ProfileSuite) TestGetGivesUpAfterExhaustingRetriesOn429() {
+	var attempts int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.Header().Set("Retry-After", "0")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"message":"rate limited"}}`))
+	}))
+	defer server.Close()
+
+	apiRoot, err := url.Parse(server.URL)
+	suite.Require().NoError(err)
+	target := &profile.Profile{APIRoot: apiRoot, AccessToken: "dummy-token"}
+
+	var item testItem
+	err = target.Get(suite.Context, &cobra.Command{}, "/repo", &item)
+	suite.Require().Error(err)
+	suite.Equal(5, attempts, "should attempt exactly maxRequestAttempts times before giving up")
+}
+
+// TestGetAbortsRetryLoopWhenContextIsCanceled proves a canceled context stops the retry loop
+// immediately instead of waiting out the full backoff schedule.
+func (suite *ProfileSuite) TestGetAbortsRetryLoopWhenContextIsCanceled() {
+	var attempts int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	apiRoot, err := url.Parse(server.URL)
+	suite.Require().NoError(err)
+	target := &profile.Profile{APIRoot: apiRoot, AccessToken: "dummy-token"}
+
+	ctx, cancel := context.WithCancel(suite.Context)
+	go func() {
+		<-time.After(50 * time.Millisecond)
+		cancel()
+	}()
+
+	var item testItem
+	err = target.Get(ctx, &cobra.Command{}, "/repo", &item)
+	suite.Require().Error(err)
+	suite.Require().ErrorIs(err, context.Canceled)
+	suite.Less(attempts, 5, "the retry loop should have aborted before exhausting all attempts")
+}
+
+// TestGetAllRejectsNextPageURLFromDifferentHost is a regression test for the Authorization
+// header being attached to whatever host a "next" pagination URL claims: a compromised or
+// misconfigured API response could otherwise exfiltrate the profile's token by pointing "next"
+// at an attacker-controlled host.
+func (suite *ProfileSuite) TestGetAllRejectsNextPageURLFromDifferentHost() {
+	oldCurrent := profile.Current
+	defer func() { profile.Current = oldCurrent }()
+
+	var attackerReceivedAuth bool
+	attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attackerReceivedAuth = r.Header.Get("Authorization") != ""
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"values": []map[string]string{{"id": "2"}}})
+	}))
+	defer attacker.Close()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"values": []map[string]string{{"id": "1"}},
+			"next":   attacker.URL + "/pipelines?page=2",
+		})
+	}))
+	defer server.Close()
+
+	apiRoot, err := url.Parse(server.URL)
+	suite.Require().NoError(err)
+	profile.Current = &profile.Profile{APIRoot: apiRoot, DefaultPageLength: 0, AccessToken: "dummy-token"}
+
+	cmd := &cobra.Command{}
+	cmd.Flags().String("profile", "", "")
+	cmd.Flags().Int("page-length", 0, "")
+	items, err := profile.GetAll[testItem](suite.Context, cmd, server.URL+"/pipelines?pagelen=1")
+
+	suite.Require().Error(err, "a next URL pointing at a different host must be rejected")
+	suite.Contains(err.Error(), "does not match")
+	suite.Empty(items)
+	suite.False(attackerReceivedAuth, "the attacker server should never have been reached with an Authorization header")
+}
+
+// TestCodeGrantCallbackDoesNotBlockOnDuplicateRequest is a regression test for resultchan being
+// unbuffered with a blocking send: a second callback request (browser reload/prefetch) arriving
+// after the first result was already delivered used to block its handler goroutine forever,
+// which in turn made authorizeProcess's server.Shutdown hang waiting on that in-flight request.
+func (suite *ProfileSuite) TestCodeGrantCallbackDoesNotBlockOnDuplicateRequest() {
+	testProfile := &profile.Profile{Name: "callback-test", ClientID: "client-id", VaultKey: "bitbucket-cli-test-nonexistent-vault-key"}
+	resultchan := make(chan error, 1)
+	handler := testProfile.CodeGrantCallback(resultchan)
+
+	req1 := httptest.NewRequest(http.MethodGet, "/callback?code=abc", nil)
+	handler.ServeHTTP(httptest.NewRecorder(), req1)
+
+	select {
+	case err := <-resultchan:
+		suite.Require().Error(err, "a nonexistent vault entry should make GetClientSecret fail")
+	case <-time.After(5 * time.Second):
+		suite.FailNow("expected a result from the first callback request")
+	}
+
+	// Nothing drains resultchan anymore; a second callback request must still return instead of
+	// blocking its handler goroutine on the channel send.
+	done := make(chan struct{})
+	go func() {
+		req2 := httptest.NewRequest(http.MethodGet, "/callback?code=abc", nil)
+		handler.ServeHTTP(httptest.NewRecorder(), req2)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		suite.FailNow("second callback request blocked instead of using a non-blocking send")
+	}
 }
 
 func (suite *ProfileSuite) TestPostWithResultExposesResponseHeaders() {

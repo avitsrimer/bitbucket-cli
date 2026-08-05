@@ -138,7 +138,10 @@ func GetRepositoryBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID s
 	if err != nil {
 		return repository, fmt.Errorf("cannot get resource: %w", err)
 	}
-	_ = RepositoryCache.Set(*repository, fmt.Sprintf("%s/%s", ws.Slug, slugOrID))
+	if repository == nil {
+		return nil, fmt.Errorf("received an empty response for repository %s/%s", ws.Slug, slugOrID)
+	}
+	_ = RepositoryCache.Set(fmt.Sprintf("%s/%s", ws.Slug, slugOrID), *repository)
 	return repository, nil
 }
 

@@ -37,7 +37,7 @@ func init() {
 }
 
 func mergeValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	return openPullRequestIDsCompletion(cmd, args, toComplete, false)
+	return openPullRequestIDsCompletion(cmd, args, toComplete)
 }
 
 func mergeProcess(cmd *cobra.Command, args []string) (err error) {
