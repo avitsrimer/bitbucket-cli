@@ -1,6 +1,8 @@
 package user
 
 import (
+	"fmt"
+
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	"github.com/gildas/go-flags"
@@ -31,7 +33,7 @@ func init() {
 func getProcess(cmd *cobra.Command, args []string) (err error) {
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot get profile: %w", err)
 	}
 
 	lgr.Printf("[DEBUG] displaying user %s", args[0])
@@ -44,5 +46,8 @@ func getProcess(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 	lgr.Printf("[DEBUG] user %s retrieved", args[0])
-	return profile.Print(cmd.Context(), cmd, user)
+	if err := profile.Print(cmd.Context(), cmd, user); err != nil {
+		return fmt.Errorf("cannot print result: %w", err)
+	}
+	return nil
 }

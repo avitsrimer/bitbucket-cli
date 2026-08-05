@@ -2,12 +2,12 @@ package project
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/user"
 	"github.com/gildas/bitbucket-cli/cmd/workspace"
-	"github.com/gildas/go-errors"
 )
 
 type Project struct {
@@ -66,5 +66,8 @@ func (project Project) MarshalJSON() (data []byte, err error) {
 		CreatedOn: createdOn,
 		UpdatedOn: updatedOn,
 	})
-	return data, errors.JSONMarshalError.Wrap(err)
+	if err != nil {
+		return nil, fmt.Errorf("cannot marshal json: %w", err)
+	}
+	return data, nil
 }

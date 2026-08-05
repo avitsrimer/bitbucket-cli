@@ -1,12 +1,13 @@
 package pullrequest
 
 import (
+	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/go-core"
-	"github.com/gildas/go-errors"
 	"github.com/spf13/cobra"
 )
 
@@ -24,16 +25,16 @@ type PullRequestMergeStatus struct {
 func NewPullRequestMergeStatusFromLocation(location string) (mergeStatus *PullRequestMergeStatus, err error) {
 	// Format: https://api.bitbucket.org/2.0/repositories/<workspace_slug>/<repo_slug>/pullrequests/<pullrequest_id>/merge/task-status/<task_id>
 	if location == "" {
-		return nil, errors.Errorf("Failed to get the merge task URL from the Location header in the response from Bitbucket")
+		return nil, errors.New("failed to get the merge task URL from the Location header in the response from Bitbucket")
 	}
 	parts := strings.Split(location, "/")
 	if len(parts) < 12 {
-		return nil, errors.Errorf("Invalid merge task URL: %s", location)
+		return nil, fmt.Errorf("invalid merge task URL: %s", location)
 	}
 	taskID := parts[len(parts)-1]
 	pullrequestID, err := strconv.Atoi(parts[len(parts)-4])
 	if err != nil || pullrequestID < 0 {
-		return nil, errors.Errorf("Invalid pull request ID: %s", parts[len(parts)-4])
+		return nil, fmt.Errorf("invalid pull request ID: %s", parts[len(parts)-4])
 	}
 	return &PullRequestMergeStatus{ID: taskID, PullRequest: PullRequest{ID: uint64(pullrequestID)}}, nil
 }

@@ -1,11 +1,12 @@
 package pullrequest
 
 import (
+	"fmt"
+
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
-	"github.com/gildas/go-errors"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -45,20 +46,20 @@ func mergeStatusValidArgs(cmd *cobra.Command, args []string, toComplete string) 
 func mergeStatusProcess(cmd *cobra.Command, args []string) (err error) {
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
-		return errors.Join(errors.Errorf("Failed to get the profile"), err)
+		return fmt.Errorf("failed to get the profile: %w", err)
 	}
 
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
-		return errors.Join(errors.Errorf("Cannot merge Pull Request"), err)
+		return fmt.Errorf("cannot merge pull request: %w", err)
 	}
 
 	pullRequestID, err := GetPullRequestIDFromArgs(cmd.Context(), cmd, repository, args)
 	if err != nil {
-		return errors.Join(errors.Errorf("Cannot merge Pull Request"), err)
+		return fmt.Errorf("cannot merge pull request: %w", err)
 	}
 
-	lgr.Printf("[DEBUG] getting the Pull Request merge status for %s", pullRequestID)
+	lgr.Printf("[DEBUG] getting the pull request merge status for %s", pullRequestID)
 	if !common.WhatIf(cmd, "Getting the merge status for pull request %s", pullRequestID) {
 		return nil
 	}
@@ -72,9 +73,12 @@ func mergeStatusProcess(cmd *cobra.Command, args []string) (err error) {
 		&status,
 	)
 	if err != nil {
-		return errors.Join(errors.Errorf("Failed to get the merge status for Pull Request %s", pullRequestID), err)
+		return fmt.Errorf("failed to get the merge status for pull request %s: %w", pullRequestID, err)
 	}
 	status.ID = mergeStatusOptions.TaskID
 
-	return profile.Print(cmd.Context(), cmd, status)
+	if err := profile.Print(cmd.Context(), cmd, status); err != nil {
+		return fmt.Errorf("cannot print result: %w", err)
+	}
+	return nil
 }

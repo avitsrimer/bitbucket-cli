@@ -1,11 +1,12 @@
 package comment
 
 import (
+	"fmt"
+
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
-	"github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
+	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
-	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
@@ -47,12 +48,12 @@ func resolveValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]s
 func resolveProcess(cmd *cobra.Command, args []string) (err error) {
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot get profile: %w", err)
 	}
 
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot get repository: %w", err)
 	}
 
 	if !common.WhatIf(cmd, "Resolving comment %s from pullrequest %s", args[0], resolveOptions.PullRequestID.Value) {
@@ -67,7 +68,7 @@ func resolveProcess(cmd *cobra.Command, args []string) (err error) {
 		nil,
 	)
 	if err != nil {
-		return errors.Join(errors.Errorf("Failed to resolve pullrequest comment %s", args[0]), err)
+		return fmt.Errorf("failed to resolve pullrequest comment %s: %w", args[0], err)
 	}
 	lgr.Printf("[DEBUG] pullrequest comment %s resolved", args[0])
 	return nil

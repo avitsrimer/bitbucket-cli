@@ -1,6 +1,11 @@
 package profile_test
 
-import "github.com/gildas/bitbucket-cli/cmd/profile"
+import (
+	"errors"
+	"fmt"
+
+	"github.com/gildas/bitbucket-cli/cmd/profile"
+)
 
 func (suite *ProfileSuite) TestCanUnmarshalErrorAboutPrivileges() {
 	var bberr profile.BitBucketError
@@ -39,4 +44,27 @@ func (suite *ProfileSuite) TestCanUnmarshalErrorAboutBadRequest() {
 	suite.Require().Contains(bberr.Fields, "links.avatar")
 	suite.Contains(bberr.Fields["links.avatar"], "required key not provided")
 	suite.T().Logf("Expected Error string: %s", bberr.Error())
+}
+
+func (suite *ProfileSuite) TestErrNoProfilesMatchesWrappedError() {
+	wrapped := fmt.Errorf("context: %w", profile.ErrNoProfiles)
+	suite.True(errors.Is(wrapped, profile.ErrNoProfiles), "errors.Is should match a wrapped ErrNoProfiles")
+}
+
+func (suite *ProfileSuite) TestErrNoProfilesDoesNotMatchUnrelatedError() {
+	other := errors.New("some other error")
+	suite.False(errors.Is(other, profile.ErrNoProfiles), "errors.Is should not match an unrelated error")
+}
+
+func (suite *ProfileSuite) TestErrUnmarshalJSONMatchesMalformedTokenData() {
+	_, err := profile.UnmarshalTokenFromBitbucketData([]byte("not json"))
+	suite.Require().Error(err)
+	suite.True(errors.Is(err, profile.ErrUnmarshalJSON), "errors.Is should match a wrapped ErrUnmarshalJSON")
+}
+
+func (suite *ProfileSuite) TestErrUnmarshalJSONDoesNotMatchValidTokenData() {
+	token, err := profile.UnmarshalTokenFromBitbucketData([]byte(`{"access_token": "abc", "token_type": "bearer"}`))
+	suite.Require().NoError(err)
+	suite.Require().NotNil(token)
+	suite.Equal("abc", token.AccessToken)
 }

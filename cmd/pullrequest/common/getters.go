@@ -2,6 +2,7 @@ package prcommon
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -20,7 +21,7 @@ type PullRequestID struct {
 func GetPullRequestIDsWithState(context context.Context, cmd *cobra.Command, state string) (ids []string, err error) {
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
-		return []string{}, err
+		return []string{}, fmt.Errorf("cannot get repository: %w", err)
 	}
 	return GetPullRequestIDsFromRepositoryWithState(context, cmd, repository, state)
 }

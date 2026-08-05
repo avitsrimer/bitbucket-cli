@@ -2,6 +2,7 @@ package profile
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -13,7 +14,6 @@ import (
 
 	"github.com/briandowns/spinner"
 	"github.com/gildas/bitbucket-cli/cmd/common"
-	"github.com/gildas/go-errors"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 	"gopkg.in/ini.v1"
@@ -36,12 +36,12 @@ func authorizeProcess(cmd *cobra.Command, args []string) (err error) {
 	ctx := cmd.Context()
 
 	if len(args) == 0 {
-		return errors.ArgumentMissing.With("profile")
+		return errors.New("argument profile is missing")
 	}
 
 	_, err = GetProfileFromCommand(ctx, cmd)
-	if errors.Is(err, errors.Empty) || len(Profiles) == 0 {
-		return errors.Errorf("No profiles found")
+	if errors.Is(err, ErrNoProfiles) || len(Profiles) == 0 {
+		return errors.New("no profiles found")
 	}
 	if err != nil {
 		return err
@@ -50,10 +50,10 @@ func authorizeProcess(cmd *cobra.Command, args []string) (err error) {
 	lgr.Printf("[DEBUG] authorizing profile %s (valid names: %v)", args[0], Profiles.Names())
 	profile, found := Profiles.Find(args[0])
 	if !found {
-		return errors.NotFound.With("profile", args[0])
+		return fmt.Errorf("profile %s not found", args[0])
 	}
 	if profile.CallbackPort == 0 {
-		return errors.Join(errors.Errorf("Profile %s does not support Authorization Code Grant", profile.Name), errors.ArgumentInvalid.With("profile", profile.Name))
+		return fmt.Errorf("profile %s does not support Authorization Code Grant", profile.Name)
 	}
 
 	if !common.WhatIf(cmd, "Authorizing profile "+args[0]) {
@@ -130,12 +130,12 @@ func openBrowser(ctx context.Context, url url.URL) error {
 	case "linux":
 		cmd = "xdg-open"
 		if _, exists := os.LookupEnv("SSH_CONNECTION"); exists {
-			return errors.New("Cannot open browser in SSH session")
+			return errors.New("cannot open browser in SSH session")
 		}
 		if common.IsWSL() {
 			// If the flag interop=true is not set in /etc/wsl.conf, return an error
 			if wslInteropDisabled() {
-				return errors.New("Cannot open browser in WSL without interop enabled")
+				return errors.New("cannot open browser in WSL without interop enabled")
 			}
 			cmd = "cmd.exe"
 			args = append(args, "/C", "start")
@@ -150,7 +150,10 @@ func openBrowser(ctx context.Context, url url.URL) error {
 	}
 
 	args = append(args, `"`+url.String()+`"`)
-	return exec.CommandContext(ctx, cmd, args...).Start() //nolint:gosec // cmd is one of a fixed set of literals chosen from runtime.GOOS above, never external input
+	if err := exec.CommandContext(ctx, cmd, args...).Start(); err != nil { //nolint:gosec // cmd is one of a fixed set of literals chosen from runtime.GOOS above, never external input
+		return fmt.Errorf("cannot open browser: %w", err)
+	}
+	return nil
 }
 
 // wslInteropDisabled reports whether /etc/wsl.conf explicitly disables WSL interop.

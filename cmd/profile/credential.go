@@ -1,7 +1,8 @@
 package profile
 
 import (
-	"github.com/gildas/go-errors"
+	"fmt"
+
 	"github.com/zalando/go-keyring"
 )
 
@@ -15,10 +16,10 @@ type Credential struct {
 func (profile Profile) GetCredentialFromVault(service, username string) (credential *Credential, err error) {
 	secret, err := keyring.Get(service, username)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to get secret from keyring")
+		return nil, fmt.Errorf("failed to get secret from keyring: %w", err)
 	}
 	if secret == "" {
-		return nil, errors.NotFound.With("key", service)
+		return nil, fmt.Errorf("key %s not found", service)
 	}
 	return &Credential{Username: username, Password: secret}, nil
 }
@@ -26,7 +27,7 @@ func (profile Profile) GetCredentialFromVault(service, username string) (credent
 // SetCredentialInVault stores the credential in the Windows Credential Manager or Linux/macOS keychain.
 func (profile Profile) SetCredentialInVault(service, username, password string) error {
 	if err := keyring.Set(service, username, password); err != nil {
-		return errors.Wrap(err, "failed to set secret in keyring")
+		return fmt.Errorf("failed to set secret in keyring: %w", err)
 	}
 	return nil
 }
@@ -34,7 +35,7 @@ func (profile Profile) SetCredentialInVault(service, username, password string) 
 // DeleteCredentialFromVault removes the credential from the Windows Credential Manager or Linux/macOS keychain.
 func (profile Profile) DeleteCredentialFromVault(service, username string) error {
 	if err := keyring.Delete(service, username); err != nil {
-		return errors.Wrap(err, "failed to delete secret from keyring")
+		return fmt.Errorf("failed to delete secret from keyring: %w", err)
 	}
 	return nil
 }

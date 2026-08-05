@@ -2,10 +2,10 @@ package common
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/url"
 
 	"github.com/gildas/go-core"
-	"github.com/gildas/go-errors"
 )
 
 type Link struct {
@@ -35,7 +35,10 @@ func (link Link) MarshalJSON() (data []byte, err error) {
 			HREF:      core.URL(link.HREF),
 		})
 	}
-	return data, errors.JSONMarshalError.Wrap(err)
+	if err != nil {
+		return nil, fmt.Errorf("cannot marshal link to json: %w", err)
+	}
+	return data, nil
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface.
@@ -45,10 +48,8 @@ func (link *Link) UnmarshalJSON(data []byte) (err error) {
 	var header struct {
 		Name string `json:"name"`
 	}
-	if err = json.Unmarshal(data, &header); errors.Is(err, errors.JSONUnmarshalError) {
-		return err
-	} else if err != nil {
-		return errors.JSONUnmarshalError.Wrap(err)
+	if err = json.Unmarshal(data, &header); err != nil {
+		return fmt.Errorf("cannot unmarshal link: %w", err)
 	}
 	switch header.Name {
 	case "ssh":
@@ -56,10 +57,8 @@ func (link *Link) UnmarshalJSON(data []byte) (err error) {
 			surrogate
 			GitRef string `json:"href"`
 		}
-		if err = json.Unmarshal(data, &inner); errors.Is(err, errors.JSONUnmarshalError) {
-			return err
-		} else if err != nil {
-			return errors.JSONUnmarshalError.Wrap(err)
+		if err = json.Unmarshal(data, &inner); err != nil {
+			return fmt.Errorf("cannot unmarshal link: %w", err)
 		}
 		*link = Link(inner.surrogate)
 		link.GitRef = inner.GitRef
@@ -69,13 +68,11 @@ func (link *Link) UnmarshalJSON(data []byte) (err error) {
 			HREF core.URL `json:"href"`
 		}
 
-		if err = json.Unmarshal(data, &inner); errors.Is(err, errors.JSONUnmarshalError) {
-			return err
-		} else if err != nil {
-			return errors.JSONUnmarshalError.Wrap(err)
+		if err = json.Unmarshal(data, &inner); err != nil {
+			return fmt.Errorf("cannot unmarshal link: %w", err)
 		}
 		*link = Link(inner.surrogate)
 		link.HREF = inner.HREF.AsURL()
 	}
-	return err
+	return nil
 }

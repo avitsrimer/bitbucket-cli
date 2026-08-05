@@ -6,6 +6,7 @@ import (
 	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -15,12 +16,14 @@ import (
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/go-core"
-	"github.com/gildas/go-errors"
 	"github.com/go-pkgz/lgr"
 	"github.com/kataras/tablewriter"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
+
+// ErrNoProfiles is returned by GetProfileFromCommand when no profile is configured yet.
+var ErrNoProfiles = errors.New("no profiles configured")
 
 // redactWithHash redacts a secret value, keeping a short hash so repeated values remain
 // distinguishable in logs without exposing the value itself
@@ -146,15 +149,15 @@ func GetProfileFromCommand(context context.Context, cmd *cobra.Command) (profile
 		var found bool
 		lgr.Printf("[DEBUG] command line has profile flag set to %s", cmd.Flag("profile").Value.String())
 		if profile, found = Profiles.Find(cmd.Flag("profile").Value.String()); !found {
-			return nil, errors.ArgumentInvalid.With("profile", cmd.Flag("profile").Value.String())
+			return nil, fmt.Errorf("argument profile is invalid (value: %s)", cmd.Flag("profile").Value.String())
 		}
 	case Current == nil:
 		if len(Profiles) == 0 {
-			return nil, errors.Empty.With("profiles")
+			return nil, ErrNoProfiles
 		}
 		Current = Profiles.Current(context)
 		if Current == nil {
-			return nil, errors.ArgumentMissing.With("profile")
+			return nil, errors.New("argument profile is missing")
 		}
 		profile = Current
 	default:
@@ -269,7 +272,7 @@ func (profile *Profile) getSecretOrFromVault(_ context.Context, kind, secret, us
 		lgr.Printf("[DEBUG] loaded %s for %s from the vault", kind, username)
 		return credential.Password, nil
 	}
-	return "", errors.Join(errors.Errorf("Profile %s does not have a %s", profile.Name, kind), err)
+	return "", fmt.Errorf("profile %s does not have a %s: %w", profile.Name, kind, err)
 }
 
 // LoadSecrets fills the profile with its secret from the Vault as needed
@@ -406,7 +409,7 @@ func (profile Profile) PrintJSON(_ context.Context, cmd *cobra.Command, payload 
 	lgr.Printf("[DEBUG] printing payload as JSON")
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
-		return errors.JSONMarshalError.Wrap(err)
+		return fmt.Errorf("cannot marshal payload to json: %w", err)
 	}
 	fmt.Println(string(data))
 	return nil
@@ -417,7 +420,7 @@ func (profile Profile) PrintYAML(_ context.Context, cmd *cobra.Command, payload 
 	lgr.Printf("[DEBUG] printing payload as YAML")
 	data, err := yaml.Marshal(payload)
 	if err != nil {
-		return errors.JSONMarshalError.Wrap(err)
+		return fmt.Errorf("cannot marshal payload to yaml: %w", err)
 	}
 	fmt.Println(string(data))
 	return nil
@@ -455,7 +458,7 @@ func (profile Profile) printDelimited(_ context.Context, cmd *cobra.Command, pay
 			}
 		}
 	default:
-		return errors.ArgumentInvalid.With("payload", "not a tableable")
+		return errors.New("argument payload is invalid: not a tableable")
 	}
 	return nil
 }
@@ -482,7 +485,7 @@ func (profile Profile) PrintTable(_ context.Context, cmd *cobra.Command, payload
 			}
 		}
 	default:
-		return errors.ArgumentInvalid.With("payload", "not a tableable")
+		return errors.New("argument payload is invalid: not a tableable")
 	}
 	table.Render()
 	return nil
@@ -490,10 +493,10 @@ func (profile Profile) PrintTable(_ context.Context, cmd *cobra.Command, payload
 
 // Validate validates a Profile
 func (profile *Profile) Validate() error {
-	var merr errors.MultiError
+	var errs []error
 
 	if profile.Name == "" {
-		merr.Append(errors.ArgumentMissing.With("name"))
+		errs = append(errs, errors.New("argument name is missing"))
 	}
 
 	if profile.VaultKey == "" && runtime.GOOS != "windows" {
@@ -504,7 +507,7 @@ func (profile *Profile) Validate() error {
 		profile.CloneProtocol = "git"
 	}
 	if profile.CloneProtocol != "git" && profile.CloneProtocol != "https" && profile.CloneProtocol != "ssh" {
-		merr.Append(errors.ArgumentInvalid.With("cloneProtocol", profile.CloneProtocol))
+		errs = append(errs, fmt.Errorf("argument cloneProtocol is invalid (value: %s)", profile.CloneProtocol))
 	}
 	if profile.OutputFormat == "" {
 		profile.OutputFormat = "table"
@@ -512,9 +515,9 @@ func (profile *Profile) Validate() error {
 	if profile.DefaultPageLength == 0 {
 		profile.DefaultPageLength = DefaultPageLength
 	} else if profile.DefaultPageLength < 0 || profile.DefaultPageLength > 100 {
-		merr.Append(errors.Errorf("Default Page Length must be between 0 and 100 (value: %d)", profile.DefaultPageLength))
+		errs = append(errs, fmt.Errorf("default page length must be between 0 and 100 (value: %d)", profile.DefaultPageLength))
 	}
-	return merr.AsError()
+	return errors.Join(errs...)
 }
 
 // MarshalJSON marshals this profile to JSON
@@ -542,7 +545,10 @@ func (profile Profile) MarshalJSON() ([]byte, error) {
 		APIRoot:         (*core.URL)(profile.APIRoot),
 		ErrorProcessing: errorProcessing,
 	})
-	return data, errors.JSONMarshalError.Wrap(err)
+	if err != nil {
+		return nil, fmt.Errorf("cannot marshal profile to json: %w", err)
+	}
+	return data, nil
 }
 
 // UnmarshalJSON unmarshals this profile from JSON
@@ -555,11 +561,14 @@ func (profile *Profile) UnmarshalJSON(data []byte) error {
 		APIRoot *core.URL `json:"apiRoot,omitempty"`
 	}
 	if err := json.Unmarshal(data, &inner); err != nil {
-		return errors.JSONUnmarshalError.Wrap(err)
+		return fmt.Errorf("cannot unmarshal profile: %w", err)
 	}
 	*profile = Profile(inner.surrogate)
 	profile.APIRoot = (*url.URL)(inner.APIRoot)
-	return errors.JSONUnmarshalError.Wrap(profile.Validate())
+	if err := profile.Validate(); err != nil {
+		return fmt.Errorf("cannot unmarshal profile: %w", err)
+	}
+	return nil
 }
 
 // getWorkspaceSlugs gets the slugs of all workspaces

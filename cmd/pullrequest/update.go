@@ -16,7 +16,6 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/user"
 	"github.com/gildas/bitbucket-cli/cmd/workspace"
 	"github.com/gildas/go-core"
-	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
@@ -75,12 +74,12 @@ func updateValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]st
 func updateProcess(cmd *cobra.Command, args []string) error {
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot get profile: %w", err)
 	}
 
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot get repository: %w", err)
 	}
 
 	var pullrequest PullRequest
@@ -93,7 +92,7 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 		&pullrequest,
 	)
 	if err != nil {
-		return errors.Join(errors.Errorf("Failed to get pullrequest %s", args[0]), err)
+		return fmt.Errorf("failed to get pullrequest %s: %w", args[0], err)
 	}
 	lgr.Printf("[DEBUG] fetched pullrequest %s", args[0])
 	lgr.Printf("[DEBUG] pullrequest %s details", args[0])
@@ -111,7 +110,7 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 	}
 	if err != nil {
 		lgr.Printf("[ERROR] failed to get workspace of pullrequest destination repository: %v", err)
-		return errors.Join(errors.Errorf("Failed to get workspace of pullrequest destination repository"), err)
+		return fmt.Errorf("failed to get workspace of pullrequest destination repository: %w", err)
 	}
 	lgr.Printf("[DEBUG] pullrequest workspace: %s", pullrequestWorkspace)
 
@@ -159,10 +158,13 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 		&updated,
 	)
 	if err != nil {
-		return errors.Join(errors.Errorf("Failed to update pullrequest %s", args[0]), err)
+		return fmt.Errorf("failed to update pullrequest %s: %w", args[0], err)
 	}
 
-	return profile.Print(cmd.Context(), cmd, updated)
+	if err := profile.Print(cmd.Context(), cmd, updated); err != nil {
+		return fmt.Errorf("cannot print result: %w", err)
+	}
+	return nil
 }
 
 // applySimpleFieldUpdates copies the flag-backed simple fields onto pullrequest and reports
@@ -229,7 +231,7 @@ func resolveDefaultReviewers(ctx context.Context, cmd *cobra.Command, pullreques
 	reviewers, err := pullrequest.Source.Repository.GetEffectiveDefaultReviewers(ctx, cmd)
 	if err != nil {
 		lgr.Printf("[ERROR] failed to get default reviewers: %v", err)
-		return err
+		return fmt.Errorf("cannot get default reviewers: %w", err)
 	}
 	lgr.Printf("[DEBUG] found %d default reviewers", len(reviewers))
 

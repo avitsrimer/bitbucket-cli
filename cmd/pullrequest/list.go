@@ -52,7 +52,7 @@ func init() {
 func listProcess(cmd *cobra.Command, args []string) (err error) {
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot get repository: %w", err)
 	}
 
 	var uripath string
@@ -80,5 +80,8 @@ func listProcess(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 	core.Sort(pullrequests, columns.SortBy(listOptions.SortBy.Value))
-	return profile.Current.Print(cmd.Context(), cmd, PullRequests(pullrequests))
+	if err := profile.Current.Print(cmd.Context(), cmd, PullRequests(pullrequests)); err != nil {
+		return fmt.Errorf("cannot print result: %w", err)
+	}
+	return nil
 }

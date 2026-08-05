@@ -1,12 +1,13 @@
 package pullrequest
 
 import (
+	"fmt"
+
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/bitbucket-cli/cmd/user"
-	"github.com/gildas/go-errors"
 	"github.com/spf13/cobra"
 )
 
@@ -38,17 +39,17 @@ func declineValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]s
 func declineProcess(cmd *cobra.Command, args []string) (err error) {
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
-		return errors.Join(errors.Errorf("Cannot decline Pull Request"), err)
+		return fmt.Errorf("cannot decline pull request: %w", err)
 	}
 
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
-		return errors.Join(errors.Errorf("Cannot decline Pull Request"), err)
+		return fmt.Errorf("cannot decline pull request: %w", err)
 	}
 
 	pullRequestID, err := GetPullRequestIDFromArgs(cmd.Context(), cmd, repository, args)
 	if err != nil {
-		return errors.Join(errors.Errorf("Cannot decline Pull Request"), err)
+		return fmt.Errorf("cannot decline pull request: %w", err)
 	}
 
 	if !common.WhatIf(cmd, "Declining pullrequest %s", pullRequestID) {
@@ -64,7 +65,10 @@ func declineProcess(cmd *cobra.Command, args []string) (err error) {
 		&participant,
 	)
 	if err != nil {
-		return errors.Join(errors.Errorf("Failed to decline Pull Request %s", pullRequestID), err)
+		return fmt.Errorf("failed to decline pull request %s: %w", pullRequestID, err)
 	}
-	return profile.Print(cmd.Context(), cmd, participant)
+	if err := profile.Print(cmd.Context(), cmd, participant); err != nil {
+		return fmt.Errorf("cannot print result: %w", err)
+	}
+	return nil
 }

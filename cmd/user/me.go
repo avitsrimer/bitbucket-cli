@@ -1,6 +1,8 @@
 package user
 
 import (
+	"fmt"
+
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
@@ -36,12 +38,15 @@ func meProcess(cmd *cobra.Command, args []string) (err error) {
 			return emailsErr
 		}
 		lgr.Printf("[DEBUG] displaying emails for the current authenticated user")
-		return profile.Current.Print(cmd.Context(), cmd, Emails(emails))
+		if err = profile.Current.Print(cmd.Context(), cmd, Emails(emails)); err != nil {
+			return fmt.Errorf("cannot print result: %w", err)
+		}
+		return nil
 	}
 
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot get profile: %w", err)
 	}
 
 	lgr.Printf("[DEBUG] displaying current authenticated user")
@@ -50,5 +55,8 @@ func meProcess(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 	lgr.Printf("[DEBUG] current user retrieved")
-	return profile.Print(cmd.Context(), cmd, user)
+	if err := profile.Print(cmd.Context(), cmd, user); err != nil {
+		return fmt.Errorf("cannot print result: %w", err)
+	}
+	return nil
 }

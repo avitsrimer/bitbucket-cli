@@ -1,6 +1,7 @@
 package pullrequest
 
 import (
+	"fmt"
 	"io"
 	"os"
 
@@ -8,7 +9,6 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
-	"github.com/gildas/go-errors"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -41,29 +41,31 @@ func validPatchArgs(cmd *cobra.Command, args []string, toComplete string) ([]str
 func patchProcess(cmd *cobra.Command, args []string) error {
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot get profile: %w", err)
 	}
 
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
-		return errors.Join(errors.Errorf("Cannot show patch of Pull Request"), err)
+		return fmt.Errorf("cannot show patch of pull request: %w", err)
 	}
 
 	pullRequestID, err := GetPullRequestIDFromArgs(cmd.Context(), cmd, repository, args)
 	if err != nil {
-		return errors.Join(errors.Errorf("Cannot show patch of Pull Request"), err)
+		return fmt.Errorf("cannot show patch of pull request: %w", err)
 	}
 
-	lgr.Printf("[DEBUG] displaying patch for Pull Request ID: %s", pullRequestID)
-	if !common.WhatIf(cmd, "Showing patch for Pull Request "+pullRequestID) {
+	lgr.Printf("[DEBUG] displaying patch for pull request ID: %s", pullRequestID)
+	if !common.WhatIf(cmd, "Showing patch for pull request "+pullRequestID) {
 		return nil
 	}
 
 	patch, err := profile.GetRaw(cmd.Context(), cmd, repository.GetPath("pullrequests", pullRequestID, "patch"))
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot get resource: %w", err)
 	}
 
-	_, err = io.Copy(os.Stdout, patch)
-	return err
+	if _, err := io.Copy(os.Stdout, patch); err != nil {
+		return fmt.Errorf("cannot write output: %w", err)
+	}
+	return nil
 }

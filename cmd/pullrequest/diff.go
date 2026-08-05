@@ -1,6 +1,7 @@
 package pullrequest
 
 import (
+	"fmt"
 	"io"
 	"os"
 
@@ -8,7 +9,6 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
-	"github.com/gildas/go-errors"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -47,21 +47,21 @@ func validDiffArgs(cmd *cobra.Command, args []string, toComplete string) ([]stri
 func diffProcess(cmd *cobra.Command, args []string) error {
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot get profile: %w", err)
 	}
 
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
-		return errors.Join(errors.Errorf("Cannot show diff of Pull Request"), err)
+		return fmt.Errorf("cannot show diff of pull request: %w", err)
 	}
 
 	pullRequestID, err := GetPullRequestIDFromArgs(cmd.Context(), cmd, repository, args)
 	if err != nil {
-		return errors.Join(errors.Errorf("Cannot show diff of Pull Request"), err)
+		return fmt.Errorf("cannot show diff of pull request: %w", err)
 	}
 
-	lgr.Printf("[DEBUG] displaying diff for Pull Request ID: %s", pullRequestID)
-	if !common.WhatIf(cmd, "Showing diff for Pull Request ID "+pullRequestID) {
+	lgr.Printf("[DEBUG] displaying diff for pull request ID: %s", pullRequestID)
+	if !common.WhatIf(cmd, "Showing diff for pull request ID "+pullRequestID) {
 		return nil
 	}
 
@@ -72,9 +72,11 @@ func diffProcess(cmd *cobra.Command, args []string) error {
 
 	diff, err := profile.GetRaw(cmd.Context(), cmd, uripath)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot get resource: %w", err)
 	}
 
-	_, err = io.Copy(os.Stdout, diff)
-	return err
+	if _, err := io.Copy(os.Stdout, diff); err != nil {
+		return fmt.Errorf("cannot write output: %w", err)
+	}
+	return nil
 }

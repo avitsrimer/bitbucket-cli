@@ -2,9 +2,8 @@ package profile
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
-
-	"github.com/gildas/go-errors"
 )
 
 // BitBucketError represents an error returned by the BitBucket API
@@ -53,7 +52,7 @@ func (bberr *BitBucketError) UnmarshalJSON(data []byte) (err error) {
 		*bberr = BitBucketError(innerType1.surrogate)
 		bberr.Message = innerType1.Error.Message
 		bberr.Fields = innerType1.Error.Fields
-		return err
+		return nil
 	}
 
 	var innerType2 struct {
@@ -75,7 +74,7 @@ func (bberr *BitBucketError) UnmarshalJSON(data []byte) (err error) {
 				bberr.Fields[field] = []string{message}
 			}
 		}
-		return err
+		return nil
 	}
 
 	var innerType3 struct {
@@ -88,11 +87,11 @@ func (bberr *BitBucketError) UnmarshalJSON(data []byte) (err error) {
 	}
 
 	if err = json.Unmarshal(data, &innerType3); err != nil {
-		return errors.JSONUnmarshalError.Wrap(err)
+		return fmt.Errorf("cannot unmarshal bitbucket error: %w", err)
 	}
 	*bberr = BitBucketError(innerType3.surrogate)
 	bberr.Message = innerType3.Error.Message
 	bberr.Detail = innerType3.Error.Detail
 	bberr.Fields = innerType3.Error.Fields
-	return err
+	return nil
 }

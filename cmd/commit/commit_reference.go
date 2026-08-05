@@ -2,9 +2,9 @@ package commit
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
-	"github.com/gildas/go-errors"
 )
 
 type CommitReference struct {
@@ -37,5 +37,8 @@ func (reference CommitReference) MarshalJSON() (data []byte, err error) {
 		surrogate: surrogate(reference),
 		Links:     links,
 	})
-	return data, errors.JSONMarshalError.Wrap(err)
+	if err != nil {
+		return nil, fmt.Errorf("cannot marshal json: %w", err)
+	}
+	return data, nil
 }

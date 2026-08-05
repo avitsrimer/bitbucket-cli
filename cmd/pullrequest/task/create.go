@@ -1,6 +1,7 @@
 package task
 
 import (
+	"fmt"
 	"strconv"
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
@@ -8,7 +9,6 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/pullrequest/comment"
 	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
-	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
@@ -57,12 +57,12 @@ func init() {
 func createProcess(cmd *cobra.Command, args []string) error {
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot get profile: %w", err)
 	}
 
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot get repository: %w", err)
 	}
 
 	task := TaskCreator{
@@ -74,7 +74,7 @@ func createProcess(cmd *cobra.Command, args []string) error {
 	if createOptions.CommentID.Value != "" {
 		commentID, parseErr := strconv.ParseInt(createOptions.CommentID.Value, 10, 64)
 		if parseErr != nil {
-			return errors.Join(errors.Errorf("Failed to parse comment ID %s", createOptions.CommentID.Value), parseErr)
+			return fmt.Errorf("failed to parse comment ID %s: %w", createOptions.CommentID.Value, parseErr)
 		}
 		task.Comment = &comment.ParentReference{
 			ID: commentID,
@@ -96,7 +96,10 @@ func createProcess(cmd *cobra.Command, args []string) error {
 		&created,
 	)
 	if err != nil {
-		return errors.Join(errors.Errorf("Failed to create Pull Request Task on Pull Request %s", createOptions.PullRequestID.Value), err)
+		return fmt.Errorf("failed to create pull request task on pull request %s: %w", createOptions.PullRequestID.Value, err)
 	}
-	return profile.Print(cmd.Context(), cmd, created)
+	if err := profile.Print(cmd.Context(), cmd, created); err != nil {
+		return fmt.Errorf("cannot print result: %w", err)
+	}
+	return nil
 }

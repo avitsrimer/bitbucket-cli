@@ -2,6 +2,7 @@ package branch_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"reflect"
 	"strings"
@@ -45,7 +46,10 @@ func (suite *BranchSuite) LoadTestData(filename string) []byte {
 
 func (suite *BranchSuite) UnmarshalData(filename string, v any) error {
 	data := suite.LoadTestData(filename)
-	return json.Unmarshal(data, v)
+	if err := json.Unmarshal(data, v); err != nil {
+		return fmt.Errorf("cannot unmarshal test data: %w", err)
+	}
+	return nil
 }
 
 // *****************************************************************************

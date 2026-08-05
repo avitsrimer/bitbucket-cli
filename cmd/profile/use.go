@@ -1,8 +1,10 @@
 package profile
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/gildas/bitbucket-cli/cmd/common"
-	"github.com/gildas/go-errors"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -28,7 +30,7 @@ func useProcess(cmd *cobra.Command, args []string) (err error) {
 	ctx := cmd.Context()
 
 	if len(args) == 0 {
-		return errors.ArgumentMissing.With("profile")
+		return errors.New("argument profile is missing")
 	}
 	if _, err := GetProfileFromCommand(ctx, cmd); err != nil {
 		return err
@@ -37,12 +39,14 @@ func useProcess(cmd *cobra.Command, args []string) (err error) {
 	lgr.Printf("[DEBUG] using profile %s (valid names: %v)", args[0], Profiles.Names())
 	profile, found := Profiles.Find(args[0])
 	if !found {
-		return errors.NotFound.With("profile", args[0])
+		return fmt.Errorf("profile %s not found", args[0])
 	}
 	if common.WhatIf(cmd, "Using profile %s as default", args[0]) {
 		Profiles.SetCurrent(profile.Name)
 		viper.Set("profiles", Profiles)
-		return viper.WriteConfig()
+		if err := viper.WriteConfig(); err != nil {
+			return fmt.Errorf("cannot write config file: %w", err)
+		}
 	}
 	return nil
 }

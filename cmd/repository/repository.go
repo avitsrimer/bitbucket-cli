@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path"
 	"strings"
@@ -15,7 +16,6 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/remote"
 	"github.com/gildas/bitbucket-cli/cmd/user"
 	"github.com/gildas/bitbucket-cli/cmd/workspace"
-	"github.com/gildas/go-errors"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -82,7 +82,7 @@ func GetRepositoryName(context context.Context, cmd *cobra.Command) (repositoryN
 	if remote, err := remote.GetRemote(context, cmd); err == nil {
 		return remote.RepositoryName(), nil
 	}
-	return "", errors.ArgumentMissing.With("repository")
+	return "", errors.New("argument repository is missing")
 }
 
 // GetRepository gets a repository by its slug
@@ -111,7 +111,7 @@ func GetRepositoryBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID s
 		ws, err = workspace.GetWorkspace(ctx, cmd)
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cannot get workspace: %w", err)
 	}
 
 	// In case we got a real UUID, get the Bitbucket UUID
@@ -127,7 +127,7 @@ func GetRepositoryBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID s
 	lgr.Printf("[DEBUG] getting repository %s in workspace %s", slugOrID, ws.Slug)
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cannot get profile: %w", err)
 	}
 
 	err = profile.Get(
@@ -136,10 +136,11 @@ func GetRepositoryBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID s
 		fmt.Sprintf("/repositories/%s/%s", ws.Slug, slugOrID),
 		&repository,
 	)
-	if err == nil {
-		_ = RepositoryCache.Set(*repository, fmt.Sprintf("%s/%s", ws.Slug, slugOrID))
+	if err != nil {
+		return repository, fmt.Errorf("cannot get resource: %w", err)
 	}
-	return repository, err
+	_ = RepositoryCache.Set(*repository, fmt.Sprintf("%s/%s", ws.Slug, slugOrID))
+	return repository, nil
 }
 
 // GetEffectiveDefaultReviewers gets the effective default reviewers for a repository
@@ -159,30 +160,38 @@ func (repository Repository) GetWorkspace(ctx context.Context, cmd *cobra.Comman
 		lgr.Printf("[DEBUG] getting workspace of repository %s/%s from full name", repository.FullName, repository.Slug)
 		components := strings.Split(repository.FullName, "/")
 		if len(components) == 2 {
-			return workspace.GetWorkspaceBySlugOrID(ctx, cmd, components[0])
+			ws, err := workspace.GetWorkspaceBySlugOrID(ctx, cmd, components[0])
+			if err != nil {
+				return nil, fmt.Errorf("cannot get workspace: %w", err)
+			}
+			return ws, nil
 		}
 	}
-	return workspace.GetWorkspace(ctx, cmd)
+	ws, err := workspace.GetWorkspace(ctx, cmd)
+	if err != nil {
+		return nil, fmt.Errorf("cannot get workspace: %w", err)
+	}
+	return ws, nil
 }
 
 // Validate validates a Repository
 func (repository *Repository) Validate() error {
-	var merr errors.MultiError
+	var errs []error
 
 	if repository.ID.IsNil() {
-		merr.Append(errors.ArgumentMissing.With("uuid"))
+		errs = append(errs, errors.New("argument uuid is missing"))
 	}
 	if repository.Name == "" {
-		merr.Append(errors.ArgumentMissing.With("name"))
+		errs = append(errs, errors.New("argument name is missing"))
 	}
 	if repository.FullName == "" {
-		merr.Append(errors.ArgumentMissing.With("full_name"))
+		errs = append(errs, errors.New("argument full_name is missing"))
 	}
 	if repository.Slug == "" {
 		repository.Slug = repository.Name
 	}
 
-	return merr.AsError()
+	return errors.Join(errs...)
 }
 
 // MarshalJSON implements the json.Marshaler interface.
@@ -250,7 +259,10 @@ func (repository Repository) MarshalJSON() (data []byte, err error) {
 		HasWiki:    hasWiki,
 		IsPrivate:  isPrivate,
 	})
-	return data, errors.JSONMarshalError.Wrap(err)
+	if err != nil {
+		return nil, fmt.Errorf("cannot marshal repository to json: %w", err)
+	}
+	return data, nil
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface.
@@ -264,12 +276,15 @@ func (repository *Repository) UnmarshalJSON(data []byte) (err error) {
 		MainBranch branch `json:"mainbranch"`
 	}
 	if err = json.Unmarshal(data, &inner); err != nil {
-		return errors.JSONUnmarshalError.Wrap(err)
+		return fmt.Errorf("cannot unmarshal repository: %w", err)
 	}
 	if inner.Type != repository.GetType() {
-		return errors.JSONUnmarshalError.Wrap(errors.InvalidType.With(inner.Type, repository.GetType()))
+		return fmt.Errorf("cannot unmarshal repository: invalid type %s, expected %s", inner.Type, repository.GetType())
 	}
 	*repository = Repository(inner.surrogate)
 	repository.MainBranch = inner.MainBranch.Name
-	return errors.JSONUnmarshalError.Wrap(repository.Validate())
+	if err := repository.Validate(); err != nil {
+		return fmt.Errorf("cannot unmarshal repository: %w", err)
+	}
+	return nil
 }

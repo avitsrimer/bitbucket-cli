@@ -160,13 +160,13 @@ func (profiles *profiles) Load(_ context.Context, cmd *cobra.Command) error {
 
 	if len(viper.AllKeys()) == 0 {
 		if err := common.Initialize(cmd); err != nil {
-			return err
+			return fmt.Errorf("cannot initialize: %w", err)
 		}
 	}
 
 	lgr.Printf("[DEBUG] loading profiles from %s", viper.ConfigFileUsed())
 	if err := viper.UnmarshalKey("profiles", &profiles); err != nil {
-		return err
+		return fmt.Errorf("cannot read config file: %w", err)
 	}
 	lgr.Printf("[DEBUG] loaded %d profiles", len(*profiles))
 	return nil
@@ -191,24 +191,40 @@ func saveProfilesConfig() error {
 	viper.Set("profiles", Profiles)
 	if viper.ConfigFileUsed() != "" {
 		lgr.Printf("[DEBUG] writing configuration to %s", viper.ConfigFileUsed())
-		return viper.WriteConfig()
+		if err := viper.WriteConfig(); err != nil {
+			return fmt.Errorf("cannot write config file: %w", err)
+		}
+		return nil
 	}
 	if configDir, _ := os.UserConfigDir(); configDir != "" {
-		configPath := filepath.Join(configDir, "bitbucket")
-		if err := os.MkdirAll(configPath, 0o750); err != nil {
-			return err
-		}
-		configFile := filepath.Join(configPath, "config-cli.yml")
-		if err := viper.WriteConfigAs(configFile); err != nil {
-			return err
-		}
-		if info, err := os.Stat(configFile); err == nil && info.Mode() != 0o600 {
-			return os.Chmod(configFile, 0o600)
-		}
+		return writeProfilesConfigToDir(configDir)
 	}
+
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot determine home directory: %w", err)
 	}
-	return viper.WriteConfigAs(filepath.Join(homeDir, ".bitbucket-cli"))
+	if err := viper.WriteConfigAs(filepath.Join(homeDir, ".bitbucket-cli")); err != nil {
+		return fmt.Errorf("cannot write config file: %w", err)
+	}
+	return nil
+}
+
+// writeProfilesConfigToDir writes the profiles config file into configDir/bitbucket/config-cli.yml,
+// creating the directory as needed and restricting the file to 0600 once written
+func writeProfilesConfigToDir(configDir string) error {
+	configPath := filepath.Join(configDir, "bitbucket")
+	if err := os.MkdirAll(configPath, 0o750); err != nil {
+		return fmt.Errorf("cannot create config directory: %w", err)
+	}
+	configFile := filepath.Join(configPath, "config-cli.yml")
+	if err := viper.WriteConfigAs(configFile); err != nil {
+		return fmt.Errorf("cannot write config file: %w", err)
+	}
+	if info, err := os.Stat(configFile); err == nil && info.Mode() != 0o600 {
+		if err := os.Chmod(configFile, 0o600); err != nil {
+			return fmt.Errorf("cannot set config file permissions: %w", err)
+		}
+	}
+	return nil
 }

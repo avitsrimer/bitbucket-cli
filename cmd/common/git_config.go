@@ -2,13 +2,14 @@ package common
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
-	"github.com/gildas/go-errors"
 	"github.com/go-pkgz/lgr"
 	"gopkg.in/ini.v1"
 )
@@ -26,7 +27,7 @@ func OpenGitConfig(_ context.Context) (io.ReadCloser, error) {
 		folder = resolveWorktreeGitDir(folder, filepath.Join(folder, ".git"))
 		filename := filepath.Join(folder, ".git", "config")
 		if folder == last {
-			return nil, errors.NotFound.With("file", filename)
+			return nil, fmt.Errorf("git config file %s not found", filename)
 		}
 		lgr.Printf("[DEBUG] opening %s", filename)
 		file, err := os.Open(filename) //nolint:gosec // filename is built by walking up from the process's own working directory, not from external input
@@ -34,7 +35,7 @@ func OpenGitConfig(_ context.Context) (io.ReadCloser, error) {
 			return file, nil
 		}
 		if !errors.Is(err, os.ErrNotExist) {
-			return nil, errors.RuntimeError.Wrap(err)
+			return nil, fmt.Errorf("runtime error: %w", err)
 		}
 		if folder == "/" {
 			return nil, errors.New("not a git repository")
@@ -79,7 +80,7 @@ func GetGitSection(ctx context.Context, reader io.Reader, name string) (section 
 	}
 	section = data.Section(name)
 	if section == nil {
-		return nil, errors.NotFound.With("section", name)
+		return nil, fmt.Errorf("git config section %s not found", name)
 	}
 	return section, nil
 }
@@ -102,11 +103,11 @@ func GetGitSectionsMatching(ctx context.Context, reader io.Reader, rex *regexp.R
 func getINIContent(_ context.Context, reader io.Reader) (data *ini.File, err error) {
 	payload, err := io.ReadAll(reader)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cannot read git config: %w", err)
 	}
 	data, err = ini.Load(payload)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cannot parse git config: %w", err)
 	}
 	return data, nil
 }

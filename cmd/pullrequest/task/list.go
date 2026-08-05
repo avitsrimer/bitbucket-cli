@@ -51,7 +51,7 @@ func listProcess(cmd *cobra.Command, args []string) (err error) {
 
 	repository, err := repository.GetRepository(ctx, cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot get repository: %w", err)
 	}
 
 	lgr.Printf("[DEBUG] listing pullrequest tasks for pullrequest %s", listOptions.PullRequestID.Value)
@@ -74,5 +74,8 @@ func listProcess(cmd *cobra.Command, args []string) (err error) {
 		return nil
 	}
 	core.Sort(tasks, columns.SortBy(listOptions.SortBy.Value))
-	return profile.Current.Print(ctx, cmd, Tasks(tasks))
+	if err := profile.Current.Print(ctx, cmd, Tasks(tasks)); err != nil {
+		return fmt.Errorf("cannot print result: %w", err)
+	}
+	return nil
 }

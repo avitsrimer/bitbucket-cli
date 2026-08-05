@@ -9,7 +9,6 @@ import (
 	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/go-core"
-	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
@@ -86,17 +85,17 @@ func activitiesValidArgs(cmd *cobra.Command, args []string, toComplete string) (
 func activitiesProcess(cmd *cobra.Command, args []string) (err error) {
 	currentProfile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
-		return errors.Join(errors.Errorf("Cannot merge Pull Request"), err)
+		return fmt.Errorf("cannot merge pull request: %w", err)
 	}
 
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
-		return errors.Join(errors.Errorf("Cannot list activities for Pull Request"), err)
+		return fmt.Errorf("cannot list activities for pull request: %w", err)
 	}
 
 	pullRequestID, err := GetPullRequestIDFromArgs(cmd.Context(), cmd, repository, args)
 	if err != nil {
-		return errors.Join(errors.Errorf("Cannot list activities for Pull Request"), err)
+		return fmt.Errorf("cannot list activities for pull request: %w", err)
 	}
 
 	uripath := repository.GetPath(fmt.Sprintf("pullrequests/%s/activity", pullRequestID))
@@ -119,11 +118,14 @@ func activitiesProcess(cmd *cobra.Command, args []string) (err error) {
 		return nil
 	}
 	core.Sort(activities, activityColumns.SortBy(listOptions.SortBy.Value))
-	return currentProfile.Print(
+	if err := currentProfile.Print(
 		cmd.Context(),
 		cmd,
 		Activities(core.Filter(activities, func(activity Activity) bool {
 			return true
 		})),
-	)
+	); err != nil {
+		return fmt.Errorf("cannot print result: %w", err)
+	}
+	return nil
 }

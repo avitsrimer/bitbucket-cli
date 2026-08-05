@@ -11,6 +11,10 @@ import (
 	"time"
 
 	"github.com/gildas/go-core"
+	// gildas/go-errors stays imported here only: gildas/go-request returns error values of that
+	// package's Error type (JSON unmarshal failures, FromHTTPStatusCode HTTP errors), and this
+	// file has to inspect them (errors.Is/errors.As, errors.NewSentinel) to preserve behavior.
+	// Task 5b replaces go-request with net/http and drops this import for good.
 	"github.com/gildas/go-errors"
 	"github.com/gildas/go-request"
 	"github.com/go-pkgz/lgr"
@@ -106,7 +110,7 @@ func resolvePageLengthAndLimit(cmd *cobra.Command, defaultPageLength int) (pageL
 func nextPageURL(next string, originalQuery url.Values, limit, resourceCount, pageLength int) (string, error) {
 	nextURL, err := url.Parse(next)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("cannot parse next page url: %w", err)
 	}
 	nextQuery := nextURL.Query()
 	for key, values := range originalQuery {
@@ -231,7 +235,7 @@ func (profile *Profile) CodeGrantCallback(resultchan chan error) http.Handler {
 		}
 		if _, err := profile.saveAccessToken(r.Context(), result.Data); err != nil {
 			lgr.Printf("[ERROR] failed to save access token for profile %s: %v", profile.Name, err)
-			if errors.Is(err, errors.JSONUnmarshalError) {
+			if errors.Is(err, ErrUnmarshalJSON) {
 				http.Error(w, "Failed to parse access token response from BitBucket: "+err.Error(), http.StatusBadRequest)
 			} else {
 				http.Error(w, "Failed to save access token for profile "+profile.Name+": "+err.Error(), http.StatusInternalServerError)
@@ -356,7 +360,7 @@ func (profile *Profile) send(ctx context.Context, options *request.Options, urip
 		}
 	} else {
 		if options.URL, err = url.Parse(uripath); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("cannot parse url: %w", err)
 		}
 	}
 
@@ -376,7 +380,7 @@ func (profile *Profile) send(ctx context.Context, options *request.Options, urip
 	result, err = request.Send(options, response)
 	if err != nil {
 		if errors.Is(err, errors.JSONUnmarshalError) {
-			return result, err
+			return result, fmt.Errorf("cannot unmarshal response: %w", err)
 		}
 		if result != nil {
 			var bberr *BitBucketError
@@ -387,6 +391,7 @@ func (profile *Profile) send(ctx context.Context, options *request.Options, urip
 			}
 			lgr.Printf("[DEBUG] the error %s is not a bitbucket error: %s", err.Error(), jerr.Error())
 		}
+		return result, fmt.Errorf("cannot send request: %w", err)
 	}
-	return result, err
+	return result, nil
 }

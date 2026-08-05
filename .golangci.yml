@@ -147,12 +147,6 @@ linters:
       - linters:
           - errcheck
         text: "Error return value of .*.Close.*is not checked"
-      # temporary: removed in Task 4 (error handling migration go-errors -> stdlib errors).
-      # wrapcheck flags both the gildas/go-errors wrapping idiom and bare cross-package
-      # `return err` sites; Task 4 rewrites every call site so the whole exclusion goes away.
-      - linters:
-          - wrapcheck
-        path: \.go$
       # temporary: removed in Task 8 (testifylint/suite-style normalization of the test suites).
       - linters:
           - testifylint

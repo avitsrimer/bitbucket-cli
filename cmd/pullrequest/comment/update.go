@@ -1,10 +1,12 @@
 package comment
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
-	"github.com/gildas/go-errors"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -52,12 +54,12 @@ func updateValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]st
 func updateProcess(cmd *cobra.Command, args []string) (err error) {
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot get profile: %w", err)
 	}
 
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot get repository: %w", err)
 	}
 
 	payload := CommentUpdator{
@@ -75,7 +77,7 @@ func updateProcess(cmd *cobra.Command, args []string) (err error) {
 			payload.Anchor.To = uint64(updateOptions.To)
 		}
 	} else if updateOptions.From > 0 || updateOptions.To > 0 {
-		return errors.RuntimeError.With("Cannot specify from/to without a file")
+		return errors.New("cannot specify from/to without a file")
 	}
 
 	if cmd.Flag("pending").Changed {
@@ -100,7 +102,10 @@ func updateProcess(cmd *cobra.Command, args []string) (err error) {
 		&comment,
 	)
 	if err != nil {
-		return errors.Join(errors.Errorf("Failed to update comment for pullrequest %s", updateOptions.PullRequestID.Value), err)
+		return fmt.Errorf("failed to update comment for pullrequest %s: %w", updateOptions.PullRequestID.Value, err)
 	}
-	return profile.Print(cmd.Context(), cmd, comment)
+	if err := profile.Print(cmd.Context(), cmd, comment); err != nil {
+		return fmt.Errorf("cannot print result: %w", err)
+	}
+	return nil
 }

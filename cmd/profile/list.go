@@ -1,9 +1,10 @@
 package profile
 
 import (
+	"errors"
+
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/go-core"
-	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
@@ -43,9 +44,9 @@ func listProcess(cmd *cobra.Command, args []string) (err error) {
 	}
 
 	profile, err := GetProfileFromCommand(ctx, cmd)
-	if errors.Is(err, errors.Empty) || len(Profiles) == 0 {
+	if errors.Is(err, ErrNoProfiles) || len(Profiles) == 0 {
 		if cmd.Flag("stop-on-error").Value.String() == "true" {
-			return errors.Errorf("No profiles found")
+			return errors.New("no profiles found")
 		}
 		common.Verbose(cmd, "No profiles found")
 		return nil

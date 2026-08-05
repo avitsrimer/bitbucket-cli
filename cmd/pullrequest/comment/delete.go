@@ -1,6 +1,7 @@
 package comment
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -8,7 +9,6 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	"github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
-	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
@@ -51,15 +51,15 @@ func deleteValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]st
 func deleteProcess(cmd *cobra.Command, args []string) error {
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot get profile: %w", err)
 	}
 
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot get repository: %w", err)
 	}
 
-	var merr errors.MultiError
+	var errs []error
 	for _, commentID := range args {
 		if common.WhatIf(cmd, "Deleting comment %s from pullrequest %s", commentID, deleteOptions.PullRequestID.Value) {
 			err := profile.Delete(
@@ -70,20 +70,21 @@ func deleteProcess(cmd *cobra.Command, args []string) error {
 			)
 			if err != nil {
 				if profile.ShouldStopOnError(cmd) {
-					return errors.Join(errors.Errorf("Failed to delete pullrequest comment %s", commentID), err)
+					return fmt.Errorf("failed to delete pullrequest comment %s: %w", commentID, err)
 				}
-				merr.Append(err)
+				errs = append(errs, err)
 			}
 			lgr.Printf("[DEBUG] pullrequest comment %s deleted", commentID)
 		}
 	}
-	if !merr.IsEmpty() && profile.ShouldWarnOnError(cmd) {
-		fmt.Fprintf(os.Stderr, "Failed to delete these comments: %s\n", merr)
+	joined := errors.Join(errs...)
+	if joined != nil && profile.ShouldWarnOnError(cmd) {
+		fmt.Fprintf(os.Stderr, "Failed to delete these comments: %s\n", joined)
 		return nil
 	}
 	if profile.ShouldIgnoreErrors(cmd) {
-		lgr.Printf("[WARN] failed to delete these comments, but ignoring errors: %s", merr)
+		lgr.Printf("[WARN] failed to delete these comments, but ignoring errors: %s", joined)
 		return nil
 	}
-	return merr.AsError()
+	return joined
 }

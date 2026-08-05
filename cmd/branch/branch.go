@@ -2,10 +2,10 @@ package branch
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/gildas/bitbucket-cli/cmd/commit"
 	"github.com/gildas/bitbucket-cli/cmd/common"
-	"github.com/gildas/go-errors"
 )
 
 type Branch struct {
@@ -40,7 +40,10 @@ func (branch Branch) MarshalJSON() ([]byte, error) {
 		Type:      branch.GetType(),
 		surrogate: surrogate(branch),
 	})
-	return data, errors.JSONMarshalError.Wrap(err)
+	if err != nil {
+		return nil, fmt.Errorf("cannot marshal json: %w", err)
+	}
+	return data, nil
 }
 
 // UnmarshalJSON custom JSON unmarshalling for Branch
@@ -54,10 +57,10 @@ func (branch *Branch) UnmarshalJSON(data []byte) error {
 	}
 
 	if err := json.Unmarshal(data, &inner); err != nil {
-		return errors.JSONUnmarshalError.WrapIfNotMe(err)
+		return fmt.Errorf("cannot unmarshal json: %w", err)
 	}
 	if inner.Type != branch.GetType() {
-		return errors.JSONUnmarshalError.Wrap(errors.InvalidType.With(inner.Type, branch.GetType()))
+		return fmt.Errorf("invalid type %s, expected %s", inner.Type, branch.GetType())
 	}
 	*branch = Branch(inner.surrogate)
 	return nil

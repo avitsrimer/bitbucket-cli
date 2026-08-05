@@ -2,6 +2,7 @@ package pullrequest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -14,7 +15,6 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/user"
 	"github.com/gildas/bitbucket-cli/cmd/workspace"
 	"github.com/gildas/go-core"
-	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
@@ -74,16 +74,16 @@ func createProcess(cmd *cobra.Command, args []string) (err error) {
 
 	profile, err := profile.GetProfileFromCommand(ctx, cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot get profile: %w", err)
 	}
 
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot get repository: %w", err)
 	}
 
 	if createOptions.Title == "" {
-		return errors.ArgumentMissing.With("title")
+		return errors.New("argument title is missing")
 	}
 
 	payload := PullRequestCreator{
@@ -123,9 +123,12 @@ func createProcess(cmd *cobra.Command, args []string) (err error) {
 		&pullrequest,
 	)
 	if err != nil {
-		return errors.Join(errors.Errorf("Failed to create pullrequest"), err)
+		return fmt.Errorf("failed to create pullrequest: %w", err)
 	}
-	return profile.Print(cmd.Context(), cmd, pullrequest)
+	if err := profile.Print(cmd.Context(), cmd, pullrequest); err != nil {
+		return fmt.Errorf("cannot print result: %w", err)
+	}
+	return nil
 }
 
 // resolveCreateDefaultReviewers resolves the effective default reviewers of repository, excluding
@@ -144,7 +147,7 @@ func resolveCreateDefaultReviewers(ctx context.Context, cmd *cobra.Command, repo
 	reviewers, err := repository.GetEffectiveDefaultReviewers(ctx, cmd)
 	if err != nil {
 		lgr.Printf("[ERROR] failed to get default reviewers: %v", err)
-		return nil, errors.Join(errors.New("Failed to get the default reviewers"), err, errMe)
+		return nil, errors.Join(fmt.Errorf("failed to get the default reviewers: %w", err), errMe)
 	}
 	lgr.Printf("[DEBUG] found %d default reviewers", len(reviewers))
 

@@ -3,6 +3,7 @@ package comment
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -14,7 +15,6 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/bitbucket-cli/cmd/user"
 	"github.com/gildas/go-core"
-	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
@@ -205,9 +205,7 @@ func (comment Comment) GetRow(headers []string) []string {
 
 // Validate validates a Comment
 func (comment *Comment) Validate() error {
-	var merr errors.MultiError
-
-	return merr.AsError()
+	return nil
 }
 
 // String gets a string representation of this pullrequest
@@ -234,7 +232,10 @@ func (resolution Resolution) MarshalJSON() (data []byte, err error) {
 		surrogate: surrogate(resolution),
 		CreatedOn: createdOn,
 	})
-	return data, errors.JSONMarshalError.Wrap(err)
+	if err != nil {
+		return nil, fmt.Errorf("cannot marshal resolution to json: %w", err)
+	}
+	return data, nil
 }
 
 // MarshalJSON implements the json.Marshaler interface.
@@ -250,18 +251,21 @@ func (comment Comment) MarshalJSON() (data []byte, err error) {
 		CreatedOn: comment.CreatedOn.Format(time.RFC3339),
 		UpdatedOn: comment.UpdatedOn.Format(time.RFC3339),
 	})
-	return data, errors.JSONMarshalError.Wrap(err)
+	if err != nil {
+		return nil, fmt.Errorf("cannot marshal comment to json: %w", err)
+	}
+	return data, nil
 }
 
 // GetPullRequestCommentIDs gets the IDs of the comments for a pullrequest
 func GetPullRequestCommentIDs(context context.Context, cmd *cobra.Command, args []string, toComplete string) (ids []string, err error) {
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cannot get repository: %w", err)
 	}
 
 	if cmd.Flag("pullrequest") == nil {
-		return nil, errors.New("pullrequest flag is required")
+		return nil, errors.New("flag --pullrequest is required")
 	}
 	pullRequestID := cmd.Flag("pullrequest").Value.String()
 

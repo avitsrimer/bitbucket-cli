@@ -2,6 +2,7 @@ package activity
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -13,7 +14,6 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/bitbucket-cli/cmd/user"
 	"github.com/gildas/go-core"
-	"github.com/gildas/go-errors"
 	"github.com/spf13/cobra"
 )
 
@@ -255,13 +255,10 @@ func (activity Activity) updateField(get func(*Update) string) string {
 
 // Validate validates a Comment
 func (activity *Activity) Validate() error {
-	var merr errors.MultiError
-
 	if activity.Approval == nil && activity.Comment == nil && activity.Update == nil {
-		merr.Append(errors.ArgumentMissing.With("approval, comment, or update"))
+		return errors.New("argument approval, comment, or update is missing")
 	}
-
-	return merr.AsError()
+	return nil
 }
 
 // String gets a string representation of this pullrequest
@@ -282,7 +279,10 @@ func (activity Activity) MarshalJSON() (data []byte, err error) {
 	}{
 		surrogate: surrogate(activity),
 	})
-	return data, errors.JSONMarshalError.Wrap(err)
+	if err != nil {
+		return nil, fmt.Errorf("cannot marshal activity to json: %w", err)
+	}
+	return data, nil
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface.
@@ -293,9 +293,12 @@ func (activity *Activity) UnmarshalJSON(data []byte) (err error) {
 
 	var surrogateActivity surrogate
 	if err = json.Unmarshal(data, &surrogateActivity); err != nil {
-		return errors.JSONUnmarshalError.WrapIfNotMe(err)
+		return fmt.Errorf("cannot unmarshal activity: %w", err)
 	}
 
 	*activity = Activity(surrogateActivity)
-	return errors.JSONUnmarshalError.Wrap(activity.Validate())
+	if err := activity.Validate(); err != nil {
+		return fmt.Errorf("cannot unmarshal activity: %w", err)
+	}
+	return nil
 }
