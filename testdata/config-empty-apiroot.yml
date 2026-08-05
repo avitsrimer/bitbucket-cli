@@ -1,0 +1,4 @@
+profiles:
+    - name: empty-apiroot
+      user: user1
+      apiroot: ""

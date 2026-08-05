@@ -60,6 +60,42 @@ func (suite *ProfileSuite) TestGetAll_OriginalQueryIsPreservedForNextMissingPara
 	suite.Require().Equal("2", items[1].ID)
 }
 
+// TestGetAllUnbounded_IgnoresLimitFlag is a regression test: GetAll sniffs --limit off the
+// ambient cmd, which is correct for a command's own output query but wrong for an internal
+// id-resolution query sharing that same cmd (e.g. resolving an omitted pullrequest-id before `pr
+// commits --limit 1` fetches commits). GetAllUnbounded must return every item regardless of a
+// --limit flag set on cmd.
+func (suite *ProfileSuite) TestGetAllUnbounded_IgnoresLimitFlag() {
+	oldCurrent := profile.Current
+	defer func() { profile.Current = oldCurrent }()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"values": []map[string]string{{"id": "1"}, {"id": "2"}, {"id": "3"}, {"id": "4"}},
+		})
+	}))
+	defer server.Close()
+
+	apiRoot, err := url.Parse(server.URL)
+	suite.Require().NoError(err)
+	profile.Current = &profile.Profile{APIRoot: apiRoot, DefaultPageLength: 0, AccessToken: "dummy-token"}
+
+	cmd := &cobra.Command{}
+	cmd.Flags().String("profile", "", "")
+	cmd.Flags().Int("page-length", 0, "")
+	cmd.Flags().Int("limit", 0, "")
+	suite.Require().NoError(cmd.Flags().Set("limit", "1"))
+
+	bounded, err := profile.GetAll[testItem](suite.Context, cmd, server.URL+"/pipelines")
+	suite.Require().NoError(err)
+	suite.Require().Len(bounded, 1, "GetAll must honor the ambient --limit flag")
+
+	unbounded, err := profile.GetAllUnbounded[testItem](suite.Context, cmd, server.URL+"/pipelines")
+	suite.Require().NoError(err)
+	suite.Require().Len(unbounded, 4, "GetAllUnbounded must ignore the ambient --limit flag")
+}
+
 func (suite *ProfileSuite) TestGetAll_DoesNotOverwriteExistingNextParams() {
 	oldCurrent := profile.Current
 	defer func() { profile.Current = oldCurrent }()

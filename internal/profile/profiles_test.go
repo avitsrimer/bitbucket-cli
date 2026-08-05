@@ -130,6 +130,55 @@ func (suite *ProfileSuite) TestLoadParsesStringFormAPIRootAndErrorProcessing() {
 	suite.Equal(common.WarnOnError, got.ErrorProcessing)
 }
 
+// TestLoadParsesEmptyStringAPIRoot is a regression test: apiRoot written as an explicit empty
+// string (apiroot set to a quoted empty value, something templating or a half-cleared config
+// value can easily produce) used to leave an empty scalar node in place for url.URL's
+// mapping-only decoding, failing every profile load with a yaml unmarshal error -- the exact
+// opaque failure mode the string-form fix was meant to remove. An empty apiRoot must decode into a
+// nil *url.URL instead of aborting Load.
+func (suite *ProfileSuite) TestLoadParsesEmptyStringAPIRoot() {
+	defer resetProfilesState()()
+
+	cmd := newTestRootCommand()
+	suite.Require().NoError(cmd.PersistentFlags().Set("config", "../../testdata/config-empty-apiroot.yml"))
+	suite.Require().NoError(common.Initialize(cmd))
+
+	err := profile.Profiles.Load(suite.Context, cmd)
+	suite.Require().NoError(err)
+	suite.Require().Len(profile.Profiles, 1)
+
+	got := profile.Profiles[0]
+	suite.Equal("empty-apiroot", got.Name)
+	suite.Nil(got.APIRoot, "an empty-string apiRoot must decode to a nil *url.URL, not error")
+}
+
+// TestLoadParsesStringFormAPIRootPreservesUserinfo is a regression test: a string-form apiRoot
+// carrying userinfo (e.g. "https://user:pw@api.bitbucket.org") used to silently round-trip as
+// "https://@api.bitbucket.org" -- credentials dropped without error -- because normalizing the
+// scalar into url.URL's field-by-field mapping form marshaled url.URL.User (a *url.Userinfo whose
+// fields are all unexported) as an empty mapping. The parsed URL must keep its userinfo intact.
+func (suite *ProfileSuite) TestLoadParsesStringFormAPIRootPreservesUserinfo() {
+	defer resetProfilesState()()
+
+	cmd := newTestRootCommand()
+	suite.Require().NoError(cmd.PersistentFlags().Set("config", "../../testdata/config-userinfo-apiroot.yml"))
+	suite.Require().NoError(common.Initialize(cmd))
+
+	err := profile.Profiles.Load(suite.Context, cmd)
+	suite.Require().NoError(err)
+	suite.Require().Len(profile.Profiles, 1)
+
+	got := profile.Profiles[0]
+	suite.Equal("userinfo-apiroot", got.Name)
+	suite.Require().NotNil(got.APIRoot)
+	suite.Require().NotNil(got.APIRoot.User, "userinfo must survive decoding, not be dropped")
+	suite.Equal("alice", got.APIRoot.User.Username())
+	password, isSet := got.APIRoot.User.Password()
+	suite.True(isSet, "password must survive decoding")
+	suite.Equal("s3cr3t", password)
+	suite.Equal("https://alice:s3cr3t@api.bitbucket.org/userinfo", got.APIRoot.String())
+}
+
 // TestLoadParsesNestedAPIRootMapping proves the nested field-by-field mapping form (what
 // url.URL's own default yaml decoding already handled, and what this fix must not regress) still
 // round-trips alongside the new string-form support.

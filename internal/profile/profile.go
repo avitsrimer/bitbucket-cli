@@ -60,9 +60,10 @@ type Profile struct {
 	token             *Token                 `json:"-"                           yaml:"-"`
 	// accessTokenFromVault is true when AccessToken was populated at runtime by loadAccessToken's
 	// vault fallback rather than configured by the user (explicitly on the command line or
-	// already present in the config file). It is never serialized: saveProfilesConfig blanks
-	// AccessToken for any profile with this set before writing the config file, so a secret
-	// fetched from the vault to authorize one command is never copied back to disk in plain text.
+	// already present in the config file). MarshalYAML omits AccessToken from the encoded output
+	// whenever this is set, so a secret fetched from the vault to authorize one command is never
+	// written back to the config file in plain text, regardless of which path serializes this
+	// Profile.
 	accessTokenFromVault bool `json:"-" yaml:"-"`
 }
 
@@ -579,19 +580,77 @@ func (profile *Profile) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// MarshalYAML implements yaml.Marshaler.
+//
+// This rewrites two fields on top of the default struct encoding, working directly on the
+// resulting mapping node: yaml.v3 has no field-shadowing equivalent to encoding/json's anonymous
+// struct override (see MarshalJSON above), so declaring sibling fields with the same key as ones
+// inside an embedded, ,inline surrogate would collide and error at encode time instead of
+// overriding it.
+//
+//   - accessToken is dropped entirely whenever it was populated at runtime from the vault
+//     (accessTokenFromVault) rather than configured by the user, so a secret fetched from the
+//     vault to authorize one command is never written back to the config file in plain text --
+//     on every path that serializes a Profile, not just the one (saveProfilesConfig) that
+//     remembers to blank it first.
+//   - apiRoot is rewritten to its plain string form, matching the form UnmarshalYAML accepts back
+//     and preserving userinfo credentials, which url.URL's default field-by-field mapping form
+//     cannot represent (its User field's members are all unexported).
+func (profile Profile) MarshalYAML() (any, error) {
+	type surrogate Profile
+	var node yaml.Node
+	if err := node.Encode(surrogate(profile)); err != nil {
+		return nil, fmt.Errorf("cannot encode profile: %w", err)
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == "apiroot" && profile.APIRoot != nil {
+			if err := node.Content[i+1].Encode(profile.APIRoot.String()); err != nil {
+				return nil, fmt.Errorf("cannot encode apiRoot: %w", err)
+			}
+		}
+	}
+	if profile.accessTokenFromVault {
+		node.Content = removeMappingNodeKey(node.Content, "accesstoken")
+	}
+	return &node, nil
+}
+
+// removeMappingNodeKey returns a mapping node's Content (alternating key/value pairs) with the
+// pair for the given key name removed, if present.
+func removeMappingNodeKey(content []*yaml.Node, key string) []*yaml.Node {
+	for i := 0; i+1 < len(content); i += 2 {
+		if content[i].Value == key {
+			return append(content[:i:i], content[i+2:]...)
+		}
+	}
+	return content
+}
+
 // UnmarshalYAML implements yaml.Unmarshaler.
 //
 // url.URL has no UnmarshalYAML of its own, so yaml.v3 only ever decodes APIRoot from the nested
-// mapping form its own exported fields produce (scheme/host/path/...). A config file's apiRoot is
-// just as likely to be the plain string form every other apiRoot-shaped value in this codebase
-// accepts (a URL literal, e.g. "apiRoot: https://api.bitbucket.org"), which would otherwise fail
-// to decode ("cannot unmarshal !!str into url.URL") and abort loading every profile. This rewrites
-// a scalar apiRoot into the equivalent mapping form before decoding, leaving an already-nested
-// mapping (or a missing key) untouched.
+// mapping form its own exported fields produce (scheme/host/path/...) -- and even that form is
+// lossy, since url.URL.User is a *url.Userinfo whose fields are all unexported and so never
+// round-trip through reflection-based decoding. A config file's apiRoot is just as likely to be
+// the plain string form every other apiRoot-shaped value in this codebase accepts (a URL literal,
+// e.g. "apiRoot: https://user:pw@api.bitbucket.org"), which would otherwise fail to decode
+// ("cannot unmarshal !!str into url.URL") and abort loading every profile.
+//
+// This extracts a scalar apiroot key before the surrogate decode ever sees it, parses it directly
+// with url.Parse (preserving userinfo losslessly, unlike the mapping form), and nulls the node in
+// place so the surrogate decode -- which only understands the mapping form -- skips over it
+// cleanly instead of erroring on a bare string (or, for "", an empty one). The parsed URL is
+// assigned back onto profile.APIRoot afterward. An already-nested mapping (or a missing key) is
+// left for the surrogate decode to handle as before.
 func (profile *Profile) UnmarshalYAML(node *yaml.Node) error {
+	var apiRoot *url.URL
 	if node.Kind == yaml.MappingNode {
-		if err := normalizeAPIRootNode(node); err != nil {
+		parsed, found, err := extractAPIRootNode(node)
+		if err != nil {
 			return err
+		}
+		if found {
+			apiRoot = parsed
 		}
 	}
 	type surrogate Profile
@@ -600,38 +659,45 @@ func (profile *Profile) UnmarshalYAML(node *yaml.Node) error {
 		return fmt.Errorf("cannot decode profile: %w", err)
 	}
 	*profile = Profile(inner)
+	if apiRoot != nil {
+		profile.APIRoot = apiRoot
+	}
 	return nil
 }
 
-// normalizeAPIRootNode rewrites a mapping node's "apiroot" key in place, from a plain URL string
-// into the field-by-field mapping url.URL's default decoding expects, if and only if it is
-// currently a scalar. A missing key, a null value, or an already-nested mapping are left alone.
-func normalizeAPIRootNode(node *yaml.Node) error {
+// extractAPIRootNode locates a mapping node's "apiroot" key and, if it is currently a plain
+// string scalar, parses it and nulls the node in place so nothing later tries to decode that
+// string into url.URL's mapping form. found is true only when a scalar apiroot key holding a
+// non-empty string was actually parsed; the caller must leave profile.APIRoot as the surrogate
+// decode set it (nil, or the mapping form's own result) whenever found is false -- the key was
+// absent, null, empty, or already a nested mapping left for that normal decoding to handle.
+func extractAPIRootNode(node *yaml.Node) (apiRoot *url.URL, found bool, err error) {
 	for i := 0; i+1 < len(node.Content); i += 2 {
 		if node.Content[i].Value != "apiroot" {
 			continue
 		}
 		value := node.Content[i+1]
 		if value.Kind != yaml.ScalarNode || value.Tag == "!!null" {
-			return nil
+			return nil, false, nil
 		}
 		var raw string
-		if err := value.Decode(&raw); err != nil {
-			return fmt.Errorf("cannot decode apiRoot: %w", err)
+		if decodeErr := value.Decode(&raw); decodeErr != nil {
+			return nil, false, fmt.Errorf("cannot decode apiRoot: %w", decodeErr)
 		}
+		value.Kind = yaml.ScalarNode
+		value.Tag = "!!null"
+		value.Value = "null"
+		value.Style = 0
 		if raw == "" {
-			return nil
+			return nil, false, nil
 		}
-		parsed, err := url.Parse(raw)
-		if err != nil {
-			return fmt.Errorf("cannot parse apiRoot %q: %w", raw, err)
+		parsed, parseErr := url.Parse(raw)
+		if parseErr != nil {
+			return nil, false, fmt.Errorf("cannot parse apiRoot %q: %w", raw, parseErr)
 		}
-		if err := value.Encode(*parsed); err != nil {
-			return fmt.Errorf("cannot normalize apiRoot: %w", err)
-		}
-		return nil
+		return parsed, true, nil
 	}
-	return nil
+	return nil, false, nil
 }
 
 // getWorkspaceSlugs gets the slugs of all workspaces

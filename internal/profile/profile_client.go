@@ -127,11 +127,11 @@ func (profile *Profile) Patch(ctx context.Context, uripath string, body, respons
 	return
 }
 
-// GetAll gets all resources of the given type
-//
-// The Current profile will be set to the profile of the command
-// resolvePageLengthAndLimit reads the --page-length and --limit flags, falling back to defaultPageLength
-func resolvePageLengthAndLimit(cmd *cobra.Command, defaultPageLength int) (pageLength, limit int) {
+// resolvePageLengthAndLimit reads the --page-length flag, falling back to defaultPageLength, and
+// (when honorLimit is true) the --limit flag; honorLimit is false for GetAllUnbounded, so a
+// --limit flag belonging to the command's own, unrelated output query neither truncates nor
+// shrinks the page size of an internal id-resolution query run against the same cmd.
+func resolvePageLengthAndLimit(cmd *cobra.Command, defaultPageLength int, honorLimit bool) (pageLength, limit int) {
 	pageLength = defaultPageLength
 	if cmd != nil && cmd.Flag("page-length") != nil && cmd.Flag("page-length").Changed {
 		if length, err := cmd.Flags().GetInt("page-length"); err == nil && length > 0 {
@@ -139,7 +139,7 @@ func resolvePageLengthAndLimit(cmd *cobra.Command, defaultPageLength int) (pageL
 			lgr.Printf("[DEBUG] using page length of %d from the command line flags", pageLength)
 		}
 	}
-	if cmd != nil && cmd.Flag("limit") != nil && cmd.Flag("limit").Changed {
+	if honorLimit && cmd != nil && cmd.Flag("limit") != nil && cmd.Flag("limit").Changed {
 		if l, err := cmd.Flags().GetInt("limit"); err == nil && l > 0 {
 			limit = l
 			lgr.Printf("[DEBUG] using limit of %d from the command line flags", limit)
@@ -177,7 +177,28 @@ func nextPageURL(next string, originalQuery url.Values, limit, resourceCount, pa
 	return nextURL.String(), nil
 }
 
+// GetAll gets all resources of the given type, honoring cmd's own --page-length and --limit
+// flags (if registered) as the caller's requested bound on the *output* of this specific query.
+//
+// Do not use this for an internal id-resolution query that happens to run against the same cmd as
+// an unrelated output query of its own (e.g. resolving the single open pull request id `pr
+// commits`/`pr activities` operate on, when no id was given on the command line): cmd's --limit
+// flag is ambient to the whole command, so it would truncate that resolution query exactly as
+// much as the real output query, silently making an id-resolution "how many are there" check
+// pass when it shouldn't. Use GetAllUnbounded for those instead.
 func GetAll[T any](ctx context.Context, cmd *cobra.Command, uripath string) (resources []T, err error) {
+	return getAll[T](ctx, cmd, uripath, true)
+}
+
+// GetAllUnbounded gets all resources of the given type like GetAll, but always ignores any
+// --limit flag on cmd. Use this for internal id-resolution queries that must enumerate every
+// matching resource to make a correct decision (e.g. detecting "more than one open pull request"),
+// regardless of a --limit flag belonging to the command's own, unrelated output query.
+func GetAllUnbounded[T any](ctx context.Context, cmd *cobra.Command, uripath string) (resources []T, err error) {
+	return getAll[T](ctx, cmd, uripath, false)
+}
+
+func getAll[T any](ctx context.Context, cmd *cobra.Command, uripath string, honorLimit bool) (resources []T, err error) {
 	profile, err := GetProfileFromCommand(ctx, cmd)
 	if err != nil {
 		lgr.Printf("[ERROR] failed to get profile: %v", err)
@@ -185,7 +206,7 @@ func GetAll[T any](ctx context.Context, cmd *cobra.Command, uripath string) (res
 	}
 	Current = profile // Make sure the current profile is set
 
-	pageLength, limit := resolvePageLengthAndLimit(cmd, Current.DefaultPageLength)
+	pageLength, limit := resolvePageLengthAndLimit(cmd, Current.DefaultPageLength, honorLimit)
 
 	if !strings.Contains(uripath, "pagelen") && pageLength > 0 {
 		if strings.Contains(uripath, "?") {
