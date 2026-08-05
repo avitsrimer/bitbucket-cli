@@ -5,7 +5,7 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/go-errors"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -37,8 +37,6 @@ func init() {
 }
 
 func createProcess(cmd *cobra.Command, args []string) (err error) {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "create")
-
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
 		return err
@@ -74,14 +72,14 @@ func createProcess(cmd *cobra.Command, args []string) (err error) {
 		payload.Pending = &createOptions.Pending
 	}
 
-	log.Record("payload", payload).Infof("Creating pullrequest comment")
-	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, "Creating comment for pullrequest %s", createOptions.PullRequestID.Value) {
+	lgr.Printf("[DEBUG] creating pullrequest comment")
+	if !common.WhatIf(cmd, "Creating comment for pullrequest %s", createOptions.PullRequestID.Value) {
 		return nil
 	}
 	var comment Comment
 
 	err = profile.Post(
-		log.ToContext(cmd.Context()),
+		cmd.Context(),
 		cmd,
 		repository.GetPath("pullrequests", createOptions.PullRequestID.Value, "comments"),
 		payload,

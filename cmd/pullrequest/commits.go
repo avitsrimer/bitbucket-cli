@@ -4,12 +4,12 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/commit"
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
-	"github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
+	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/go-core"
 	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -53,8 +53,6 @@ func commitsValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]s
 }
 
 func commitsProcess(cmd *cobra.Command, args []string) (err error) {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "commits")
-
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
 		return errors.Join(errors.Errorf("Cannot list commits of Pull Request"), err)
@@ -65,13 +63,13 @@ func commitsProcess(cmd *cobra.Command, args []string) (err error) {
 		return errors.Join(errors.Errorf("Cannot list commits of Pull Request"), err)
 	}
 
-	log.Infof("Listing commits of pullrequest %s", pullRequestID)
-	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, "Listing commits of pullrequest %s", pullRequestID) {
+	lgr.Printf("[DEBUG] listing commits of pullrequest %s", pullRequestID)
+	if !common.WhatIf(cmd, "Listing commits of pullrequest %s", pullRequestID) {
 		return nil
 	}
 
 	commits, err := profile.GetAll[commit.Commit](
-		log.ToContext(cmd.Context()),
+		cmd.Context(),
 		cmd,
 		repository.GetPath("pullrequests", pullRequestID, "commits"),
 	)

@@ -16,7 +16,7 @@ import (
 	"github.com/gildas/go-core"
 	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -70,8 +70,7 @@ func init() {
 }
 
 func createProcess(cmd *cobra.Command, args []string) (err error) {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "create")
-	ctx := log.ToContext(cmd.Context())
+	ctx := cmd.Context()
 
 	profile, err := profile.GetProfileFromCommand(ctx, cmd)
 	if err != nil {
@@ -98,26 +97,26 @@ func createProcess(cmd *cobra.Command, args []string) (err error) {
 		payload.Destination = &Endpoint{Branch: Branch{Name: createOptions.Destination.Value}}
 	}
 
-	log.Record("repository", repository).Infof("Using repository: %s", repository)
+	lgr.Printf("[DEBUG] using repository: %s", repository)
 
 	if len(createOptions.Reviewers.Values) > 0 && createOptions.Reviewers.Values[0] != "default" {
-		payload.Reviewers = resolveExplicitReviewers(ctx, cmd, log, repository, createOptions.Reviewers.Values)
+		payload.Reviewers = resolveExplicitReviewers(ctx, cmd, repository, createOptions.Reviewers.Values)
 	} else {
-		payload.Reviewers, err = resolveCreateDefaultReviewers(ctx, cmd, log, repository)
+		payload.Reviewers, err = resolveCreateDefaultReviewers(ctx, cmd, repository)
 		if err != nil {
 			return err
 		}
 	}
 
-	log.Record("payload", payload).Infof("Creating pullrequest")
-	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, "Creating pullrequest") {
+	lgr.Printf("[DEBUG] creating pullrequest")
+	if !common.WhatIf(cmd, "Creating pullrequest") {
 		fmt.Printf("Dry run: reviewers: %v\n", payload.Reviewers)
 		return nil
 	}
 	var pullrequest PullRequest
 
 	err = profile.Post(
-		log.ToContext(cmd.Context()),
+		cmd.Context(),
 		cmd,
 		repository.GetPath("pullrequests"),
 		payload,
@@ -131,35 +130,35 @@ func createProcess(cmd *cobra.Command, args []string) (err error) {
 
 // resolveCreateDefaultReviewers resolves the effective default reviewers of repository, excluding
 // the current user when known
-func resolveCreateDefaultReviewers(ctx context.Context, cmd *cobra.Command, log *logger.Logger, repository *repository.Repository) ([]user.User, error) {
-	log.Debugf("Finding current user")
+func resolveCreateDefaultReviewers(ctx context.Context, cmd *cobra.Command, repository *repository.Repository) ([]user.User, error) {
+	lgr.Printf("[DEBUG] finding current user")
 	me, errMe := user.GetMe(ctx, cmd)
 	if errMe != nil {
 		// RAT (repo scoped tokens) do not have access to that API endpoint usually
-		log.Warnf("Failed to get current user, this may be a RAT client. Error: %s", errMe.Error())
+		lgr.Printf("[WARN] failed to get current user, this may be a RAT client. Error: %s", errMe.Error())
 	} else {
-		log.Infof("Current user: %s (%s)", me.Username, me.ID)
+		lgr.Printf("[DEBUG] current user: %s (%s)", me.Username, me.ID)
 	}
 
-	log.Debugf("No reviewers in the repository, trying to get effective default reviewers from the repository")
+	lgr.Printf("[DEBUG] no reviewers in the repository, trying to get effective default reviewers from the repository")
 	reviewers, err := repository.GetEffectiveDefaultReviewers(ctx, cmd)
 	if err != nil {
-		log.Errorf("Failed to get default reviewers", err)
+		lgr.Printf("[ERROR] failed to get default reviewers: %v", err)
 		return nil, errors.Join(errors.New("Failed to get the default reviewers"), err, errMe)
 	}
-	log.Debugf("Found %d default reviewers", len(reviewers))
+	lgr.Printf("[DEBUG] found %d default reviewers", len(reviewers))
 
 	if me != nil {
 		// Removing myself from the reviewers since I cannot be a reviewer of my own pullrequest
 		reviewers = core.Filter(reviewers, func(reviewer reviewer.Reviewer) bool { return reviewer.User.ID != me.ID })
-		log.Debugf("Filtered reviewers to remove current user: %d reviewers remaining", len(reviewers))
+		lgr.Printf("[DEBUG] filtered reviewers to remove current user: %d reviewers remaining", len(reviewers))
 	}
 	return core.Map(reviewers, func(reviewer reviewer.Reviewer) user.User { return reviewer.User }), nil
 }
 
 // resolveExplicitReviewers resolves the --reviewer values (already known not to be "default")
 // to their matching workspace members, falling back to a direct user lookup
-func resolveExplicitReviewers(ctx context.Context, cmd *cobra.Command, log *logger.Logger, repository *repository.Repository, values []string) []user.User {
+func resolveExplicitReviewers(ctx context.Context, cmd *cobra.Command, repository *repository.Repository, values []string) []user.User {
 	isMember := func(member workspace.Member, id string) bool {
 		if parsedID, uuidErr := common.ParseUUID(id); uuidErr == nil {
 			return member.User.ID == parsedID
@@ -172,17 +171,17 @@ func resolveExplicitReviewers(ctx context.Context, cmd *cobra.Command, log *logg
 	for _, reviewerNameOrID := range values {
 		matches := core.Filter(members, func(member workspace.Member) bool { return isMember(member, reviewerNameOrID) })
 		if len(matches) > 0 {
-			log.Record("matches", matches).Infof("Adding reviewer: %s", matches[0].User.ID)
+			lgr.Printf("[DEBUG] adding reviewer: %s", matches[0].User.ID)
 			reviewers = append(reviewers, matches[0].User)
 			continue
 		}
 		reviewerUser, userErr := user.GetUser(ctx, cmd, reviewerNameOrID)
 		if userErr == nil {
-			log.Record("user", reviewerUser).Infof("Adding reviewer: %s", reviewerNameOrID)
+			lgr.Printf("[DEBUG] adding reviewer: %s", reviewerNameOrID)
 			reviewers = append(reviewers, *reviewerUser)
 			continue
 		}
-		log.Errorf("Reviewer %s is not a member of the workspace", reviewerNameOrID)
+		lgr.Printf("[ERROR] reviewer %s is not a member of the workspace", reviewerNameOrID)
 		fmt.Fprintf(os.Stderr, "Reviewer %s is not a member of the workspace\n", reviewerNameOrID)
 	}
 	return reviewers

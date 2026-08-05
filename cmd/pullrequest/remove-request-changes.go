@@ -3,10 +3,10 @@ package pullrequest
 import (
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
-	"github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
+	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/go-errors"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -24,7 +24,6 @@ func init() {
 }
 
 func removeRequestChangesValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "validargs")
 	if len(args) != 0 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
@@ -34,13 +33,11 @@ func removeRequestChangesValidArgs(cmd *cobra.Command, args []string, toComplete
 		cobra.CompErrorln(err.Error())
 		return []string{}, cobra.ShellCompDirectiveError
 	}
-	log.Debugf("Fetched %d pullrequest ids", len(ids))
+	lgr.Printf("[DEBUG] fetched %d pullrequest ids", len(ids))
 	return common.FilterValidArgs(ids, args, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
 func removeRequestChangesProcess(cmd *cobra.Command, args []string) (err error) {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "removeRequestChanges")
-
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
 		return errors.Join(errors.Errorf("Cannot remove request changes on Pull Request"), err)
@@ -56,12 +53,12 @@ func removeRequestChangesProcess(cmd *cobra.Command, args []string) (err error) 
 		return errors.Join(errors.Errorf("Cannot remove request changes on Pull Request"), err)
 	}
 
-	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, "Removing request changes on pullrequest %s", pullRequestID) {
+	if !common.WhatIf(cmd, "Removing request changes on pullrequest %s", pullRequestID) {
 		return nil
 	}
 
 	err = profile.Delete(
-		log.ToContext(cmd.Context()),
+		cmd.Context(),
 		cmd,
 		repository.GetPath("pullrequests", pullRequestID, "request-changes"),
 		nil,

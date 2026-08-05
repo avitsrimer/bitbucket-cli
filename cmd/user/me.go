@@ -3,7 +3,7 @@ package user
 import (
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	"github.com/gildas/go-flags"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -30,14 +30,12 @@ func init() {
 }
 
 func meProcess(cmd *cobra.Command, args []string) (err error) {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "me")
-
 	if meOptions.Emails {
-		emails, emailsErr := profile.GetAll[Email](log.ToContext(cmd.Context()), cmd, "/user/emails")
+		emails, emailsErr := profile.GetAll[Email](cmd.Context(), cmd, "/user/emails")
 		if emailsErr != nil {
 			return emailsErr
 		}
-		log.Infof("Displaying emails for the current authenticated user")
+		lgr.Printf("[DEBUG] displaying emails for the current authenticated user")
 		return profile.Current.Print(cmd.Context(), cmd, Emails(emails))
 	}
 
@@ -46,11 +44,11 @@ func meProcess(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 
-	log.Infof("Displaying current authenticated user")
+	lgr.Printf("[DEBUG] displaying current authenticated user")
 	user, err := GetMe(cmd.Context(), cmd)
 	if err != nil {
 		return err
 	}
-	log.Record("user", user).Debugf("Current user retrieved")
+	lgr.Printf("[DEBUG] current user retrieved")
 	return profile.Print(cmd.Context(), cmd, user)
 }

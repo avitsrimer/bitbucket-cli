@@ -3,11 +3,11 @@ package pullrequest
 import (
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
-	"github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
+	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -51,8 +51,6 @@ func mergeValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]str
 }
 
 func mergeProcess(cmd *cobra.Command, args []string) (err error) {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "merge")
-
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
 		return errors.Join(errors.Errorf("Cannot merge Pull Request"), err)
@@ -84,13 +82,13 @@ func mergeProcess(cmd *cobra.Command, args []string) (err error) {
 		MergeStrategy:     mergeOptions.MergeStrategy.String(),
 	}
 
-	log.Record("payload", payload).Infof("Merging pullrequest %s", pullRequestID)
-	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, "Merging pullrequest %s", pullRequestID) {
+	lgr.Printf("[DEBUG] merging pullrequest %s", pullRequestID)
+	if !common.WhatIf(cmd, "Merging pullrequest %s", pullRequestID) {
 		return nil
 	}
 
 	if mergeOptions.Async {
-		result, asyncErr := profile.PostWithResult(log.ToContext(cmd.Context()), cmd, uripath, payload)
+		result, asyncErr := profile.PostWithResult(cmd.Context(), cmd, uripath, payload)
 		if asyncErr != nil {
 			return errors.Join(errors.Errorf("Failed to merge Pull Request %s", pullRequestID), asyncErr)
 		}
@@ -98,13 +96,13 @@ func mergeProcess(cmd *cobra.Command, args []string) (err error) {
 		if asyncErr != nil {
 			return errors.Join(errors.Errorf("Failed to get merge status for Pull Request %s", pullRequestID), asyncErr)
 		}
-		log.Infof("Merge request accepted, task ID: %s", status.ID)
+		lgr.Printf("[DEBUG] merge request accepted, task ID: %s", status.ID)
 		return profile.Print(cmd.Context(), cmd, status)
 	}
 
 	var pullrequest PullRequest
 
-	err = profile.Post(log.ToContext(cmd.Context()), cmd, uripath, payload, &pullrequest)
+	err = profile.Post(cmd.Context(), cmd, uripath, payload, &pullrequest)
 	if err != nil {
 		return errors.Join(errors.Errorf("Failed to merge Pull Request %s", pullRequestID), err)
 	}

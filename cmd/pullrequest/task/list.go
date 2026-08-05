@@ -10,7 +10,7 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/go-core"
 	"github.com/gildas/go-flags"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -47,16 +47,15 @@ func init() {
 }
 
 func listProcess(cmd *cobra.Command, args []string) (err error) {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "list")
-	ctx := log.ToContext(cmd.Context())
+	ctx := cmd.Context()
 
 	repository, err := repository.GetRepository(ctx, cmd)
 	if err != nil {
 		return err
 	}
 
-	log.Infof("Listing pullrequest tasks for pullrequest %s", listOptions.PullRequestID.Value)
-	if !common.WhatIf(ctx, cmd, "Listing pullrequest tasks for pullrequest "+listOptions.PullRequestID.Value) {
+	lgr.Printf("[DEBUG] listing pullrequest tasks for pullrequest %s", listOptions.PullRequestID.Value)
+	if !common.WhatIf(cmd, "Listing pullrequest tasks for pullrequest "+listOptions.PullRequestID.Value) {
 		return nil
 	}
 
@@ -71,7 +70,7 @@ func listProcess(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 	if len(tasks) == 0 {
-		log.Infof("No task found")
+		lgr.Printf("[DEBUG] no task found")
 		return nil
 	}
 	core.Sort(tasks, columns.SortBy(listOptions.SortBy.Value))

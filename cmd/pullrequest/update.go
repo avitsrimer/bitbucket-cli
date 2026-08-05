@@ -11,14 +11,14 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	"github.com/gildas/bitbucket-cli/cmd/project/reviewer"
-	"github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
+	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/bitbucket-cli/cmd/user"
 	"github.com/gildas/bitbucket-cli/cmd/workspace"
 	"github.com/gildas/go-core"
 	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -73,8 +73,6 @@ func updateValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]st
 }
 
 func updateProcess(cmd *cobra.Command, args []string) error {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "update")
-
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
 		return err
@@ -87,9 +85,9 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 
 	var pullrequest PullRequest
 
-	log.Infof("Fetching pullrequest %s", args[0])
+	lgr.Printf("[DEBUG] fetching pullrequest %s", args[0])
 	err = profile.Get(
-		log.ToContext(cmd.Context()),
+		cmd.Context(),
 		cmd,
 		repository.GetPath("pullrequests", args[0]),
 		&pullrequest,
@@ -97,26 +95,25 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return errors.Join(errors.Errorf("Failed to get pullrequest %s", args[0]), err)
 	}
-	log = log.Record("pullrequest", pullrequest.ID)
-	log.Infof("Fetched pullrequest %s", args[0])
-	log.Record("pullrequest", pullrequest).Debugf("Pullrequest %s details", args[0])
+	lgr.Printf("[DEBUG] fetched pullrequest %s", args[0])
+	lgr.Printf("[DEBUG] pullrequest %s details", args[0])
 
 	updateWanted := applySimpleFieldUpdates(cmd, &pullrequest)
 
 	var pullrequestWorkspace *workspace.Workspace
 	if pullrequest.Destination.Repository != nil {
-		log.Infof("Getting workspace of pullrequest destination repository %s", pullrequest.Destination.Repository.FullName)
-		log.Record("repository", pullrequest.Destination.Repository).Debugf("Pullrequest destination repository details")
+		lgr.Printf("[DEBUG] getting workspace of pullrequest destination repository %s", pullrequest.Destination.Repository.FullName)
+		lgr.Printf("[DEBUG] pullrequest destination repository details")
 		pullrequestWorkspace, err = pullrequest.Destination.Repository.GetWorkspace(cmd.Context(), cmd)
 	} else {
-		log.Infof("Getting current workspace")
+		lgr.Printf("[DEBUG] getting current workspace")
 		pullrequestWorkspace, err = repository.GetWorkspace(cmd.Context(), cmd)
 	}
 	if err != nil {
-		log.Errorf("Failed to get workspace of pullrequest destination repository", err)
+		lgr.Printf("[ERROR] failed to get workspace of pullrequest destination repository: %v", err)
 		return errors.Join(errors.Errorf("Failed to get workspace of pullrequest destination repository"), err)
 	}
-	log.Infof("Pullrequest workspace: %s", pullrequestWorkspace)
+	lgr.Printf("[DEBUG] pullrequest workspace: %s", pullrequestWorkspace)
 
 	isMember := func(member workspace.Member, id string) bool {
 		if parsedID, uuidErr := common.ParseUUID(id); uuidErr == nil {
@@ -129,7 +126,7 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 		updateWanted = true
 	}
 
-	added, err := addRequestedReviewers(cmd.Context(), cmd, log, &pullrequest, pullrequestWorkspace, isMember)
+	added, err := addRequestedReviewers(cmd.Context(), cmd, &pullrequest, pullrequestWorkspace, isMember)
 	if err != nil {
 		return err
 	}
@@ -138,7 +135,7 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 	}
 
 	if !updateWanted {
-		log.Infof("No update options were changed, exiting")
+		lgr.Printf("[DEBUG] no update options were changed, exiting")
 		return nil
 	}
 
@@ -147,15 +144,15 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 	pullrequest.Summary.Markup = ""
 	pullrequest.Summary.HTML = ""
 
-	log.Record("update", pullrequest).Infof("Updating pullrequest %s", args[0])
-	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, "Updating pullrequest %d", pullrequest.ID) {
+	lgr.Printf("[DEBUG] updating pullrequest %s", args[0])
+	if !common.WhatIf(cmd, "Updating pullrequest %d", pullrequest.ID) {
 		return nil
 	}
 
 	var updated PullRequest
 
 	err = profile.Put(
-		log.ToContext(cmd.Context()),
+		cmd.Context(),
 		cmd,
 		repository.GetPath("pullrequests", args[0]),
 		pullrequest,
@@ -217,29 +214,29 @@ func removeRequestedReviewers(cmd *cobra.Command, pullrequest *PullRequest, isMe
 
 // resolveDefaultReviewers replaces the "default" sentinel in --add-reviewer with the effective
 // default reviewers of the pullrequest's source repository, excluding the current user
-func resolveDefaultReviewers(ctx context.Context, cmd *cobra.Command, log *logger.Logger, pullrequest *PullRequest) error {
-	log.Debugf("Finding current user")
+func resolveDefaultReviewers(ctx context.Context, cmd *cobra.Command, pullrequest *PullRequest) error {
+	lgr.Printf("[DEBUG] finding current user")
 	me, meErr := user.GetMe(ctx, cmd)
 	if meErr != nil {
 		// RAT (repo scoped tokens) do not have access to that API endpoint usually
-		log.Warnf("Failed to get current user, this may be a RAT client. Error: %s", meErr.Error())
+		lgr.Printf("[WARN] failed to get current user, this may be a RAT client. Error: %s", meErr.Error())
 	} else {
-		log.Infof("Current user: %s (%s)", me.Username, me.ID)
+		lgr.Printf("[DEBUG] current user: %s (%s)", me.Username, me.ID)
 	}
 
 	// Find the default reviewers from the repo or project settings
-	log.Debugf("No reviewers in the repository, trying to get effective default reviewers from the repository")
+	lgr.Printf("[DEBUG] no reviewers in the repository, trying to get effective default reviewers from the repository")
 	reviewers, err := pullrequest.Source.Repository.GetEffectiveDefaultReviewers(ctx, cmd)
 	if err != nil {
-		log.Errorf("Failed to get default reviewers", err)
+		lgr.Printf("[ERROR] failed to get default reviewers: %v", err)
 		return err
 	}
-	log.Debugf("Found %d default reviewers", len(reviewers))
+	lgr.Printf("[DEBUG] found %d default reviewers", len(reviewers))
 
 	if me != nil {
 		// Removing myself from the reviewers since I cannot be a reviewer of my own pullrequest
 		reviewers = core.Filter(reviewers, func(reviewer reviewer.Reviewer) bool { return reviewer.User.ID != me.ID })
-		log.Debugf("Filtered reviewers to remove current user: %d reviewers remaining", len(reviewers))
+		lgr.Printf("[DEBUG] filtered reviewers to remove current user: %d reviewers remaining", len(reviewers))
 	}
 
 	// Replace the first reviewer with the list of default reviewers and appends the rest
@@ -252,34 +249,34 @@ func resolveDefaultReviewers(ctx context.Context, cmd *cobra.Command, log *logge
 
 // addRequestedReviewers adds reviewers listed in --add-reviewer (resolving the "default" sentinel
 // first) and reports whether anything changed
-func addRequestedReviewers(ctx context.Context, cmd *cobra.Command, log *logger.Logger, pullrequest *PullRequest, pullrequestWorkspace *workspace.Workspace, isMember func(workspace.Member, string) bool) (bool, error) {
+func addRequestedReviewers(ctx context.Context, cmd *cobra.Command, pullrequest *PullRequest, pullrequestWorkspace *workspace.Workspace, isMember func(workspace.Member, string) bool) (bool, error) {
 	if !cmd.Flag("add-reviewer").Changed || len(updateOptions.AddReviewers.Values) == 0 {
 		return false, nil
 	}
 
 	if updateOptions.AddReviewers.Values[0] == "default" {
-		if err := resolveDefaultReviewers(ctx, cmd, log, pullrequest); err != nil {
+		if err := resolveDefaultReviewers(ctx, cmd, pullrequest); err != nil {
 			return false, err
 		}
 	}
 
 	updateWanted := false
-	log.Debugf("Getting all members from workspace %s", pullrequestWorkspace)
+	lgr.Printf("[DEBUG] getting all members from workspace %s", pullrequestWorkspace)
 	members, _ := pullrequestWorkspace.GetMembers(ctx, cmd)
-	log.Infof("Found %d members in workspace %s", len(members), pullrequestWorkspace)
+	lgr.Printf("[DEBUG] found %d members in workspace %s", len(members), pullrequestWorkspace)
 	for _, reviewerNameOrID := range updateOptions.AddReviewers.Values {
-		log.Debugf("Processing reviewer to add: %s", reviewerNameOrID)
+		lgr.Printf("[DEBUG] processing reviewer to add: %s", reviewerNameOrID)
 		matches := core.Filter(members, func(member workspace.Member) bool { return isMember(member, reviewerNameOrID) })
 		if len(matches) > 0 {
 			if !slices.ContainsFunc(pullrequest.Reviewers, func(u user.User) bool { return u.ID == matches[0].User.ID }) {
-				log.Record("matches", matches).Infof("Adding reviewer: %s (%s)", matches[0].User.ID, matches[0].User.Nickname)
+				lgr.Printf("[DEBUG] adding reviewer: %s (%s)", matches[0].User.ID, matches[0].User.Nickname)
 				pullrequest.Reviewers = append(pullrequest.Reviewers, matches[0].User)
 				updateWanted = true
 			} else {
-				log.Infof("Reviewer %s (%s) is already a reviewer, skipping", matches[0].User.ID, matches[0].User.Nickname)
+				lgr.Printf("[DEBUG] reviewer %s (%s) is already a reviewer, skipping", matches[0].User.ID, matches[0].User.Nickname)
 			}
 		} else {
-			log.Errorf("reviewer ID %s is not a member of workspace %s", reviewerNameOrID, pullrequestWorkspace)
+			lgr.Printf("[ERROR] reviewer ID %s is not a member of workspace %s", reviewerNameOrID, pullrequestWorkspace)
 			fmt.Fprintf(os.Stderr, "Reviewer %s is not a member of workspace %s\n", reviewerNameOrID, pullrequestWorkspace)
 		}
 	}

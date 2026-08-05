@@ -11,7 +11,7 @@ import (
 	"github.com/gildas/go-core"
 	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -84,8 +84,6 @@ func activitiesValidArgs(cmd *cobra.Command, args []string, toComplete string) (
 }
 
 func activitiesProcess(cmd *cobra.Command, args []string) (err error) {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "activities")
-
 	currentProfile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
 		return errors.Join(errors.Errorf("Cannot merge Pull Request"), err)
@@ -107,8 +105,8 @@ func activitiesProcess(cmd *cobra.Command, args []string) (err error) {
 		uripath = fmt.Sprintf("%s?q=%s", uripath, url.QueryEscape(listOptions.Query))
 	}
 
-	log.Infof("Listing all activities from repository %s with profile %s", repository, currentProfile)
-	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, fmt.Sprintf("Showing activities for pullrequest %s in repository %s with profile %s", pullRequestID, repository, currentProfile)) {
+	lgr.Printf("[DEBUG] listing all activities from repository %s with profile %s", repository, currentProfile)
+	if !common.WhatIf(cmd, fmt.Sprintf("Showing activities for pullrequest %s in repository %s with profile %s", pullRequestID, repository, currentProfile)) {
 		return nil
 	}
 
@@ -117,7 +115,7 @@ func activitiesProcess(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 	if len(activities) == 0 {
-		log.Infof("No activities found")
+		lgr.Printf("[DEBUG] no activities found")
 		return nil
 	}
 	core.Sort(activities, activityColumns.SortBy(listOptions.SortBy.Value))

@@ -10,7 +10,7 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	"github.com/gildas/go-errors"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
@@ -178,14 +178,12 @@ func (user User) MarshalJSON() (data []byte, err error) {
 
 // GetMe gets the current user
 func GetMe(context context.Context, cmd *cobra.Command) (user *User, err error) {
-	log := logger.Must(logger.FromContext(context)).Child("user", "me")
-
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
 		return nil, err
 	}
 	if user, err = UserCache.Get(profile.Name + ":me"); err == nil {
-		log.Debugf("User found in cache")
+		lgr.Printf("[DEBUG] user found in cache")
 		return user, nil
 	}
 	err = profile.Get(

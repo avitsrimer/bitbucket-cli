@@ -9,7 +9,7 @@ import (
 	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/go-errors"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -45,8 +45,6 @@ func validDiffArgs(cmd *cobra.Command, args []string, toComplete string) ([]stri
 }
 
 func diffProcess(cmd *cobra.Command, args []string) error {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "diff")
-
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
 		return err
@@ -62,8 +60,8 @@ func diffProcess(cmd *cobra.Command, args []string) error {
 		return errors.Join(errors.Errorf("Cannot show diff of Pull Request"), err)
 	}
 
-	log.Debugf("Displaying diff for Pull Request ID: %s", pullRequestID)
-	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, "Showing diff for Pull Request ID "+pullRequestID) {
+	lgr.Printf("[DEBUG] displaying diff for Pull Request ID: %s", pullRequestID)
+	if !common.WhatIf(cmd, "Showing diff for Pull Request ID "+pullRequestID) {
 		return nil
 	}
 
@@ -72,7 +70,7 @@ func diffProcess(cmd *cobra.Command, args []string) error {
 		uripath = repository.GetPath("pullrequests", pullRequestID, "diffstat")
 	}
 
-	diff, err := profile.GetRaw(log.ToContext(cmd.Context()), cmd, uripath)
+	diff, err := profile.GetRaw(cmd.Context(), cmd, uripath)
 	if err != nil {
 		return err
 	}

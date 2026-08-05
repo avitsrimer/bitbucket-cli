@@ -3,10 +3,9 @@ package pullrequest
 import (
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
-	"github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
+	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/go-errors"
-	"github.com/gildas/go-logger"
 	"github.com/spf13/cobra"
 )
 
@@ -36,8 +35,6 @@ func unapproveValidArgs(cmd *cobra.Command, args []string, toComplete string) ([
 }
 
 func unapproveProcess(cmd *cobra.Command, args []string) (err error) {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "unapprove")
-
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
 		return errors.Join(errors.Errorf("Cannot unapprove Pull Request"), err)
@@ -53,11 +50,11 @@ func unapproveProcess(cmd *cobra.Command, args []string) (err error) {
 		return errors.Join(errors.Errorf("Cannot unapprove Pull Request"), err)
 	}
 
-	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, "Unapproving pullrequest %s", pullRequestID) {
+	if !common.WhatIf(cmd, "Unapproving pullrequest %s", pullRequestID) {
 		return nil
 	}
 	err = profile.Delete(
-		log.ToContext(cmd.Context()),
+		cmd.Context(),
 		cmd,
 		repository.GetPath("pullrequests", pullRequestID, "approve"),
 		nil,

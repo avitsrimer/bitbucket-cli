@@ -8,7 +8,7 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/go-core"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -27,16 +27,14 @@ func GetPullRequestIDsWithState(context context.Context, cmd *cobra.Command, sta
 
 // GetPullRequestIDsFromRepositoryWithState gets the pullrequest Ids for completion for a given state and repository
 func GetPullRequestIDsFromRepositoryWithState(context context.Context, cmd *cobra.Command, repository *repository.Repository, state string) (ids []string, err error) {
-	log := logger.Must(logger.FromContext(context)).Child(nil, "getpullrequests")
-
-	log.Infof("Getting %s pullrequests", state)
+	lgr.Printf("[DEBUG] getting %s pullrequests", state)
 	pullrequests, err := profile.GetAll[PullRequestID](
-		log.ToContext(context),
+		context,
 		cmd,
 		repository.GetPath("pullrequests?state="+state),
 	)
 	if err != nil {
-		log.Errorf("Failed to get %s pullrequests", state, err)
+		lgr.Printf("[ERROR] failed to get %s pullrequests: %v", state, err)
 		return []string{}, err
 	}
 

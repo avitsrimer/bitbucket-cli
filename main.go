@@ -2,24 +2,21 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/gildas/bitbucket-cli/cmd"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/joho/godotenv"
 )
 
 func main() {
 	_ = godotenv.Load()
-	if os.Getenv("LOG_DESTINATION") == "" {
-		_ = os.Setenv("LOG_DESTINATION", "nil")
-	}
-	log := logger.Create(APP)
-	defer log.Flush()
+	lgr.Setup(lgr.Out(os.Stderr), lgr.Err(os.Stderr))
 	cmd.RootCmd.Use = APP
 	cmd.RootCmd.Version = Version()
-	err := cmd.Execute(log.ToContext(context.Background()))
-	if err != nil {
-		log.Fatalf("Failed to execute command", err)
+	if err := cmd.Execute(context.Background()); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 }

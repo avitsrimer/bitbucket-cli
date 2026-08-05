@@ -4,7 +4,7 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	"github.com/gildas/go-flags"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -29,15 +29,13 @@ func init() {
 }
 
 func getProcess(cmd *cobra.Command, args []string) (err error) {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "get")
-
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
 		return err
 	}
 
-	log.Infof("Displaying user %s", args[0])
-	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, "Showing user "+args[0]) {
+	lgr.Printf("[DEBUG] displaying user %s", args[0])
+	if !common.WhatIf(cmd, "Showing user "+args[0]) {
 		return nil
 	}
 
@@ -45,6 +43,6 @@ func getProcess(cmd *cobra.Command, args []string) (err error) {
 	if err != nil {
 		return err
 	}
-	log.Record("user", user).Debugf("User %s retrieved", args[0])
+	lgr.Printf("[DEBUG] user %s retrieved", args[0])
 	return profile.Print(cmd.Context(), cmd, user)
 }

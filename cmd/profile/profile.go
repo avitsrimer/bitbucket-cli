@@ -2,7 +2,9 @@ package profile
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/csv"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -14,11 +16,21 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/go-core"
 	"github.com/gildas/go-errors"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/kataras/tablewriter"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
+
+// redactWithHash redacts a secret value, keeping a short hash so repeated values remain
+// distinguishable in logs without exposing the value itself
+func redactWithHash(value string) string {
+	if value == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(value))
+	return "REDACTED-" + hex.EncodeToString(sum[:])[:10]
+}
 
 // Profile describes the configuration needed to connect to BitBucket
 type Profile struct {
@@ -125,8 +137,6 @@ var columns = common.Columns[*Profile]{
 //
 // If the profile is not given, it will use the current profile
 func GetProfileFromCommand(context context.Context, cmd *cobra.Command) (profile *Profile, err error) {
-	log := logger.Must(logger.FromContext(context)).Child("profile", "getProfileFromCommand")
-
 	if err := Profiles.Load(context, cmd); err != nil {
 		return nil, err
 	}
@@ -134,7 +144,7 @@ func GetProfileFromCommand(context context.Context, cmd *cobra.Command) (profile
 	switch {
 	case cmd.Flag("profile").Changed:
 		var found bool
-		log.Debugf("Command line has profile flag set to %s", cmd.Flag("profile").Value.String())
+		lgr.Printf("[DEBUG] command line has profile flag set to %s", cmd.Flag("profile").Value.String())
 		if profile, found = Profiles.Find(cmd.Flag("profile").Value.String()); !found {
 			return nil, errors.ArgumentInvalid.With("profile", cmd.Flag("profile").Value.String())
 		}
@@ -214,28 +224,26 @@ func (profile Profile) GetRow(headers []string) []string {
 	return row
 }
 
-// Redact redacts sensitive information from the profile
-//
-// implements logger.Redactable
+// Redact redacts sensitive information from the profile, for logging purposes
 func (profile Profile) Redact() any {
 	redacted := profile
 	if redacted.ClientID != "" {
-		redacted.ClientID = logger.RedactWithHash(redacted.ClientID)
+		redacted.ClientID = redactWithHash(redacted.ClientID)
 	}
 	if redacted.ClientSecret != "" {
-		redacted.ClientSecret = logger.RedactWithHash(redacted.ClientSecret)
+		redacted.ClientSecret = redactWithHash(redacted.ClientSecret)
 	}
 	if redacted.User != "" {
-		redacted.User = logger.RedactWithHash(redacted.User)
+		redacted.User = redactWithHash(redacted.User)
 	}
 	if redacted.Password != "" {
-		redacted.Password = logger.RedactWithHash(redacted.Password)
+		redacted.Password = redactWithHash(redacted.Password)
 	}
 	if redacted.AccessToken != "" {
-		redacted.AccessToken = logger.RedactWithHash(redacted.AccessToken)
+		redacted.AccessToken = redactWithHash(redacted.AccessToken)
 	}
 	if redacted.CloneUser != "" {
-		redacted.CloneUser = logger.RedactWithHash(redacted.CloneUser)
+		redacted.CloneUser = redactWithHash(redacted.CloneUser)
 	}
 	return redacted
 }
@@ -251,15 +259,14 @@ func (profile *Profile) GetPassword(ctx context.Context) (string, error) {
 }
 
 // getSecretOrFromVault returns secret when already set, otherwise loads it from the vault for username.
-func (profile *Profile) getSecretOrFromVault(ctx context.Context, kind, secret, username string) (string, error) {
-	log := logger.Must(logger.FromContext(ctx)).Child("profile", "get"+kind)
+func (profile *Profile) getSecretOrFromVault(_ context.Context, kind, secret, username string) (string, error) {
 	if secret != "" {
-		log.Debugf("The %s for profile %s is set in the profile", kind, profile.Name)
+		lgr.Printf("[DEBUG] the %s for profile %s is set in the profile", kind, profile.Name)
 		return secret, nil
 	}
 	credential, err := profile.GetCredentialFromVault(profile.VaultKey, username)
 	if err == nil {
-		log.Debugf("Loaded %s for %s from the vault", kind, username)
+		lgr.Printf("[DEBUG] loaded %s for %s from the vault", kind, username)
 		return credential.Password, nil
 	}
 	return "", errors.Join(errors.Errorf("Profile %s does not have a %s", profile.Name, kind), err)
@@ -374,12 +381,11 @@ func (profile Profile) String() string {
 
 // Print prints the given payload to the console
 func (profile Profile) Print(context context.Context, cmd *cobra.Command, payload any) error {
-	log := logger.Must(logger.FromContext(context)).Child("profile", "print", "format", profile.OutputFormat)
 	outputFormat := profile.OutputFormat
 
 	if cmd.Flag("output").Changed {
 		outputFormat = cmd.Flag("output").Value.String()
-		log.Debugf("Command output format: %s (was: %s)", outputFormat, profile.OutputFormat)
+		lgr.Printf("[DEBUG] command output format: %s (was: %s)", outputFormat, profile.OutputFormat)
 	}
 	switch outputFormat {
 	case "json":
@@ -396,10 +402,8 @@ func (profile Profile) Print(context context.Context, cmd *cobra.Command, payloa
 }
 
 // PrintJSON prints the given payload to the console as JSON
-func (profile Profile) PrintJSON(context context.Context, cmd *cobra.Command, payload any) error {
-	log := logger.Must(logger.FromContext(context))
-
-	log.Debugf("Printing payload as JSON")
+func (profile Profile) PrintJSON(_ context.Context, cmd *cobra.Command, payload any) error {
+	lgr.Printf("[DEBUG] printing payload as JSON")
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return errors.JSONMarshalError.Wrap(err)
@@ -409,10 +413,8 @@ func (profile Profile) PrintJSON(context context.Context, cmd *cobra.Command, pa
 }
 
 // PrintYAML prints the given payload to the console as YAML
-func (profile Profile) PrintYAML(context context.Context, cmd *cobra.Command, payload any) error {
-	log := logger.Must(logger.FromContext(context))
-
-	log.Debugf("Printing payload as YAML")
+func (profile Profile) PrintYAML(_ context.Context, cmd *cobra.Command, payload any) error {
+	lgr.Printf("[DEBUG] printing payload as YAML")
 	data, err := yaml.Marshal(payload)
 	if err != nil {
 		return errors.JSONMarshalError.Wrap(err)
@@ -432,10 +434,8 @@ func (profile Profile) PrintTSV(context context.Context, cmd *cobra.Command, pay
 }
 
 // printDelimited prints the given payload to the console as delimiter-separated values
-func (profile Profile) printDelimited(context context.Context, cmd *cobra.Command, payload any, comma rune) error {
-	log := logger.Must(logger.FromContext(context))
-
-	log.Debugf("Printing payload as delimited text (comma=%q)", comma)
+func (profile Profile) printDelimited(_ context.Context, cmd *cobra.Command, payload any, comma rune) error {
+	lgr.Printf("[DEBUG] printing payload as delimited text (comma=%q)", comma)
 	writer := csv.NewWriter(os.Stdout)
 	writer.Comma = comma
 	defer writer.Flush()
@@ -446,7 +446,7 @@ func (profile Profile) printDelimited(context context.Context, cmd *cobra.Comman
 		_ = writer.Write(headers)
 		_ = writer.Write(actual.GetRow(headers))
 	case common.Tableables:
-		log.Debugf("Payload is a slice of %d elements", actual.Size())
+		lgr.Printf("[DEBUG] payload is a slice of %d elements", actual.Size())
 		if actual.Size() > 0 {
 			headers := actual.GetHeaders(cmd)
 			_ = writer.Write(headers)
@@ -461,10 +461,8 @@ func (profile Profile) printDelimited(context context.Context, cmd *cobra.Comman
 }
 
 // PrintTable prints the given payload to the console as a table
-func (profile Profile) PrintTable(context context.Context, cmd *cobra.Command, payload any) error {
-	log := logger.Must(logger.FromContext(context))
-
-	log.Debugf("Printing payload as table")
+func (profile Profile) PrintTable(_ context.Context, cmd *cobra.Command, payload any) error {
+	lgr.Printf("[DEBUG] printing payload as table")
 	table := tablewriter.NewWriter(os.Stdout)
 
 	switch actual := payload.(type) {
@@ -474,7 +472,7 @@ func (profile Profile) PrintTable(context context.Context, cmd *cobra.Command, p
 		table.SetAutoWrapText(false)
 		table.Append(actual.GetRow(headers))
 	case common.Tableables:
-		log.Debugf("Payload is a slice of %d elements", actual.Size())
+		lgr.Printf("[DEBUG] payload is a slice of %d elements", actual.Size())
 		if actual.Size() > 0 {
 			headers := actual.GetHeaders(cmd)
 			table.SetHeader(headers)
@@ -567,20 +565,19 @@ func (profile *Profile) UnmarshalJSON(data []byte) error {
 // getWorkspaceSlugs gets the slugs of all workspaces
 func getWorkspaceSlugs(context context.Context, cmd *cobra.Command, args []string, toComplete string) (slugs []string, err error) {
 	// We have to repeat the code here because of the circular dependency with the workspace package
-	log := logger.Must(logger.FromContext(context)).Child("workspace", "slugs")
 	type Workspace struct {
 		Workspace struct {
 			Slug string `json:"slug"`
 		} `json:"workspace"`
 	}
 
-	log.Debugf("Getting all workspaces")
+	lgr.Printf("[DEBUG] getting all workspaces")
 	workspaces, err := GetAll[Workspace](context, cmd, "/user/workspaces")
 	if err != nil {
-		log.Errorf("Failed to get workspaces", err)
+		lgr.Printf("[ERROR] failed to get workspaces: %v", err)
 		return []string{}, err
 	}
-	log.Debugf("Found %d workspaces", len(workspaces))
+	lgr.Printf("[DEBUG] found %d workspaces", len(workspaces))
 	slugs = core.Map(workspaces, func(workspace Workspace) string { return workspace.Workspace.Slug })
 	core.Sort(slugs, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
 	return slugs, nil
@@ -588,21 +585,20 @@ func getWorkspaceSlugs(context context.Context, cmd *cobra.Command, args []strin
 
 // getProjectKeys gets the keys of all projects
 func getProjectKeys(context context.Context, cmd *cobra.Command, args []string, toComplete string) (keys []string, err error) {
-	log := logger.Must(logger.FromContext(context)).Child("project", "keys")
 	type Project struct {
 		Key string `json:"key"`
 	}
 
 	workspace := cmd.Flag("default-workspace").Value.String()
 	if workspace == "" {
-		log.Warnf("No workspace given")
+		lgr.Printf("[WARN] no workspace given")
 		return
 	}
 
-	log.Debugf("Getting all projects in workspace %s", workspace)
+	lgr.Printf("[DEBUG] getting all projects in workspace %s", workspace)
 	projects, err := GetAll[Project](context, cmd, fmt.Sprintf("/workspaces/%s/projects", workspace))
 	if err != nil {
-		log.Errorf("Failed to get projects", err)
+		lgr.Printf("[ERROR] failed to get projects: %v", err)
 		return
 	}
 	keys = core.Map(projects, func(project Project) string { return project.Key })

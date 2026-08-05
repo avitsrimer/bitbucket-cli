@@ -12,8 +12,8 @@ import (
 
 	"github.com/gildas/go-core"
 	"github.com/gildas/go-errors"
-	"github.com/gildas/go-logger"
 	"github.com/gildas/go-request"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -81,18 +81,18 @@ func (profile *Profile) Patch(ctx context.Context, cmd *cobra.Command, uripath s
 //
 // The Current profile will be set to the profile of the command
 // resolvePageLengthAndLimit reads the --page-length and --limit flags, falling back to defaultPageLength
-func resolvePageLengthAndLimit(log *logger.Logger, cmd *cobra.Command, defaultPageLength int) (pageLength, limit int) {
+func resolvePageLengthAndLimit(cmd *cobra.Command, defaultPageLength int) (pageLength, limit int) {
 	pageLength = defaultPageLength
 	if cmd != nil && cmd.Flag("page-length") != nil && cmd.Flag("page-length").Changed {
 		if length, err := cmd.Flags().GetInt("page-length"); err == nil && length > 0 {
 			pageLength = length
-			log.Debugf("Using page length of %d from the command line flags", pageLength)
+			lgr.Printf("[DEBUG] using page length of %d from the command line flags", pageLength)
 		}
 	}
 	if cmd != nil && cmd.Flag("limit") != nil && cmd.Flag("limit").Changed {
 		if l, err := cmd.Flags().GetInt("limit"); err == nil && l > 0 {
 			limit = l
-			log.Debugf("Using limit of %d from the command line flags", limit)
+			lgr.Printf("[DEBUG] using limit of %d from the command line flags", limit)
 		}
 	}
 	if limit > 0 && (pageLength == 0 || limit < pageLength) {
@@ -128,16 +128,14 @@ func nextPageURL(next string, originalQuery url.Values, limit, resourceCount, pa
 }
 
 func GetAll[T any](ctx context.Context, cmd *cobra.Command, uripath string) (resources []T, err error) {
-	log := logger.Must(logger.FromContext(ctx)).Child(nil, "getall")
-
 	profile, err := GetProfileFromCommand(ctx, cmd)
 	if err != nil {
-		log.Errorf("Failed to get profile.", err)
+		lgr.Printf("[ERROR] failed to get profile: %v", err)
 		return nil, err
 	}
 	Current = profile // Make sure the current profile is set
 
-	pageLength, limit := resolvePageLengthAndLimit(log, cmd, Current.DefaultPageLength)
+	pageLength, limit := resolvePageLengthAndLimit(cmd, Current.DefaultPageLength)
 
 	if !strings.Contains(uripath, "pagelen") && pageLength > 0 {
 		if strings.Contains(uripath, "?") {
@@ -153,9 +151,9 @@ func GetAll[T any](ctx context.Context, cmd *cobra.Command, uripath string) (res
 	}
 
 	if limit > 0 {
-		log.Infof("Getting up to %d resources for profile %s (%d at a time)", limit, profile.Name, pageLength)
+		lgr.Printf("[DEBUG] getting up to %d resources for profile %s (%d at a time)", limit, profile.Name, pageLength)
 	} else {
-		log.Infof("Getting all resources for profile %s (%d at a time)", profile.Name, pageLength)
+		lgr.Printf("[DEBUG] getting all resources for profile %s (%d at a time)", profile.Name, pageLength)
 	}
 	for {
 		var paginated PaginatedResources[T]
@@ -174,9 +172,9 @@ func GetAll[T any](ctx context.Context, cmd *cobra.Command, uripath string) (res
 			resources = resources[:limit]
 			break
 		}
-		log.Debugf("Got %d resources (total: %d)", len(paginated.Values), len(resources))
-		log.Debugf("Next page:     %s", paginated.Next)
-		log.Debugf("Previous page: %s", paginated.Previous)
+		lgr.Printf("[DEBUG] got %d resources (total: %d)", len(paginated.Values), len(resources))
+		lgr.Printf("[DEBUG] next page:     %s", paginated.Next)
+		lgr.Printf("[DEBUG] previous page: %s", paginated.Previous)
 		if paginated.Next == "" {
 			break
 		}
@@ -191,8 +189,6 @@ func GetAll[T any](ctx context.Context, cmd *cobra.Command, uripath string) (res
 
 func (profile *Profile) CodeGrantCallback(resultchan chan error) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log := logger.Must(logger.FromContext(r.Context())).Child(nil, nil, "profile", profile.Name)
-
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
@@ -202,32 +198,31 @@ func (profile *Profile) CodeGrantCallback(resultchan chan error) http.Handler {
 			return
 		}
 
-		log.Infof("Received callback from BitBucket")
+		lgr.Printf("[DEBUG] received callback from BitBucket for profile %s", profile.Name)
 		code := r.URL.Query().Get("code")
 		if code == "" {
-			log.Errorf("No code in the callback")
+			lgr.Printf("[ERROR] no code in the callback")
 			http.Error(w, "No code in the callback", http.StatusBadRequest)
 			return
 		}
-		log.Infof("Received code %s", code)
+		lgr.Printf("[DEBUG] received code %s", code)
 
 		// Get the client secret from the vault if it is empty
 		clientSecret, err := profile.GetClientSecret(r.Context())
 		if err != nil {
-			log.Errorf("Failed to get client secret for profile %s: %v", profile.Name, err)
+			lgr.Printf("[ERROR] failed to get client secret for profile %s: %v", profile.Name, err)
 			http.Error(w, "Failed to get client secret for profile "+profile.Name+": "+err.Error(), http.StatusUnauthorized)
 			resultchan <- err
 			return
 		}
 
-		log.Infof("Requesting authorization token for profile %s", profile.Name)
+		lgr.Printf("[DEBUG] requesting authorization token for profile %s", profile.Name)
 		result, err := request.Send(&request.Options{
 			Method:        http.MethodPost,
 			Authorization: request.BasicAuthorization(profile.ClientID, clientSecret),
 			URL:           core.Must(url.Parse("https://bitbucket.org/site/oauth2/access_token")),
 			Payload:       map[string]string{"grant_type": "authorization_code", "code": code},
 			Timeout:       30 * time.Second,
-			Logger:        log,
 		}, nil)
 		if err != nil {
 			writeAuthorizationErrorResponse(w, err, result)
@@ -235,7 +230,7 @@ func (profile *Profile) CodeGrantCallback(resultchan chan error) http.Handler {
 			return
 		}
 		if _, err := profile.saveAccessToken(r.Context(), result.Data); err != nil {
-			log.Errorf("Failed to save access token for profile %s: %v", profile.Name, err)
+			lgr.Printf("[ERROR] failed to save access token for profile %s: %v", profile.Name, err)
 			if errors.Is(err, errors.JSONUnmarshalError) {
 				http.Error(w, "Failed to parse access token response from BitBucket: "+err.Error(), http.StatusBadRequest)
 			} else {
@@ -272,26 +267,24 @@ func writeAuthorizationErrorResponse(w http.ResponseWriter, err error, result *r
 }
 
 func (profile *Profile) authorize(ctx context.Context) (authorization string, err error) {
-	log := logger.Must(logger.FromContext(ctx)).Child("profile", "authorize")
-
 	if loadErr := profile.loadAccessToken(ctx); loadErr == nil {
 		if !profile.isTokenExpired() {
-			log.Infof("Using access token for profile %s", profile.Name)
-			log.Debugf("Token expires on %s in %s", profile.token.GetExpiresOn().Format(time.RFC3339), profile.token.GetExpiresIn())
+			lgr.Printf("[DEBUG] using access token for profile %s", profile.Name)
+			lgr.Printf("[DEBUG] token expires on %s in %s", profile.token.GetExpiresOn().Format(time.RFC3339), profile.token.GetExpiresIn())
 			return request.BearerAuthorization(profile.token.AccessToken), nil
 		}
 	}
 
 	payload := map[string]string{}
 	if profile.token != nil && profile.token.RefreshToken != "" {
-		log.Warnf("Access token for profile %s expired %s ago and we have a refresh token", profile.Name, profile.token.GetExpiredSince())
+		lgr.Printf("[WARN] access token for profile %s expired %s ago and we have a refresh token", profile.Name, profile.token.GetExpiredSince())
 		payload["grant_type"] = "refresh_token"
 		payload["refresh_token"] = profile.token.RefreshToken
 	} else {
 		if profile.token != nil {
-			log.Warnf("Access token for profile %s expired %s ago but we don't have a refresh token", profile.Name, profile.token.GetExpiredSince())
+			lgr.Printf("[WARN] access token for profile %s expired %s ago but we don't have a refresh token", profile.Name, profile.token.GetExpiredSince())
 		} else {
-			log.Warnf("No access token found for profile %s, we need to authorize the profile", profile.Name)
+			lgr.Printf("[WARN] no access token found for profile %s, we need to authorize the profile", profile.Name)
 		}
 		payload["grant_type"] = "client_credentials"
 	}
@@ -301,14 +294,13 @@ func (profile *Profile) authorize(ctx context.Context) (authorization string, er
 	if err != nil {
 		return "", err
 	}
-	log.Infof("Authorizing profile %s", profile.Name)
+	lgr.Printf("[DEBUG] authorizing profile %s", profile.Name)
 	result, err := request.Send(&request.Options{
 		Method:        http.MethodPost,
 		Authorization: request.BasicAuthorization(profile.ClientID, clientSecret),
 		URL:           core.Must(url.Parse("https://bitbucket.org/site/oauth2/access_token")),
 		Payload:       payload,
 		Timeout:       30 * time.Second,
-		Logger:        log,
 	}, nil)
 	if err != nil {
 		return "", bitbucketAuthError(err, result)
@@ -341,8 +333,6 @@ func bitbucketAuthError(err error, result *request.Content) error {
 }
 
 func (profile *Profile) send(ctx context.Context, options *request.Options, uripath string, response any) (result *request.Content, err error) {
-	log := logger.Must(logger.FromContext(ctx)).Child(nil, strings.ToLower(options.Method))
-
 	if profile.User != "" {
 		password, passErr := profile.GetPassword(ctx)
 		if passErr != nil {
@@ -373,9 +363,6 @@ func (profile *Profile) send(ctx context.Context, options *request.Options, urip
 	if options.Timeout == 0 {
 		options.Timeout = 30 * time.Second
 	}
-	if options.Logger == nil {
-		options.Logger = log
-	}
 	if options.RequestBodyLogSize == 0 {
 		options.RequestBodyLogSize = 16 * 1024
 	}
@@ -383,9 +370,9 @@ func (profile *Profile) send(ctx context.Context, options *request.Options, urip
 		options.ResponseBodyLogSize = 16 * 1024
 	}
 	if options.ProgressWriter != nil {
-		log.Warnf("[B] We have a ProgressWriter for uploading content")
+		lgr.Printf("[WARN] we have a ProgressWriter for uploading content")
 	}
-	log.Infof("Sending %s request to %s", options.Method, options.URL)
+	lgr.Printf("[DEBUG] sending %s request to %s", options.Method, options.URL)
 	result, err = request.Send(options, response)
 	if err != nil {
 		if errors.Is(err, errors.JSONUnmarshalError) {
@@ -395,10 +382,10 @@ func (profile *Profile) send(ctx context.Context, options *request.Options, urip
 			var bberr *BitBucketError
 			jerr := result.UnmarshalContentJSON(&bberr)
 			if jerr == nil {
-				log.Warnf("We have a BitBucketError: %#+v", bberr)
+				lgr.Printf("[WARN] we have a BitBucketError: %#+v", bberr)
 				return result, bberr
 			}
-			log.Debugf("the Error %s is not a bitbucket error: %s", err.Error(), jerr.Error())
+			lgr.Printf("[DEBUG] the error %s is not a bitbucket error: %s", err.Error(), jerr.Error())
 		}
 	}
 	return result, err

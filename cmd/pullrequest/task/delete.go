@@ -10,7 +10,7 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -49,8 +49,6 @@ func deleteValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]st
 }
 
 func deleteProcess(cmd *cobra.Command, args []string) error {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "delete")
-
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
 		return err
@@ -63,9 +61,9 @@ func deleteProcess(cmd *cobra.Command, args []string) error {
 
 	var merr errors.MultiError
 	for _, taskID := range args {
-		if common.WhatIf(log.ToContext(cmd.Context()), cmd, "Deleting task %s from pullrequest %s", taskID, deleteOptions.PullRequestID) {
+		if common.WhatIf(cmd, "Deleting task %s from pullrequest %s", taskID, deleteOptions.PullRequestID) {
 			err := profile.Delete(
-				log.ToContext(cmd.Context()),
+				cmd.Context(),
 				cmd,
 				repository.GetPath("pullrequests", deleteOptions.PullRequestID.Value, "tasks", taskID),
 				nil,
@@ -76,7 +74,7 @@ func deleteProcess(cmd *cobra.Command, args []string) error {
 				}
 				merr.Append(err)
 			}
-			log.Infof("Pullrequest task %s deleted", taskID)
+			lgr.Printf("[DEBUG] pullrequest task %s deleted", taskID)
 		}
 	}
 	if !merr.IsEmpty() && profile.ShouldWarnOnError(cmd) {
@@ -84,7 +82,7 @@ func deleteProcess(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 	if profile.ShouldIgnoreErrors(cmd) {
-		log.Warnf("Failed to delete these tasks, but ignoring errors: %s", merr)
+		lgr.Printf("[WARN] failed to delete these tasks, but ignoring errors: %s", merr)
 		return nil
 	}
 	return merr.AsError()

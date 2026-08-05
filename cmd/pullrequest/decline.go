@@ -3,11 +3,10 @@ package pullrequest
 import (
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
-	"github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
+	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/bitbucket-cli/cmd/user"
 	"github.com/gildas/go-errors"
-	"github.com/gildas/go-logger"
 	"github.com/spf13/cobra"
 )
 
@@ -37,8 +36,6 @@ func declineValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]s
 }
 
 func declineProcess(cmd *cobra.Command, args []string) (err error) {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "decline")
-
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
 		return errors.Join(errors.Errorf("Cannot decline Pull Request"), err)
@@ -54,13 +51,13 @@ func declineProcess(cmd *cobra.Command, args []string) (err error) {
 		return errors.Join(errors.Errorf("Cannot decline Pull Request"), err)
 	}
 
-	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, "Declining pullrequest %s", pullRequestID) {
+	if !common.WhatIf(cmd, "Declining pullrequest %s", pullRequestID) {
 		return nil
 	}
 	var participant user.Participant
 
 	err = profile.Post(
-		log.ToContext(cmd.Context()),
+		cmd.Context(),
 		cmd,
 		repository.GetPath("pullrequests", pullRequestID, "decline"),
 		nil,
