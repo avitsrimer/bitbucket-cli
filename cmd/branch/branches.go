@@ -14,32 +14,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type Branches []Branch
-
-// GetHeaders gets the header for a table
-//
-// implements common.Tableables
-func (branches Branches) GetHeaders(cmd *cobra.Command) []string {
-	return Branch{}.GetHeaders(cmd)
-}
-
-// GetRowAt gets the row for a table
-//
-// implements common.Tableables
-func (branches Branches) GetRowAt(index int, headers []string) []string {
-	if index < 0 || index >= len(branches) {
-		return []string{}
-	}
-	return branches[index].GetRow(headers)
-}
-
-// Size gets the number of elements
-//
-// implements common.Tableables
-func (branches Branches) Size() int {
-	return len(branches)
-}
-
 // GetBranches gets the branches of a repository
 func GetBranches(context context.Context, cmd *cobra.Command) (branches []Branch, err error) {
 	repository, err := repository.GetRepository(context, cmd)

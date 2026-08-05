@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
-	"strconv"
 	"strings"
 	"time"
 
@@ -16,10 +15,8 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/remote"
 	"github.com/gildas/bitbucket-cli/cmd/user"
 	"github.com/gildas/bitbucket-cli/cmd/workspace"
-	"github.com/gildas/go-core"
 	"github.com/gildas/go-errors"
 	"github.com/gildas/go-logger"
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
 
@@ -46,93 +43,9 @@ type Repository struct {
 	UpdatedOn            time.Time            `json:"updated_on"            mapstructure:"updated_on"`
 }
 
-/*
-type repositorySettings struct {
-	DefaultMergeStrategy bool `json:"default_merge_strategy" mapstructure:"default_merge_strategy"`
-	BranchingModel       bool `json:"branching_model"        mapstructure:"branching_model"`
-}
-*/
-
 type branch struct {
 	Type string `json:"type" mapstructure:"type"`
 	Name string `json:"name" mapstructure:"name"`
-}
-
-// Command represents this folder's command
-var Command = &cobra.Command{
-	Use:     "repo",
-	Aliases: []string{"repository"},
-	Short:   "Manage repositories",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Workspace requires a subcommand:")
-		for _, command := range cmd.Commands() {
-			fmt.Println(command.Name())
-		}
-	},
-}
-
-var columns = common.Columns[Repository]{
-	{Name: "name", DefaultSorter: true, Compare: func(a, b Repository) bool {
-		return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)) == -1
-	}},
-	{Name: "full_name", DefaultSorter: false, Compare: func(a, b Repository) bool {
-		return strings.Compare(strings.ToLower(a.FullName), strings.ToLower(b.FullName)) == -1
-	}},
-	{Name: "slug", DefaultSorter: false, Compare: func(a, b Repository) bool {
-		return strings.Compare(strings.ToLower(a.Slug), strings.ToLower(b.Slug)) == -1
-	}},
-	{Name: "owner", DefaultSorter: false, Compare: func(a, b Repository) bool {
-		return strings.Compare(strings.ToLower(a.Owner.Name), strings.ToLower(b.Owner.Name)) == -1
-	}},
-	{Name: "workspace", DefaultSorter: false, Compare: func(a, b Repository) bool {
-		return strings.Compare(strings.ToLower(a.Workspace.Name), strings.ToLower(b.Workspace.Name)) == -1
-	}},
-	{Name: "project", DefaultSorter: false, Compare: func(a, b Repository) bool {
-		return strings.Compare(strings.ToLower(a.Project.Name), strings.ToLower(b.Project.Name)) == -1
-	}},
-	{Name: "main_branch", DefaultSorter: false, Compare: func(a, b Repository) bool {
-		return strings.Compare(strings.ToLower(a.MainBranch), strings.ToLower(b.MainBranch)) == -1
-	}},
-	{Name: "has_issues", DefaultSorter: false, Compare: func(a, b Repository) bool {
-		return a.HasIssues == b.HasIssues
-	}},
-	{Name: "has_wiki", DefaultSorter: false, Compare: func(a, b Repository) bool {
-		return a.HasWiki == b.HasWiki
-	}},
-	{Name: "is_private", DefaultSorter: false, Compare: func(a, b Repository) bool {
-		return a.IsPrivate == b.IsPrivate
-	}},
-	{Name: "fork_policy", DefaultSorter: false, Compare: func(a, b Repository) bool {
-		return strings.Compare(strings.ToLower(a.ForkPolicy), strings.ToLower(b.ForkPolicy)) == -1
-	}},
-	{Name: "size", DefaultSorter: false, Compare: func(a, b Repository) bool {
-		return a.Size < b.Size
-	}},
-	{Name: "language", DefaultSorter: false, Compare: func(a, b Repository) bool {
-		return strings.Compare(strings.ToLower(a.Language), strings.ToLower(b.Language)) == -1
-	}},
-	{Name: "default_merge_strategy", DefaultSorter: false, Compare: func(a, b Repository) bool {
-		return strings.Compare(strings.ToLower(a.DefaultMergeStrategy), strings.ToLower(b.DefaultMergeStrategy)) == -1
-	}},
-	{Name: "branching_model", DefaultSorter: false, Compare: func(a, b Repository) bool {
-		return strings.Compare(strings.ToLower(a.BranchingModel), strings.ToLower(b.BranchingModel)) == -1
-	}},
-	{Name: "parent", DefaultSorter: false, Compare: func(a, b Repository) bool {
-		if a.Parent == nil && b.Parent == nil {
-			return false
-		} else if a.Parent == nil {
-			return true
-		} else if b.Parent == nil {
-			return false
-		}
-		return strings.Compare(strings.ToLower(a.Parent.FullName), strings.ToLower(b.Parent.FullName)) == -1
-	}},
-	{Name: "created_on", DefaultSorter: false, Compare: func(a, b Repository) bool {
-		return a.CreatedOn.Before(b.CreatedOn)
-	}},
-	{Name: "updated_on", DefaultSorter: false, Compare: func(a, b Repository) bool {
-		return a.UpdatedOn.Before(b.UpdatedOn)
-	}},
 }
 
 var RepositoryCache = common.NewCache[Repository]()
@@ -142,91 +55,6 @@ var RepositoryCache = common.NewCache[Repository]()
 // implements core.TypeCarrier
 func (repository Repository) GetType() string {
 	return "repository"
-}
-
-// GetID gets the ID of the repository
-//
-// implements core.Identifiable
-func (repository Repository) GetID() uuid.UUID {
-	return uuid.UUID(repository.ID)
-}
-
-// GetName gets the name of the repository
-//
-// implements core.Named
-func (repository Repository) GetName() string {
-	return repository.Name
-}
-
-// GetHeaders gets the header for a table
-//
-// implements common.Tableable
-func (repository Repository) GetHeaders(cmd *cobra.Command) []string {
-	if cmd != nil && cmd.Flag("columns") != nil && cmd.Flag("columns").Changed {
-		if columns, err := cmd.Flags().GetStringSlice("columns"); err == nil {
-			return core.Map(columns, func(column string) string { return strings.ReplaceAll(column, "_", " ") })
-		}
-	}
-	return []string{"ID", "Name", "Full Name"}
-}
-
-// GetRow gets the row for a table
-//
-// implements common.Tableable
-func (repository Repository) GetRow(headers []string) []string {
-	var row []string
-
-	for _, header := range headers {
-		switch strings.ToLower(header) {
-		case "id":
-			row = append(row, repository.ID.String())
-		case "name":
-			row = append(row, repository.Name)
-		case "full name":
-			row = append(row, repository.FullName)
-		case "slug":
-			row = append(row, repository.Slug)
-		case "owner":
-			row = append(row, repository.Owner.Name)
-		case "workspace":
-			row = append(row, repository.Workspace.Name)
-		case "project":
-			row = append(row, repository.Project.Name)
-		case "main branch":
-			row = append(row, repository.MainBranch)
-		case "issues", "has issues":
-			row = append(row, strconv.FormatBool(repository.HasIssues))
-		case "wiki", "has wiki":
-			row = append(row, strconv.FormatBool(repository.HasWiki))
-		case "is private":
-			row = append(row, strconv.FormatBool(repository.IsPrivate))
-		case "fork policy":
-			row = append(row, repository.ForkPolicy)
-		case "size":
-			row = append(row, strconv.FormatInt(repository.Size, 10))
-		case "language":
-			row = append(row, repository.Language)
-		case "default merge strategy":
-			row = append(row, repository.DefaultMergeStrategy)
-		case "branching model":
-			row = append(row, repository.BranchingModel)
-		case "parent":
-			if repository.Parent != nil {
-				row = append(row, repository.Parent.FullName)
-			} else {
-				row = append(row, " ")
-			}
-		case "created on", "created-on", "created_on", "created":
-			row = append(row, repository.CreatedOn.Format("2006-01-02 15:04:05"))
-		case "updated on", "updated-on", "updated_on", "updated":
-			if !repository.UpdatedOn.IsZero() {
-				row = append(row, repository.UpdatedOn.Format("2006-01-02 15:04:05"))
-			} else {
-				row = append(row, " ")
-			}
-		}
-	}
-	return row
 }
 
 // GetPath gets the API path of the repository
@@ -315,44 +143,12 @@ func GetRepositoryBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID s
 	return
 }
 
-// GetForks gets the forks of the repository
-func (repository Repository) GetForks(ctx context.Context, cmd *cobra.Command) (forks []Repository, err error) {
-	log := logger.Must(logger.FromContext(ctx)).Child("repository", "forks")
-
-	log.Infof("Getting forks of repository %s/%s", repository.Workspace.Slug, repository.Slug)
-	return profile.GetAll[Repository](ctx, cmd, repository.GetPath("forks"))
-}
-
 // GetEffectiveDefaultReviewers gets the effective default reviewers for a repository
 func (repository Repository) GetEffectiveDefaultReviewers(ctx context.Context, cmd *cobra.Command) (reviewers []reviewer.Reviewer, err error) {
 	log := logger.Must(logger.FromContext(ctx)).Child("repository", "effective-default-reviewers")
 
 	log.Infof("Getting effective default reviewers of repository %s/%s", repository.Workspace.Slug, repository.Slug)
 	return profile.GetAll[reviewer.Reviewer](ctx, cmd, repository.GetPath("effective-default-reviewers"))
-}
-
-// GetRepositoryFromGit gets a repository from a git origin
-func GetRepositoryFromGit(context context.Context, cmd *cobra.Command, profile *profile.Profile) (repository *Repository, err error) {
-	log := logger.Must(logger.FromContext(context)).Child("repository", "fromgit")
-
-	remote, err := remote.GetRemoteFromGitConfig(context, "origin")
-	if err != nil {
-		return nil, err
-	}
-	if repository, err = RepositoryCache.Get(remote.RepositoryName()); err == nil {
-		log.Debugf("Repository %s found in cache", remote.RepositoryName())
-		return
-	}
-	err = profile.Get(
-		context,
-		cmd,
-		fmt.Sprintf("/repositories/%s", remote.RepositoryName()),
-		&repository,
-	)
-	if err == nil {
-		_ = RepositoryCache.Set(*repository, remote.RepositoryName())
-	}
-	return
 }
 
 // GetWorkspace gets the workspace of the repository
@@ -372,20 +168,6 @@ func (repository Repository) GetWorkspace(ctx context.Context, cmd *cobra.Comman
 		}
 	}
 	return workspace.GetWorkspace(ctx, cmd)
-}
-
-// disableUnsupportedFlags disables the flags that are not supported by the repository command
-func disableUnsupportedFlags(cmd *cobra.Command, args []string) error {
-	if cmd.Flags().Changed("repository") {
-		return fmt.Errorf("the --repository flag is not supported by the repository command")
-	}
-	return nil
-}
-
-// hideUnsupportedFlags hides the flags that are not supported by the repository command
-func hideUnsupportedFlags(cmd *cobra.Command, args []string) {
-	cmd.Flags().MarkHidden("repository")
-	cmd.Parent().HelpFunc()(cmd, args)
 }
 
 // Validate validates a Repository

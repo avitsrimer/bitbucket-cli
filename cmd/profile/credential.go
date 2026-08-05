@@ -2,7 +2,6 @@ package profile
 
 import (
 	"github.com/gildas/go-errors"
-	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/zalando/go-keyring"
 )
 
@@ -10,14 +9,6 @@ import (
 type Credential struct {
 	Username string
 	Password string
-}
-
-// AsHTTPBasicAuth returns the credential as an HTTP BasicAuth structure.
-func (credential *Credential) AsHTTPBasicAuth() *http.BasicAuth {
-	return &http.BasicAuth{
-		Username: credential.Username,
-		Password: credential.Password,
-	}
 }
 
 // GetCredentialFromVault retrieves the credential for the given key from the Windows Credential Manager or Linux/macOS keychain.

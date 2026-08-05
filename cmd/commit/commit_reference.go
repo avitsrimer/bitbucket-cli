@@ -12,22 +12,6 @@ type CommitReference struct {
 	Links common.Links `json:"links" mapstructure:"links"`
 }
 
-// AsCommit converts this CommitRef to a Commit
-func (reference CommitReference) AsCommit() *Commit {
-	return &Commit{
-		Hash:  reference.Hash,
-		Links: reference.Links,
-	}
-}
-
-// GetShortHash gets the short hash of this commit
-func (reference CommitReference) GetShortHash() string {
-	if len(reference.Hash) > 7 {
-		return reference.Hash[:7]
-	}
-	return reference.Hash
-}
-
 // String gets a string representation of this commit
 //
 // implements fmt.Stringer

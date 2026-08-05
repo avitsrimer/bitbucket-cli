@@ -71,3 +71,7 @@ Thumbs.db
 # Snyk Security Extension - AI Rules (auto-generated)
 .dccache
 .github/instructions/snyk_rules.instructions.md
+
+# In-progress plans stay local; completed ones are tracked
+docs/plans/*
+!docs/plans/completed/

@@ -6,8 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -15,7 +13,6 @@ import (
 	"github.com/gildas/go-errors"
 	"github.com/gildas/go-logger"
 	"github.com/gildas/go-request"
-	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 )
 
@@ -178,124 +175,6 @@ func GetAll[T any](ctx context.Context, cmd *cobra.Command, uripath string) (res
 		uripath = nextURL.String()
 	}
 	return resources, nil
-}
-
-// Download downloads a resource to a destination folder
-//
-// # The destination folder is the current folder if not specified
-//
-// If the profile has its Progress flag set to true, it will show a progress bar.
-// Otherwise, if the command has a flag --progress, it will show a progress bar.
-func (profile *Profile) Download(ctx context.Context, cmd *cobra.Command, uripath, destination string) (err error) {
-	log := logger.Must(logger.FromContext(ctx)).Child(nil, "download")
-
-	if len(destination) == 0 {
-		destination = "."
-	}
-	if !strings.HasSuffix(destination, "/") {
-		destination += "/"
-	}
-	if err = os.MkdirAll(destination, 0755); err != nil {
-		return errors.RuntimeError.Wrap(err)
-	}
-	writer, err := os.CreateTemp(destination, "artifact-")
-	if err != nil {
-		return errors.RuntimeError.Wrap(err)
-	}
-
-	log.Debugf("Downloading data to %s", writer.Name())
-	options := &request.Options{
-		Method:              http.MethodGet,
-		Timeout:             15 * time.Minute,
-		ResponseBodyLogSize: -1, // we are not interested in the file content
-	}
-	showProgress := profile.Progress
-	if cmd != nil && cmd.Flags().Changed("progress") {
-		showProgress, _ = cmd.Flags().GetBool("progress")
-	}
-	if showProgress {
-		options.ProgressWriter = profile.getProgressWriter(1, "Downloading")
-	}
-	result, err := profile.send(ctx, cmd, options, uripath, writer)
-	if err != nil {
-		_ = writer.Close()
-		return err
-	}
-	if err = writer.Close(); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to close file %s: %s\n", writer.Name(), err)
-		log.Errorf("Failed to close file %s: %s", writer.Name(), err)
-	}
-	log.Debugf("Downloaded %d bytes", result.Length)
-
-	filename := result.Headers.Get("Content-Disposition")
-	if len(filename) == 0 {
-		filename = filepath.Base(uripath)
-	} else {
-		filename = strings.TrimPrefix(filename, "attachment; filename=\"")
-		filename = strings.TrimSuffix(filename, "\"")
-	}
-	log.Infof("Renaming %s  into %s", writer.Name(), filepath.Join(destination, filename))
-	return errors.RuntimeError.Wrap(os.Rename(writer.Name(), filepath.Join(destination, filename)))
-}
-
-// Upload uploads a resource from a source file
-//
-// If the profile has its Progress flag set to true, it will show a progress bar.
-// Otherwise, if the command has a flag --progress, it will show a progress bar.
-func (profile *Profile) Upload(ctx context.Context, cmd *cobra.Command, uripath, source string) (err error) {
-	reader, err := os.Open(source)
-	if err != nil {
-		return errors.RuntimeError.Wrap(err)
-	}
-	defer reader.Close()
-
-	options := &request.Options{
-		Method: http.MethodPost,
-		Payload: map[string]string{
-			">files": filepath.Base(source),
-		},
-		Attachment:         reader,
-		Timeout:            15 * time.Minute,
-		RequestBodyLogSize: -1, // we are not interested in the file content
-	}
-	showProgress := profile.Progress
-	if cmd != nil && cmd.Flags().Changed("progress") {
-		showProgress, _ = cmd.Flags().GetBool("progress")
-	}
-	if showProgress {
-		var size int64 = -1
-		if stat, err := reader.Stat(); err == nil {
-			size = stat.Size()
-		}
-		options.ProgressWriter = profile.getProgressWriter(size, "Upoading")
-	}
-	_, err = profile.send(ctx, cmd, options, uripath, nil)
-	return
-}
-
-func (profile *Profile) getProgressWriter(size int64, description string) *progressbar.ProgressBar {
-	return progressbar.NewOptions64(
-		size,
-		progressbar.OptionSetDescription("[cyan]"+description+"[reset] "),
-		progressbar.OptionSetWriter(os.Stderr),
-		progressbar.OptionShowBytes(true),
-		progressbar.OptionSetWidth(10),
-		progressbar.OptionThrottle(65*time.Millisecond),
-		progressbar.OptionShowCount(),
-		progressbar.OptionSpinnerType(14),
-		progressbar.OptionFullWidth(),
-		progressbar.OptionSetRenderBlankState(true),
-		progressbar.OptionClearOnFinish(),
-		progressbar.OptionEnableColorCodes(true),
-		progressbar.OptionOnCompletion(func() { fmt.Fprint(os.Stderr, "\n") }),
-		progressbar.OptionSetTheme(progressbar.Theme{
-			Saucer:        "[green]=[reset]",
-			SaucerHead:    "[green]>[reset]",
-			SaucerPadding: " ",
-			BarStart:      "[",
-			BarEnd:        "]",
-		}),
-	)
 }
 
 func (profile *Profile) CodeGrantCallback(resultchan chan error) http.Handler {

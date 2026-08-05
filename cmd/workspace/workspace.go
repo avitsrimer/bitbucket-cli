@@ -9,11 +9,8 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	"github.com/gildas/bitbucket-cli/cmd/remote"
-	"github.com/gildas/bitbucket-cli/cmd/workspace/permission"
-	"github.com/gildas/go-core"
 	"github.com/gildas/go-errors"
 	"github.com/gildas/go-logger"
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
 
@@ -25,86 +22,13 @@ type Workspace struct {
 	Links         common.Links `json:"links" mapstructure:"links"`
 }
 
-// Command represents this folder's command
-var Command = &cobra.Command{
-	Use:   "workspace",
-	Short: "Manage workspaces",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Workspace requires a subcommand:")
-		for _, command := range cmd.Commands() {
-			fmt.Println(command.Name())
-		}
-	},
-}
-
-var columns = common.Columns[Workspace]{
-	{Name: "id", DefaultSorter: false, Compare: func(a, b Workspace) bool {
-		return strings.Compare(strings.ToLower(a.ID.String()), strings.ToLower(b.ID.String())) == -1
-	}},
-	{Name: "name", DefaultSorter: true, Compare: func(a, b Workspace) bool {
-		return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)) == -1
-	}},
-	{Name: "slug", DefaultSorter: false, Compare: func(a, b Workspace) bool {
-		return strings.Compare(strings.ToLower(a.Slug), strings.ToLower(b.Slug)) == -1
-	}},
-}
-
 var WorkspaceCache = common.NewCache[Workspace]()
-
-func init() {
-	Command.AddCommand(permission.Command)
-}
 
 // GetType gets the type of the workspace
 //
 // implements core.TypeCarrier
 func (workspace Workspace) GetType() string {
 	return "workspace"
-}
-
-// GetID gets the ID of the workspace
-//
-// implements core.Identifiable
-func (workspace Workspace) GetID() uuid.UUID {
-	return uuid.UUID(workspace.ID)
-}
-
-// GetName gets the name of the workspace
-//
-// implements core.Named
-func (workspace Workspace) GetName() string {
-	return workspace.Name
-}
-
-// GetHeaders gets the header for a table
-//
-// implements common.Tableable
-func (workspace Workspace) GetHeaders(cmd *cobra.Command) []string {
-	if cmd != nil && cmd.Flag("columns") != nil && cmd.Flag("columns").Changed {
-		if columns, err := cmd.Flags().GetStringSlice("columns"); err == nil {
-			return core.Map(columns, func(column string) string { return strings.ReplaceAll(column, "_", " ") })
-		}
-	}
-	return []string{"ID", "Name", "Slug"}
-}
-
-// GetRow gets the row for a table
-//
-// implements common.Tableable
-func (workspace Workspace) GetRow(headers []string) []string {
-	var row []string
-
-	for _, header := range headers {
-		switch strings.ToLower(header) {
-		case "id":
-			row = append(row, workspace.ID.String())
-		case "name":
-			row = append(row, workspace.Name)
-		case "slug":
-			row = append(row, workspace.Slug)
-		}
-	}
-	return row
 }
 
 // String returns the string representation of the workspace
@@ -194,20 +118,6 @@ func GetWorkspaceBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID st
 	return workspace, errors.Join(errors.Errorf("Failed to get workspace %s", slugOrID), err)
 }
 
-// GetMember gets the workspace member by its username
-func (workspace Workspace) GetMember(ctx context.Context, cmd *cobra.Command, profile *profile.Profile, username string) (member *Member, err error) {
-	log := logger.Must(logger.FromContext(ctx)).Child("workspace", "get", "member", username)
-
-	log.Infof("Retrieving workspace %s member %s", workspace.Slug, username)
-	err = profile.Get(
-		log.ToContext(ctx),
-		cmd,
-		fmt.Sprintf("/workspaces/%s/members/%s", workspace.Slug, username),
-		&member,
-	)
-	return
-}
-
 // GetMembers gets the members of the workspace
 func (workspace Workspace) GetMembers(context context.Context, cmd *cobra.Command) (members []Member, err error) {
 	members, err = profile.GetAll[Member](
@@ -219,24 +129,6 @@ func (workspace Workspace) GetMembers(context context.Context, cmd *cobra.Comman
 		return []Member{}, err
 	}
 	return
-}
-
-// disableUnsupportedFlags disables the flags that are not supported by the workspace command
-func disableUnsupportedFlags(cmd *cobra.Command, args []string) error {
-	if cmd.Flags().Changed("repository") {
-		return fmt.Errorf("the --repository flag is not supported by the workspace command")
-	}
-	if cmd.Flags().Changed("workspace") {
-		return fmt.Errorf("the --workspace flag is not supported by the workspace command")
-	}
-	return nil
-}
-
-// hideUnsupportedFlags hides the flags that are not supported by the workspace command
-func hideUnsupportedFlags(cmd *cobra.Command, args []string) {
-	cmd.Flags().MarkHidden("repository")
-	cmd.Flags().MarkHidden("workspace")
-	cmd.Parent().HelpFunc()(cmd, args)
 }
 
 // MarshalJSON marshals the workspace to JSON
