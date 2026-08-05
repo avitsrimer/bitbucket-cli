@@ -6,7 +6,7 @@ import (
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
-	"github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
+	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/go-core"
 	"github.com/gildas/go-flags"
@@ -57,7 +57,7 @@ func listProcess(cmd *cobra.Command, args []string) (err error) {
 
 	uripath := repository.GetPath(fmt.Sprintf("pullrequests/%s/activity", listOptions.PullRequestID.Value))
 
-	if len(listOptions.Query) > 0 {
+	if listOptions.Query != "" {
 		uripath = fmt.Sprintf("%s?q=%s", uripath, url.QueryEscape(listOptions.Query))
 	}
 

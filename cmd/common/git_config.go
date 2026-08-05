@@ -23,35 +23,14 @@ func OpenGitConfig(ctx context.Context) (io.ReadCloser, error) {
 	last := folder + "dummy"
 
 	for {
-		// If .git is a filem (e.g. worktree), read the actual git dir from there (field gitdir)
-		gitPath := filepath.Join(folder, ".git")
-		info, err := os.Stat(gitPath)
-		if err == nil && !info.IsDir() {
-			log.Debugf(".git is a file, reading gitdir from there")
-			content, err := os.ReadFile(gitPath)
-			if err == nil {
-				lines := string(content)
-				const prefix = "gitdir: "
-				for line := range strings.SplitSeq(lines, "\n") {
-					if len(line) > len(prefix) && line[:len(prefix)] == prefix {
-						gitDir := line[len(prefix):]
-						log.Debugf("found gitdir: %s", gitDir)
-						if !filepath.IsAbs(gitDir) {
-							folder = filepath.Join(folder, gitDir)
-						} else {
-							folder = gitDir
-						}
-						break
-					}
-				}
-			}
-		}
-		filename := filepath.Join(folder, ".git/config")
+		// If .git is a file (e.g. worktree), read the actual git dir from there (field gitdir)
+		folder = resolveWorktreeGitDir(log, folder, filepath.Join(folder, ".git"))
+		filename := filepath.Join(folder, ".git", "config")
 		if folder == last {
 			return nil, errors.NotFound.With("file", filename)
 		}
 		log.Debugf("opening %s", filename)
-		file, err := os.Open(filename)
+		file, err := os.Open(filename) //nolint:gosec // filename is built by walking up from the process's own working directory, not from external input
 		if err == nil {
 			return file, nil
 		}
@@ -64,6 +43,33 @@ func OpenGitConfig(ctx context.Context) (io.ReadCloser, error) {
 		last = folder
 		folder = filepath.Dir(folder)
 	}
+}
+
+// resolveWorktreeGitDir returns the real git directory for folder: when gitPath is a plain file
+// (git worktrees do this) it contains a "gitdir: <path>" line pointing at the actual git directory;
+// otherwise folder is returned unchanged
+func resolveWorktreeGitDir(log *logger.Logger, folder, gitPath string) string {
+	info, err := os.Stat(gitPath)
+	if err != nil || info.IsDir() {
+		return folder
+	}
+	log.Debugf(".git is a file, reading gitdir from there")
+	content, err := os.ReadFile(gitPath) //nolint:gosec // gitPath is derived from the process's own working directory, not from external input
+	if err != nil {
+		return folder
+	}
+	const prefix = "gitdir: "
+	for line := range strings.SplitSeq(string(content), "\n") {
+		if len(line) > len(prefix) && line[:len(prefix)] == prefix {
+			gitDir := line[len(prefix):]
+			log.Debugf("found gitdir: %s", gitDir)
+			if !filepath.IsAbs(gitDir) {
+				return filepath.Join(folder, gitDir)
+			}
+			return gitDir
+		}
+	}
+	return folder
 }
 
 // GetGitSection returns the INI section from the git config file

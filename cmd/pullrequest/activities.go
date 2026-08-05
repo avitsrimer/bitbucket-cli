@@ -103,7 +103,7 @@ func activitiesProcess(cmd *cobra.Command, args []string) (err error) {
 
 	uripath := repository.GetPath(fmt.Sprintf("pullrequests/%s/activity", pullRequestID))
 
-	if len(listOptions.Query) > 0 {
+	if listOptions.Query != "" {
 		uripath = fmt.Sprintf("%s?q=%s", uripath, url.QueryEscape(listOptions.Query))
 	}
 

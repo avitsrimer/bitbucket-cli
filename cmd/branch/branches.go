@@ -42,6 +42,6 @@ func GetBranchNames(context context.Context, cmd *cobra.Command, args []string, 
 		return []string{}, err
 	}
 	names = core.Map(branches, func(branch Branch) string { return branch.Name })
-	core.Sort(names, func(a, b string) bool { return strings.Compare(strings.ToLower(a), strings.ToLower(b)) == -1 })
+	core.Sort(names, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
 	return common.FilterValidArgs(names, args, toComplete), nil
 }

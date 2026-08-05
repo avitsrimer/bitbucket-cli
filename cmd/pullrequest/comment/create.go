@@ -3,10 +3,8 @@ package comment
 import (
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
-	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/go-errors"
-	"github.com/gildas/go-flags"
 	"github.com/gildas/go-logger"
 	"github.com/spf13/cobra"
 )
@@ -30,33 +28,12 @@ var createCmd = &cobra.Command{
 	RunE:    createProcess,
 }
 
-var createOptions struct {
-	PullRequestID *flags.EnumFlag
-	Comment       string
-	File          string
-	From          int
-	To            int
-	ParentID      int64
-	Pending       bool
-}
+var createOptions commentEditOptions
 
 func init() {
 	Command.AddCommand(createCmd)
 
-	createOptions.PullRequestID = flags.NewEnumFlagWithFunc(createCmd, "", prcommon.GetPullRequestIDs)
-	createCmd.Flags().Var(createOptions.PullRequestID, "pullrequest", "Pullrequest to create comments to")
-	createCmd.Flags().StringVar(&createOptions.Comment, "comment", "", "Comment of the pullrequest")
-	createCmd.Flags().StringVar(&createOptions.File, "file", "", "File to comment on")
-	createCmd.Flags().IntVar(&createOptions.From, "line", 0, "From line to comment on. Cannot be used with --to")
-	createCmd.Flags().IntVar(&createOptions.From, "from", 0, "From line to comment on. Cannot be used with --line")
-	createCmd.Flags().IntVar(&createOptions.To, "to", 0, "To line to comment on. Cannot be used with --line")
-	createCmd.Flags().Int64Var(&createOptions.ParentID, "parent", 0, "Parent comment ID to reply to")
-	createCmd.Flags().BoolVar(&createOptions.Pending, "pending", false, "Mark the comment as pending")
-	createCmd.MarkFlagsMutuallyExclusive("line", "from")
-	createCmd.MarkFlagsMutuallyExclusive("line", "to")
-	_ = createCmd.MarkFlagRequired("pullrequest")
-	_ = createCmd.MarkFlagRequired("comment")
-	_ = createCmd.RegisterFlagCompletionFunc(createOptions.PullRequestID.CompletionFunc("pullrequest"))
+	registerCommentEditFlags(createCmd, &createOptions, "Comment of the pullrequest", "Pullrequest to create comments to")
 }
 
 func createProcess(cmd *cobra.Command, args []string) (err error) {

@@ -59,12 +59,13 @@ func listProcess(cmd *cobra.Command, args []string) (err error) {
 
 	var uripath string
 
-	if len(listOptions.Commit) > 0 {
+	switch {
+	case listOptions.Commit != "":
 		uripath = repository.GetPath("commit", listOptions.Commit, "pullrequests")
-	} else if len(listOptions.Query) > 0 {
+	case listOptions.Query != "":
 		uripath = repository.GetPath(fmt.Sprintf("pullrequests?state=%s&q=%s", url.QueryEscape(strings.ToUpper(listOptions.State.String())), url.QueryEscape(listOptions.Query)))
-	} else {
-		uripath = repository.GetPath(fmt.Sprintf("pullrequests?state=%s", url.QueryEscape(strings.ToUpper(listOptions.State.String()))))
+	default:
+		uripath = repository.GetPath("pullrequests?state=" + url.QueryEscape(strings.ToUpper(listOptions.State.String())))
 	}
 
 	log.Infof("Listing %s pull requests for repository: %s", listOptions.State, repository)
@@ -78,7 +79,7 @@ func listProcess(cmd *cobra.Command, args []string) (err error) {
 	}
 	if len(pullrequests) == 0 {
 		log.Infof("No pullrequest found")
-		return
+		return err
 	}
 	core.Sort(pullrequests, columns.SortBy(listOptions.SortBy.Value))
 	return profile.Current.Print(cmd.Context(), cmd, PullRequests(pullrequests))

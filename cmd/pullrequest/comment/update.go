@@ -3,10 +3,8 @@ package comment
 import (
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
-	"github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/go-errors"
-	"github.com/gildas/go-flags"
 	"github.com/gildas/go-logger"
 	"github.com/spf13/cobra"
 )
@@ -31,33 +29,12 @@ var updateCmd = &cobra.Command{
 	RunE:              updateProcess,
 }
 
-var updateOptions struct {
-	PullRequestID *flags.EnumFlag
-	Comment       string
-	File          string
-	From          int
-	To            int
-	ParentID      int64
-	Pending       bool
-}
+var updateOptions commentEditOptions
 
 func init() {
 	Command.AddCommand(updateCmd)
 
-	updateOptions.PullRequestID = flags.NewEnumFlagWithFunc(updateCmd, "", prcommon.GetPullRequestIDs)
-	updateCmd.Flags().Var(updateOptions.PullRequestID, "pullrequest", "Pullrequest to update comments to")
-	updateCmd.Flags().StringVar(&updateOptions.Comment, "comment", "", "Updated comment of the pullrequest")
-	updateCmd.Flags().StringVar(&updateOptions.File, "file", "", "File to comment on")
-	updateCmd.Flags().IntVar(&updateOptions.From, "line", 0, "From line to comment on. Cannot be used with --to")
-	updateCmd.Flags().IntVar(&updateOptions.From, "from", 0, "From line to comment on. Cannot be used with --line")
-	updateCmd.Flags().IntVar(&updateOptions.To, "to", 0, "To line to comment on. Cannot be used with --line")
-	updateCmd.Flags().Int64Var(&updateOptions.ParentID, "parent", 0, "Parent comment ID to reply to")
-	updateCmd.Flags().BoolVar(&updateOptions.Pending, "pending", false, "Mark the comment as pending")
-	updateCmd.MarkFlagsMutuallyExclusive("line", "from")
-	updateCmd.MarkFlagsMutuallyExclusive("line", "to")
-	_ = updateCmd.MarkFlagRequired("pullrequest")
-	_ = updateCmd.MarkFlagRequired("comment")
-	_ = updateCmd.RegisterFlagCompletionFunc(updateOptions.PullRequestID.CompletionFunc("pullrequest"))
+	registerCommentEditFlags(updateCmd, &updateOptions, "Updated comment of the pullrequest", "Pullrequest to update comments to")
 }
 
 func updateValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {

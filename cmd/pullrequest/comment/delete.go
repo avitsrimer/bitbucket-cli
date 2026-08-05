@@ -73,9 +73,8 @@ func deleteProcess(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				if profile.ShouldStopOnError(cmd) {
 					return errors.Join(errors.Errorf("Failed to delete pullrequest comment %s", commentID), err)
-				} else {
-					merr.Append(err)
 				}
+				merr.Append(err)
 			}
 			log.Infof("Pullrequest comment %s deleted", commentID)
 		}

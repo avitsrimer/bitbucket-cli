@@ -1,7 +1,6 @@
 package task
 
 import (
-	"fmt"
 	"strconv"
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
@@ -74,10 +73,10 @@ func createProcess(cmd *cobra.Command, args []string) error {
 		},
 		IsPending: createOptions.Pending,
 	}
-	if len(createOptions.CommentID.Value) > 0 {
-		commentID, err := strconv.ParseInt(createOptions.CommentID.Value, 10, 64)
-		if err != nil {
-			return errors.Join(errors.Errorf("Failed to parse comment ID %s", createOptions.CommentID.Value), err)
+	if createOptions.CommentID.Value != "" {
+		commentID, parseErr := strconv.ParseInt(createOptions.CommentID.Value, 10, 64)
+		if parseErr != nil {
+			return errors.Join(errors.Errorf("Failed to parse comment ID %s", createOptions.CommentID.Value), parseErr)
 		}
 		task.Comment = &comment.ParentReference{
 			ID: commentID,
@@ -85,7 +84,7 @@ func createProcess(cmd *cobra.Command, args []string) error {
 	}
 
 	log.Infof("Creating pullrequest task on pullrequest %s", createOptions.PullRequestID.Value)
-	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, fmt.Sprintf("Creating pullrequest task on pullrequest %s", createOptions.PullRequestID.Value)) {
+	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, "Creating pullrequest task on pullrequest "+createOptions.PullRequestID.Value) {
 		return nil
 	}
 

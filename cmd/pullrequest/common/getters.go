@@ -2,7 +2,7 @@ package prcommon
 
 import (
 	"context"
-	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/gildas/bitbucket-cli/cmd/profile"
@@ -33,15 +33,15 @@ func GetPullRequestIDsFromRepositoryWithState(context context.Context, cmd *cobr
 	pullrequests, err := profile.GetAll[PullRequestID](
 		log.ToContext(context),
 		cmd,
-		repository.GetPath(fmt.Sprintf("pullrequests?state=%s", state)),
+		repository.GetPath("pullrequests?state="+state),
 	)
 	if err != nil {
 		log.Errorf("Failed to get %s pullrequests", state, err)
 		return []string{}, err
 	}
 
-	ids = core.Map(pullrequests, func(pullrequest PullRequestID) string { return fmt.Sprintf("%d", pullrequest.ID) })
-	core.Sort(ids, func(a, b string) bool { return strings.Compare(strings.ToLower(a), strings.ToLower(b)) == -1 })
+	ids = core.Map(pullrequests, func(pullrequest PullRequestID) string { return strconv.Itoa(pullrequest.ID) })
+	core.Sort(ids, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
 	return ids, nil
 }
 

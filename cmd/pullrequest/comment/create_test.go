@@ -77,15 +77,15 @@ func (suite *CommentCreateSuite) TestCanMarshalCommentCreatorWithParent() {
 	data, err := json.Marshal(creator)
 	suite.Require().NoError(err)
 
-	var result map[string]interface{}
+	var result map[string]any
 	err = json.Unmarshal(data, &result)
 	suite.Require().NoError(err)
 
-	content, ok := result["content"].(map[string]interface{})
+	content, ok := result["content"].(map[string]any)
 	suite.Require().True(ok, "content should be present")
-	suite.Assert().Equal("This is a reply", content["raw"])
+	suite.Equal("This is a reply", content["raw"])
 
-	parent, ok := result["parent"].(map[string]interface{})
+	parent, ok := result["parent"].(map[string]any)
 	suite.Require().True(ok, "parent should be present")
 	suite.Assert().Equal(float64(759578390), parent["id"])
 }
@@ -98,16 +98,16 @@ func (suite *CommentCreateSuite) TestCanMarshalCommentCreatorWithoutParent() {
 	data, err := json.Marshal(creator)
 	suite.Require().NoError(err)
 
-	var result map[string]interface{}
+	var result map[string]any
 	err = json.Unmarshal(data, &result)
 	suite.Require().NoError(err)
 
-	content, ok := result["content"].(map[string]interface{})
+	content, ok := result["content"].(map[string]any)
 	suite.Require().True(ok, "content should be present")
-	suite.Assert().Equal("This is a top-level comment", content["raw"])
+	suite.Equal("This is a top-level comment", content["raw"])
 
 	_, ok = result["parent"]
-	suite.Assert().False(ok, "parent should not be present when nil")
+	suite.False(ok, "parent should not be present when nil")
 }
 
 func (suite *CommentCreateSuite) TestCommentCreatorJSONMatchesBitbucketAPIFormat() {
@@ -120,7 +120,7 @@ func (suite *CommentCreateSuite) TestCommentCreatorJSONMatchesBitbucketAPIFormat
 	suite.Require().NoError(err)
 
 	expected := `{"content":{"raw":"Done!"},"parent":{"id":759578390}}`
-	suite.Assert().JSONEq(expected, string(data))
+	suite.JSONEq(expected, string(data))
 }
 
 func (suite *CommentCreateSuite) TestCanMarshalCommentCreatorWithPending() {
@@ -132,18 +132,18 @@ func (suite *CommentCreateSuite) TestCanMarshalCommentCreatorWithPending() {
 	data, err := json.Marshal(creator)
 	suite.Require().NoError(err)
 
-	var result map[string]interface{}
+	var result map[string]any
 	err = json.Unmarshal(data, &result)
 	suite.Require().NoError(err)
 
-	content, ok := result["content"].(map[string]interface{})
+	content, ok := result["content"].(map[string]any)
 	suite.Require().True(ok, "content should be present")
-	suite.Assert().Equal("This is a top-level comment", content["raw"])
+	suite.Equal("This is a top-level comment", content["raw"])
 
 	_, ok = result["parent"]
-	suite.Assert().False(ok, "parent should not be present when nil")
+	suite.False(ok, "parent should not be present when nil")
 
 	pending, ok := result["pending"].(bool)
 	suite.Require().True(ok, "pending should be present")
-	suite.Assert().True(pending, "pending should be true")
+	suite.True(pending, "pending should be true")
 }

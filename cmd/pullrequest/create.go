@@ -1,6 +1,7 @@
 package pullrequest
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -82,7 +83,7 @@ func createProcess(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 
-	if len(createOptions.Title) == 0 {
+	if createOptions.Title == "" {
 		return errors.ArgumentMissing.With("title")
 	}
 
@@ -93,62 +94,19 @@ func createProcess(cmd *cobra.Command, args []string) (err error) {
 		CloseSourceBranch: createOptions.CloseSourceBranch,
 		Draft:             createOptions.Draft,
 	}
-	if len(createOptions.Destination.Value) > 0 {
+	if createOptions.Destination.Value != "" {
 		payload.Destination = &Endpoint{Branch: Branch{Name: createOptions.Destination.Value}}
 	}
 
 	log.Record("repository", repository).Infof("Using repository: %s", repository)
 
 	if len(createOptions.Reviewers.Values) > 0 && createOptions.Reviewers.Values[0] != "default" {
-		isMember := func(member workspace.Member, id string) bool {
-			if id, err := common.ParseUUID(id); err == nil {
-				return member.User.ID == id
-			}
-			return member.User.AccountID == id || strings.EqualFold(member.User.Nickname, id) || strings.EqualFold(member.User.Name, id)
-		}
-
-		members, _ := repository.Workspace.GetMembers(ctx, cmd)
-		payload.Reviewers = make([]user.User, 0, len(createOptions.Reviewers.Values))
-		for _, reviewer := range createOptions.Reviewers.Values {
-			if matches := core.Filter(members, func(member workspace.Member) bool { return isMember(member, reviewer) }); len(matches) > 0 {
-				log.Record("matches", matches).Infof("Adding reviewer: %s", matches[0].User.ID)
-				payload.Reviewers = append(payload.Reviewers, matches[0].User)
-			} else if user, err := user.GetUser(ctx, cmd, reviewer); err == nil {
-				log.Record("user", user).Infof("Adding reviewer: %s", reviewer)
-				payload.Reviewers = append(payload.Reviewers, *user)
-			} else {
-				log.Errorf("Reviewer %s is not a member of the workspace", reviewer)
-				fmt.Fprintf(os.Stderr, "Reviewer %s is not a member of the workspace\n", reviewer)
-			}
-		}
+		payload.Reviewers = resolveExplicitReviewers(ctx, cmd, log, repository, createOptions.Reviewers.Values)
 	} else {
-		var reviewers []reviewer.Reviewer
-
-		// Find me
-		log.Debugf("Finding current user")
-		me, errMe := user.GetMe(ctx, cmd)
-		if errMe != nil {
-			// RAT (repo scoped tokens) do not have access to that API endpoint usually
-			log.Warnf("Failed to get current user, this may be a RAT client. Error: %s", errMe.Error())
-		} else {
-			log.Infof("Current user: %s (%s)", me.Username, me.ID)
-		}
-
-		// Find the default reviewers from the repo or project settings
-		log.Debugf("No reviewers in the repository, trying to get effective default reviewers from the repository")
-		reviewers, err = repository.GetEffectiveDefaultReviewers(ctx, cmd)
+		payload.Reviewers, err = resolveCreateDefaultReviewers(ctx, cmd, log, repository)
 		if err != nil {
-			log.Errorf("Failed to get default reviewers", err)
-			return errors.Join(errors.New("Failed to get the default reviewers"), err, errMe)
+			return err
 		}
-		log.Debugf("Found %d default reviewers", len(reviewers))
-
-		if me != nil {
-			// Removing myself from the reviewers since I cannot be a reviewer of my own pullrequest
-			reviewers = core.Filter(reviewers, func(reviewer reviewer.Reviewer) bool { return reviewer.User.ID != me.ID })
-			log.Debugf("Filtered reviewers to remove current user: %d reviewers remaining", len(reviewers))
-		}
-		payload.Reviewers = core.Map(reviewers, func(reviewer reviewer.Reviewer) user.User { return reviewer.User })
 	}
 
 	log.Record("payload", payload).Infof("Creating pullrequest")
@@ -169,4 +127,63 @@ func createProcess(cmd *cobra.Command, args []string) (err error) {
 		return errors.Join(errors.Errorf("Failed to create pullrequest"), err)
 	}
 	return profile.Print(cmd.Context(), cmd, pullrequest)
+}
+
+// resolveCreateDefaultReviewers resolves the effective default reviewers of repository, excluding
+// the current user when known
+func resolveCreateDefaultReviewers(ctx context.Context, cmd *cobra.Command, log *logger.Logger, repository *repository.Repository) ([]user.User, error) {
+	log.Debugf("Finding current user")
+	me, errMe := user.GetMe(ctx, cmd)
+	if errMe != nil {
+		// RAT (repo scoped tokens) do not have access to that API endpoint usually
+		log.Warnf("Failed to get current user, this may be a RAT client. Error: %s", errMe.Error())
+	} else {
+		log.Infof("Current user: %s (%s)", me.Username, me.ID)
+	}
+
+	log.Debugf("No reviewers in the repository, trying to get effective default reviewers from the repository")
+	reviewers, err := repository.GetEffectiveDefaultReviewers(ctx, cmd)
+	if err != nil {
+		log.Errorf("Failed to get default reviewers", err)
+		return nil, errors.Join(errors.New("Failed to get the default reviewers"), err, errMe)
+	}
+	log.Debugf("Found %d default reviewers", len(reviewers))
+
+	if me != nil {
+		// Removing myself from the reviewers since I cannot be a reviewer of my own pullrequest
+		reviewers = core.Filter(reviewers, func(reviewer reviewer.Reviewer) bool { return reviewer.User.ID != me.ID })
+		log.Debugf("Filtered reviewers to remove current user: %d reviewers remaining", len(reviewers))
+	}
+	return core.Map(reviewers, func(reviewer reviewer.Reviewer) user.User { return reviewer.User }), nil
+}
+
+// resolveExplicitReviewers resolves the --reviewer values (already known not to be "default")
+// to their matching workspace members, falling back to a direct user lookup
+func resolveExplicitReviewers(ctx context.Context, cmd *cobra.Command, log *logger.Logger, repository *repository.Repository, values []string) []user.User {
+	isMember := func(member workspace.Member, id string) bool {
+		if parsedID, uuidErr := common.ParseUUID(id); uuidErr == nil {
+			return member.User.ID == parsedID
+		}
+		return member.User.AccountID == id || strings.EqualFold(member.User.Nickname, id) || strings.EqualFold(member.User.Name, id)
+	}
+
+	members, _ := repository.Workspace.GetMembers(ctx, cmd)
+	reviewers := make([]user.User, 0, len(values))
+	for _, reviewerNameOrID := range values {
+		matches := core.Filter(members, func(member workspace.Member) bool { return isMember(member, reviewerNameOrID) })
+		if len(matches) > 0 {
+			log.Record("matches", matches).Infof("Adding reviewer: %s", matches[0].User.ID)
+			reviewers = append(reviewers, matches[0].User)
+			continue
+		}
+		reviewerUser, userErr := user.GetUser(ctx, cmd, reviewerNameOrID)
+		if userErr == nil {
+			log.Record("user", reviewerUser).Infof("Adding reviewer: %s", reviewerNameOrID)
+			reviewers = append(reviewers, *reviewerUser)
+			continue
+		}
+		log.Errorf("Reviewer %s is not a member of the workspace", reviewerNameOrID)
+		fmt.Fprintf(os.Stderr, "Reviewer %s is not a member of the workspace\n", reviewerNameOrID)
+	}
+	return reviewers
 }

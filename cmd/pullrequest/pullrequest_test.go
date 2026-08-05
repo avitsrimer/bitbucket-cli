@@ -68,14 +68,14 @@ func (suite *PullRequestSuite) AfterTest(suiteName, testName string) {
 }
 
 func (suite *PullRequestSuite) LoadTestData(filename string) []byte {
-	data, err := os.ReadFile(fmt.Sprintf("../../testdata/%s", filename))
+	data, err := os.ReadFile("../../testdata/" + filename)
 	if err != nil {
 		suite.T().Fatal(err)
 	}
 	return data
 }
 
-func (suite *PullRequestSuite) UnmarshalData(filename string, v interface{}) error {
+func (suite *PullRequestSuite) UnmarshalData(filename string, v any) error {
 	data := suite.LoadTestData(filename)
 	suite.Logger.Infof("Loaded %s: %s", filename, string(data))
 	return json.Unmarshal(data, v)
@@ -91,7 +91,7 @@ func (suite *PullRequestSuite) TestCanUnmarshal() {
 	suite.Require().NotNil(pr)
 	data, err := json.Marshal(pr)
 	suite.Require().NoError(err)
-	suite.Assert().JSONEq(string(payload), string(data))
+	suite.JSONEq(string(payload), string(data))
 }
 
 func (suite *PullRequestSuite) TestCanUnmarshalWithNilDestinationRepository() {
@@ -100,8 +100,8 @@ func (suite *PullRequestSuite) TestCanUnmarshalWithNilDestinationRepository() {
 	err := json.Unmarshal(payload, &pr)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(pr)
-	suite.Assert().Nil(pr.Destination.Repository)
-	suite.Assert().NotEmpty(pr.Destination.Branch.Name)
+	suite.Nil(pr.Destination.Repository)
+	suite.NotEmpty(pr.Destination.Branch.Name)
 }
 
 func (suite *PullRequestSuite) TestDestinationRepositoryIsNilAfterSettingNewDestination() {
@@ -113,8 +113,8 @@ func (suite *PullRequestSuite) TestDestinationRepositoryIsNilAfterSettingNewDest
 
 	pr.Destination = pullrequest.Endpoint{Branch: pullrequest.Branch{Name: "new-branch"}}
 
-	suite.Assert().Nil(pr.Destination.Repository)
-	suite.Assert().Equal("new-branch", pr.Destination.Branch.Name)
+	suite.Nil(pr.Destination.Repository)
+	suite.Equal("new-branch", pr.Destination.Branch.Name)
 }
 
 func (suite *PullRequestSuite) TestCanCreatePullRequestMergeStatus() {
@@ -122,15 +122,15 @@ func (suite *PullRequestSuite) TestCanCreatePullRequestMergeStatus() {
 	mergeStatus, err := pullrequest.NewPullRequestMergeStatusFromLocation(location)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(mergeStatus)
-	suite.Assert().Equal("b45ea563-edb0-4d1d-ba34-ffaac2a6e10b", mergeStatus.ID)
-	suite.Assert().Equal(uint64(123), mergeStatus.PullRequest.ID)
+	suite.Equal("b45ea563-edb0-4d1d-ba34-ffaac2a6e10b", mergeStatus.ID)
+	suite.Equal(uint64(123), mergeStatus.PullRequest.ID)
 }
 
 func (suite *PullRequestSuite) TestShouldFailCreatingPullRequestMergeStatusWithInvalidURL() {
 	location := "invalid-url"
 	mergeStatus, err := pullrequest.NewPullRequestMergeStatusFromLocation(location)
 	suite.Require().Error(err)
-	suite.Assert().Nil(mergeStatus)
+	suite.Nil(mergeStatus)
 	suite.T().Logf("Expected error: %s", err.Error())
 }
 
@@ -138,7 +138,7 @@ func (suite *PullRequestSuite) TestShouldFailCreatingPullRequestMergeStatusWithE
 	location := ""
 	mergeStatus, err := pullrequest.NewPullRequestMergeStatusFromLocation(location)
 	suite.Require().Error(err)
-	suite.Assert().Nil(mergeStatus)
+	suite.Nil(mergeStatus)
 	suite.T().Logf("Expected error: %s", err.Error())
 }
 
@@ -146,6 +146,6 @@ func (suite *PullRequestSuite) TestShouldFailCreatingPullRequestMergeStatusWithS
 	location := "https://api.bitbucket.org/2.0/repositories/workspace_slug/repo_slug/pullrequests/123/merge/task-status"
 	mergeStatus, err := pullrequest.NewPullRequestMergeStatusFromLocation(location)
 	suite.Require().Error(err)
-	suite.Assert().Nil(mergeStatus)
+	suite.Nil(mergeStatus)
 	suite.T().Logf("Expected error: %s", err.Error())
 }

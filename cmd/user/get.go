@@ -1,8 +1,6 @@
 package user
 
 import (
-	"fmt"
-
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	"github.com/gildas/go-flags"
@@ -39,7 +37,7 @@ func getProcess(cmd *cobra.Command, args []string) (err error) {
 	}
 
 	log.Infof("Displaying user %s", args[0])
-	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, fmt.Sprintf("Showing user %s", args[0])) {
+	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, "Showing user "+args[0]) {
 		return nil
 	}
 

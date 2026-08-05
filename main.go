@@ -11,8 +11,8 @@ import (
 
 func main() {
 	_ = godotenv.Load()
-	if len(os.Getenv("LOG_DESTINATION")) == 0 {
-		os.Setenv("LOG_DESTINATION", "nil")
+	if os.Getenv("LOG_DESTINATION") == "" {
+		_ = os.Setenv("LOG_DESTINATION", "nil")
 	}
 	log := logger.Create(APP)
 	defer log.Flush()
@@ -21,6 +21,5 @@ func main() {
 	err := cmd.Execute(log.ToContext(context.Background()))
 	if err != nil {
 		log.Fatalf("Failed to execute command", err)
-		os.Exit(1)
 	}
 }

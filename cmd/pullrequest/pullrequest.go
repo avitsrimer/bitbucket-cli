@@ -14,7 +14,7 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	"github.com/gildas/bitbucket-cli/cmd/pullrequest/activity"
 	"github.com/gildas/bitbucket-cli/cmd/pullrequest/comment"
-	"github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
+	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/pullrequest/task"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/bitbucket-cli/cmd/user"
@@ -65,29 +65,29 @@ var columns = common.Columns[PullRequest]{
 		return a.ID < b.ID
 	}},
 	{Name: "title", DefaultSorter: false, Compare: func(a, b PullRequest) bool {
-		return strings.Compare(strings.ToLower(a.Title), strings.ToLower(b.Title)) == -1
+		return strings.ToLower(a.Title) < strings.ToLower(b.Title)
 	}},
 	{Name: "description", DefaultSorter: false, Compare: func(a, b PullRequest) bool {
-		return strings.Compare(strings.ToLower(a.Description), strings.ToLower(b.Description)) == -1
+		return strings.ToLower(a.Description) < strings.ToLower(b.Description)
 	}},
 	{Name: "source", DefaultSorter: false, Compare: func(a, b PullRequest) bool {
-		return strings.Compare(strings.ToLower(a.Source.Branch.Name), strings.ToLower(b.Source.Branch.Name)) == -1
+		return strings.ToLower(a.Source.Branch.Name) < strings.ToLower(b.Source.Branch.Name)
 	}},
 	{Name: "destination", DefaultSorter: false, Compare: func(a, b PullRequest) bool {
-		return strings.Compare(strings.ToLower(a.Destination.Branch.Name), strings.ToLower(b.Destination.Branch.Name)) == -1
+		return strings.ToLower(a.Destination.Branch.Name) < strings.ToLower(b.Destination.Branch.Name)
 	}},
 	{Name: "state", DefaultSorter: false, Compare: func(a, b PullRequest) bool {
-		return strings.Compare(strings.ToLower(a.State), strings.ToLower(b.State)) == -1
+		return strings.ToLower(a.State) < strings.ToLower(b.State)
 	}},
 	{Name: "author", DefaultSorter: false, Compare: func(a, b PullRequest) bool {
-		return strings.Compare(strings.ToLower(a.Author.Name), strings.ToLower(b.Author.Name)) == -1
+		return strings.ToLower(a.Author.Name) < strings.ToLower(b.Author.Name)
 	}},
 	{Name: "closed_by", DefaultSorter: false, Compare: func(a, b PullRequest) bool {
-		return strings.Compare(strings.ToLower(a.ClosedBy.Name), strings.ToLower(b.ClosedBy.Name)) == -1
+		return strings.ToLower(a.ClosedBy.Name) < strings.ToLower(b.ClosedBy.Name)
 	}},
 	{Name: "commit", DefaultSorter: false, Compare: func(a, b PullRequest) bool {
 		if a.MergeCommit != nil && b.MergeCommit != nil {
-			return strings.Compare(strings.ToLower(a.MergeCommit.Hash), strings.ToLower(b.MergeCommit.Hash)) == -1
+			return strings.ToLower(a.MergeCommit.Hash) < strings.ToLower(b.MergeCommit.Hash)
 		}
 		if a.MergeCommit != nil {
 			return true
@@ -98,7 +98,7 @@ var columns = common.Columns[PullRequest]{
 		return false
 	}},
 	{Name: "reason", DefaultSorter: false, Compare: func(a, b PullRequest) bool {
-		return strings.Compare(strings.ToLower(a.Reason), strings.ToLower(b.Reason)) == -1
+		return strings.ToLower(a.Reason) < strings.ToLower(b.Reason)
 	}},
 	{Name: "comments", DefaultSorter: false, Compare: func(a, b PullRequest) bool {
 		return a.CommentCount < b.CommentCount
@@ -150,7 +150,7 @@ func (pullrequest PullRequest) GetRow(headers []string) []string {
 	for _, header := range headers {
 		switch strings.ToLower(header) {
 		case "id":
-			row = append(row, fmt.Sprintf("%d", pullrequest.ID))
+			row = append(row, strconv.FormatUint(pullrequest.ID, 10))
 		case "title":
 			row = append(row, pullrequest.Title)
 		case "description":
@@ -174,9 +174,9 @@ func (pullrequest PullRequest) GetRow(headers []string) []string {
 		case "reason":
 			row = append(row, pullrequest.Reason)
 		case "comments":
-			row = append(row, fmt.Sprintf("%d", pullrequest.CommentCount))
+			row = append(row, strconv.FormatUint(pullrequest.CommentCount, 10))
 		case "tasks":
-			row = append(row, fmt.Sprintf("%d", pullrequest.TaskCount))
+			row = append(row, strconv.FormatUint(pullrequest.TaskCount, 10))
 		case "created on", "created_on", "created-on":
 			row = append(row, pullrequest.CreatedOn.Format("2006-01-02 15:04:05"))
 		case "updated on", "updated_on", "updated-on":
@@ -243,7 +243,7 @@ func GetReviewerNicknames(ctx context.Context, cmd *cobra.Command, args []string
 	log.Infof("Getting members of workspace %s", pullrequestWorkspace)
 	members, _ := pullrequestWorkspace.GetMembers(ctx, cmd)
 	nicknames = core.Map(members, func(member workspace.Member) string { return member.User.Nickname })
-	core.Sort(nicknames, func(a, b string) bool { return strings.Compare(strings.ToLower(a), strings.ToLower(b)) == -1 })
+	core.Sort(nicknames, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
 	return common.FilterValidArgs(nicknames, args, toComplete), nil
 }
 

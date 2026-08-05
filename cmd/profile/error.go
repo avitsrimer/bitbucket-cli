@@ -21,7 +21,7 @@ func (bberr *BitBucketError) Error() string {
 	var buffer strings.Builder
 
 	buffer.WriteString(bberr.Message)
-	if len(bberr.Detail) > 0 {
+	if bberr.Detail != "" {
 		buffer.WriteString(": ")
 		buffer.WriteString(bberr.Detail)
 	}
@@ -53,7 +53,7 @@ func (bberr *BitBucketError) UnmarshalJSON(data []byte) (err error) {
 		*bberr = BitBucketError(innerType1.surrogate)
 		bberr.Message = innerType1.Error.Message
 		bberr.Fields = innerType1.Error.Fields
-		return
+		return err
 	}
 
 	var innerType2 struct {
@@ -75,7 +75,7 @@ func (bberr *BitBucketError) UnmarshalJSON(data []byte) (err error) {
 				bberr.Fields[field] = []string{message}
 			}
 		}
-		return
+		return err
 	}
 
 	var innerType3 struct {
@@ -94,5 +94,5 @@ func (bberr *BitBucketError) UnmarshalJSON(data []byte) (err error) {
 	bberr.Message = innerType3.Error.Message
 	bberr.Detail = innerType3.Error.Detail
 	bberr.Fields = innerType3.Error.Fields
-	return
+	return err
 }

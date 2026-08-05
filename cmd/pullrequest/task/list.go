@@ -56,13 +56,13 @@ func listProcess(cmd *cobra.Command, args []string) (err error) {
 	}
 
 	log.Infof("Listing pullrequest tasks for pullrequest %s", listOptions.PullRequestID.Value)
-	if !common.WhatIf(ctx, cmd, fmt.Sprintf("Listing pullrequest tasks for pullrequest %s", listOptions.PullRequestID.Value)) {
+	if !common.WhatIf(ctx, cmd, "Listing pullrequest tasks for pullrequest "+listOptions.PullRequestID.Value) {
 		return nil
 	}
 
 	uripath := repository.GetPath(fmt.Sprintf("pullrequests/%s/tasks", listOptions.PullRequestID.Value))
 
-	if len(listOptions.Query) > 0 {
+	if listOptions.Query != "" {
 		uripath = fmt.Sprintf("%s?q=%s", uripath, url.QueryEscape(listOptions.Query))
 	}
 

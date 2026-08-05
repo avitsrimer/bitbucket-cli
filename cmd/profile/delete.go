@@ -58,42 +58,12 @@ func deleteProcess(cmd *cobra.Command, args []string) (err error) {
 	if deleteOptions.All {
 		log.Infof("Deleting all profiles")
 		if common.WhatIf(ctx, cmd, "Deleting all profiles") {
-			for _, profileName := range Profiles.Names() {
-				if profile, found := Profiles.Find(profileName); found {
-					log.Infof("Deleting credential for profile %s", profile.Name)
-					if len(profile.ClientID) > 0 {
-						_ = profile.DeleteCredentialFromVault(profile.VaultKey, profile.ClientID)
-						log.Debugf("Deleted client secret for clientID %s from the vault", profile.ClientID)
-					} else if len(profile.User) > 0 {
-						_ = profile.DeleteCredentialFromVault(profile.VaultKey, profile.User)
-						log.Debugf("Deleted user secret for user %s from the vault", profile.User)
-					} else if len(profile.Name) > 0 {
-						_ = profile.DeleteCredentialFromVault(profile.VaultKey, profile.Name)
-						log.Debugf("Deleted name secret for profile %s from the vault", profile.Name)
-					}
-				}
-			}
+			deleteProfileCredentials(log, Profiles.Names())
 			deleted = Profiles.Delete(Profiles.Names()...)
 		}
-	} else {
-		if common.WhatIf(ctx, cmd, "Deleting profiles %s", strings.Join(args, ", ")) {
-			for _, profileName := range args {
-				if profile, found := Profiles.Find(profileName); found {
-					log.Infof("Deleting credential for profile %s", profile.Name)
-					if len(profile.ClientID) > 0 {
-						_ = profile.DeleteCredentialFromVault(profile.VaultKey, profile.ClientID)
-						log.Debugf("Deleted client secret for clientID %s from the %s vault", profile.ClientID, profile.VaultKey)
-					} else if len(profile.User) > 0 {
-						_ = profile.DeleteCredentialFromVault(profile.VaultKey, profile.User)
-						log.Debugf("Deleted user password for user %s from the %s vault", profile.User, profile.VaultKey)
-					} else if len(profile.Name) > 0 {
-						_ = profile.DeleteCredentialFromVault(profile.VaultKey, profile.Name)
-						log.Debugf("Deleted name secret for profile %s from the %s vault", profile.Name, profile.VaultKey)
-					}
-				}
-			}
-			deleted = Profiles.Delete(args...)
-		}
+	} else if common.WhatIf(ctx, cmd, "Deleting profiles %s", strings.Join(args, ", ")) {
+		deleteProfileCredentials(log, args)
+		deleted = Profiles.Delete(args...)
 	}
 	log.Infof("Deleted %d profiles", deleted)
 	if deleted == 0 || cmd.Flag("dry-run").Changed {
@@ -101,4 +71,26 @@ func deleteProcess(cmd *cobra.Command, args []string) (err error) {
 	}
 	viper.Set("profiles", Profiles)
 	return viper.WriteConfig()
+}
+
+// deleteProfileCredentials deletes the vault credential of each named profile, if any
+func deleteProfileCredentials(log *logger.Logger, names []string) {
+	for _, profileName := range names {
+		profile, found := Profiles.Find(profileName)
+		if !found {
+			continue
+		}
+		log.Infof("Deleting credential for profile %s", profile.Name)
+		switch {
+		case profile.ClientID != "":
+			_ = profile.DeleteCredentialFromVault(profile.VaultKey, profile.ClientID)
+			log.Debugf("Deleted client secret for clientID %s from the %s vault", profile.ClientID, profile.VaultKey)
+		case profile.User != "":
+			_ = profile.DeleteCredentialFromVault(profile.VaultKey, profile.User)
+			log.Debugf("Deleted user password for user %s from the %s vault", profile.User, profile.VaultKey)
+		case profile.Name != "":
+			_ = profile.DeleteCredentialFromVault(profile.VaultKey, profile.Name)
+			log.Debugf("Deleted name secret for profile %s from the %s vault", profile.Name, profile.VaultKey)
+		}
+	}
 }

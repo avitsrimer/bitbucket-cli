@@ -26,7 +26,7 @@ func init() {
 	Command.AddCommand(mergeStatusCmd)
 
 	mergeStatusCmd.Flags().StringVar(&mergeStatusOptions.TaskID, "task-id", "", "ID of the merge task to check the status of")
-	mergeStatusCmd.MarkFlagRequired("task-id")
+	_ = mergeStatusCmd.MarkFlagRequired("task-id")
 }
 
 func mergeStatusValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {

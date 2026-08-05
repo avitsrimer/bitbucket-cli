@@ -1,6 +1,7 @@
 package profile
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -56,20 +57,21 @@ func authorizeProcess(cmd *cobra.Command, args []string) (err error) {
 		return errors.Join(errors.Errorf("Profile %s does not support Authorization Code Grant", profile.Name), errors.ArgumentInvalid.With("profile", profile.Name))
 	}
 
-	if !common.WhatIf(ctx, cmd, fmt.Sprintf("Authorizing profile %s", args[0])) {
+	if !common.WhatIf(ctx, cmd, "Authorizing profile "+args[0]) {
 		return nil
 	}
 	// Start a web server to listen for the Authorization Code Grant
 	resultchan := make(chan error)
 	server := &http.Server{
-		Addr:    fmt.Sprintf(":%d", profile.CallbackPort),
-		Handler: log.HttpHandler()(profile.CodeGrantCallback(resultchan)),
+		Addr:              fmt.Sprintf(":%d", profile.CallbackPort),
+		Handler:           log.HttpHandler()(profile.CodeGrantCallback(resultchan)),
+		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	go func() {
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Errorf("Failed to start server: %v", err)
-			resultchan <- err
+		if serveErr := server.ListenAndServe(); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			log.Errorf("Failed to start server: %v", serveErr)
+			resultchan <- serveErr
 		}
 	}()
 
@@ -93,15 +95,14 @@ func authorizeProcess(cmd *cobra.Command, args []string) (err error) {
 		spinner.Start()
 	}
 
-	err = openBrowser(bitbucketAuthURL)
+	err = openBrowser(ctx, bitbucketAuthURL)
 	if err != nil {
 		log.Warnf("Failed to open browser: %s", err.Error())
 		if cmd.Flag("stop-on-error").Value.String() == "true" {
 			spinner.Stop()
 			return err
-		} else {
-			fmt.Fprintf(cmd.OutOrStdout(), "\nPlease open the following URL in your browser:\n%s\n", bitbucketAuthURL.String())
 		}
+		fmt.Fprintf(cmd.OutOrStdout(), "\nPlease open the following URL in your browser:\n%s\n", bitbucketAuthURL.String())
 	}
 
 	// Wait until the user stops the server by pressing Ctrl+C
@@ -122,7 +123,7 @@ func authorizeProcess(cmd *cobra.Command, args []string) (err error) {
 }
 
 // openBrowser opens the specified URL in the default web browser
-func openBrowser(url url.URL) error {
+func openBrowser(ctx context.Context, url url.URL) error {
 	var cmd string
 	var args []string
 
@@ -134,16 +135,8 @@ func openBrowser(url url.URL) error {
 		}
 		if common.IsWSL() {
 			// If the flag interop=true is not set in /etc/wsl.conf, return an error
-			if content, err := os.ReadFile("/etc/wsl.conf"); err == nil {
-				if data, err := ini.Load(content); err == nil {
-					if section, err := data.GetSection("interop"); err == nil {
-						if key, err := section.GetKey("enabled"); err == nil {
-							if strings.ToLower(key.String()) != "true" {
-								return errors.New("Cannot open browser in WSL without interop enabled")
-							}
-						}
-					}
-				}
+			if wslInteropDisabled() {
+				return errors.New("Cannot open browser in WSL without interop enabled")
 			}
 			cmd = "cmd.exe"
 			args = append(args, "/C", "start")
@@ -154,9 +147,32 @@ func openBrowser(url url.URL) error {
 	case "darwin":
 		cmd = "open"
 	default:
-		return fmt.Errorf("unsupported platform")
+		return errors.New("unsupported platform")
 	}
 
 	args = append(args, `"`+url.String()+`"`)
-	return exec.Command(cmd, args...).Start()
+	return exec.CommandContext(ctx, cmd, args...).Start() //nolint:gosec // cmd is one of a fixed set of literals chosen from runtime.GOOS above, never external input
+}
+
+// wslInteropDisabled reports whether /etc/wsl.conf explicitly disables WSL interop.
+//
+// Any failure reading or parsing the file is treated as interop not being disabled.
+func wslInteropDisabled() bool {
+	content, err := os.ReadFile("/etc/wsl.conf")
+	if err != nil {
+		return false
+	}
+	data, err := ini.Load(content)
+	if err != nil {
+		return false
+	}
+	section, err := data.GetSection("interop")
+	if err != nil {
+		return false
+	}
+	key, err := section.GetKey("enabled")
+	if err != nil {
+		return false
+	}
+	return strings.ToLower(key.String()) != "true"
 }

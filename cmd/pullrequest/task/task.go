@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -49,10 +50,10 @@ var columns = common.Columns[Task]{
 		return a.ID < b.ID
 	}},
 	{Name: "content", DefaultSorter: false, Compare: func(a, b Task) bool {
-		return strings.Compare(strings.ToLower(a.Content.Raw), strings.ToLower(b.Content.Raw)) == -1
+		return strings.ToLower(a.Content.Raw) < strings.ToLower(b.Content.Raw)
 	}},
 	{Name: "creator", DefaultSorter: false, Compare: func(a, b Task) bool {
-		return strings.Compare(strings.ToLower(a.Creator.Name), strings.ToLower(b.Creator.Name)) == -1
+		return strings.ToLower(a.Creator.Name) < strings.ToLower(b.Creator.Name)
 	}},
 	{Name: "created_on", DefaultSorter: false, Compare: func(a, b Task) bool {
 		return a.CreatedOn.Before(b.CreatedOn)
@@ -70,7 +71,7 @@ var columns = common.Columns[Task]{
 		return a.ResolvedOn.Before(*b.ResolvedOn)
 	}},
 	{Name: "state", DefaultSorter: false, Compare: func(a, b Task) bool {
-		return strings.Compare(strings.ToLower(a.State), strings.ToLower(b.State)) == -1
+		return strings.ToLower(a.State) < strings.ToLower(b.State)
 	}},
 	{Name: "resolved_by", DefaultSorter: false, Compare: func(a, b Task) bool {
 		if a.ResolvedBy == nil {
@@ -79,7 +80,7 @@ var columns = common.Columns[Task]{
 		if b.ResolvedBy == nil {
 			return true
 		}
-		return strings.Compare(strings.ToLower(a.ResolvedBy.Name), strings.ToLower(b.ResolvedBy.Name)) == -1
+		return strings.ToLower(a.ResolvedBy.Name) < strings.ToLower(b.ResolvedBy.Name)
 	}},
 	{Name: "pending", DefaultSorter: false, Compare: func(a, b Task) bool {
 		return a.IsPending == b.IsPending
@@ -107,7 +108,7 @@ func (task Task) GetRow(headers []string) []string {
 	for _, header := range headers {
 		switch header {
 		case "id":
-			row = append(row, fmt.Sprintf("%d", task.ID))
+			row = append(row, strconv.Itoa(task.ID))
 		case "content":
 			row = append(row, task.Content.Raw)
 		case "creator":
@@ -131,7 +132,7 @@ func (task Task) GetRow(headers []string) []string {
 				row = append(row, "")
 			}
 		case "pending":
-			row = append(row, fmt.Sprintf("%t", task.IsPending))
+			row = append(row, strconv.FormatBool(task.IsPending))
 		}
 	}
 	return row
@@ -156,7 +157,7 @@ func (task Task) MarshalJSON() ([]byte, error) {
 }
 
 // GetPullRequestTaskIDs gets the IDs of the tasks for a pullrequest
-func GetPullRequestTaskIDs(ctx context.Context, cmd *cobra.Command, PullRequestID string) (ids []string, err error) {
+func GetPullRequestTaskIDs(ctx context.Context, cmd *cobra.Command, pullRequestID string) (ids []string, err error) {
 	log := logger.Must(logger.FromContext(ctx)).Child("pullrequest", "getids")
 
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
@@ -164,12 +165,12 @@ func GetPullRequestTaskIDs(ctx context.Context, cmd *cobra.Command, PullRequestI
 		return nil, err
 	}
 
-	tasks, err := profile.GetAll[Task](ctx, cmd, repository.GetPath(fmt.Sprintf("pullrequests/%s/tasks", PullRequestID)))
+	tasks, err := profile.GetAll[Task](ctx, cmd, repository.GetPath(fmt.Sprintf("pullrequests/%s/tasks", pullRequestID)))
 	if err != nil {
 		log.Errorf("Failed to get pullrequests", err)
 		return nil, err
 	}
 	return core.Map(tasks, func(task Task) string {
-		return fmt.Sprintf("%d", task.ID)
+		return strconv.Itoa(task.ID)
 	}), nil
 }

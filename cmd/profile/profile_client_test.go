@@ -24,16 +24,16 @@ func (suite *ProfileSuite) TestGetAll_OriginalQueryIsPreservedForNextMissingPara
 		q := r.URL.Query().Get("q")
 		if r.URL.Path == "/pipelines" {
 			if r.URL.Query().Get("page") == "" {
-				suite.Assert().Equal(filter, q, "initial request should include original q")
-				resp := map[string]interface{}{
+				suite.Equal(filter, q, "initial request should include original q")
+				resp := map[string]any{
 					"values": []map[string]string{{"id": "1"}},
 					"next":   server.URL + "/pipelines?page=2&pagelen=1",
 				}
 				_ = json.NewEncoder(w).Encode(resp)
 				return
 			}
-			suite.Assert().Equal(filter, q, "second request should include original q even when next omits it")
-			resp := map[string]interface{}{
+			suite.Equal(filter, q, "second request should include original q even when next omits it")
+			resp := map[string]any{
 				"values": []map[string]string{{"id": "2"}},
 			}
 			_ = json.NewEncoder(w).Encode(resp)
@@ -68,16 +68,16 @@ func (suite *ProfileSuite) TestGetAll_DoesNotOverwriteExistingNextParams() {
 		q := r.URL.Query().Get("q")
 		if r.URL.Path == "/pipelines" {
 			if r.URL.Query().Get("page") == "" {
-				suite.Assert().Equal(originalFilter, q, "initial request should include original q")
-				resp := map[string]interface{}{
+				suite.Equal(originalFilter, q, "initial request should include original q")
+				resp := map[string]any{
 					"values": []map[string]string{{"id": "1"}},
 					"next":   server.URL + "/pipelines?page=2&pagelen=1&q=" + url.QueryEscape(nextFilter),
 				}
 				_ = json.NewEncoder(w).Encode(resp)
 				return
 			}
-			suite.Assert().Equal(nextFilter, q, "existing q on next URL must not be overwritten")
-			resp := map[string]interface{}{
+			suite.Equal(nextFilter, q, "existing q on next URL must not be overwritten")
+			resp := map[string]any{
 				"values": []map[string]string{{"id": "2"}},
 			}
 			_ = json.NewEncoder(w).Encode(resp)

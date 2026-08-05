@@ -31,7 +31,7 @@ func TestCommitSuite(t *testing.T) {
 
 func (suite *CommitSuite) SetupSuite() {
 	_ = godotenv.Load()
-	suite.Name = strings.TrimSuffix(reflect.TypeOf(suite).Elem().Name(), "Suite")
+	suite.Name = strings.TrimSuffix(reflect.TypeFor[CommitSuite]().Name(), "Suite")
 	suite.Logger = logger.Create("test",
 		&logger.FileStream{
 			Path:         fmt.Sprintf("./log/test-%s.log", strings.ToLower(suite.Name)),
@@ -68,14 +68,14 @@ func (suite *CommitSuite) AfterTest(suiteName, testName string) {
 }
 
 func (suite *CommitSuite) LoadTestData(filename string) []byte {
-	data, err := os.ReadFile(fmt.Sprintf("../../testdata/%s", filename))
+	data, err := os.ReadFile("../../testdata/" + filename)
 	if err != nil {
 		suite.T().Fatal(err)
 	}
 	return data
 }
 
-func (suite *CommitSuite) UnmarshalData(filename string, v interface{}) error {
+func (suite *CommitSuite) UnmarshalData(filename string, v any) error {
 	data := suite.LoadTestData(filename)
 	suite.Logger.Infof("Loaded %s: %s", filename, string(data))
 	return json.Unmarshal(data, v)
@@ -91,7 +91,7 @@ func (suite *CommitSuite) TestCanUnmarshal() {
 	suite.Require().NotNil(c)
 	data, err := json.Marshal(c)
 	suite.Require().NoError(err)
-	suite.Assert().JSONEq(string(payload), string(data))
+	suite.JSONEq(string(payload), string(data))
 }
 
 func (suite *CommitSuite) TestCanMarshalCommitReference() {
@@ -100,5 +100,5 @@ func (suite *CommitSuite) TestCanMarshalCommitReference() {
 
 	data, err := json.Marshal(reference)
 	suite.Require().NoError(err)
-	suite.Assert().JSONEq(string(expected), string(data))
+	suite.JSONEq(expected, string(data))
 }

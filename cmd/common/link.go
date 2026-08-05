@@ -18,7 +18,7 @@ type Link struct {
 func (link Link) MarshalJSON() (data []byte, err error) {
 	type surrogate Link
 
-	if len(link.GitRef) > 0 {
+	if link.GitRef != "" {
 		data, err = json.Marshal(struct {
 			surrogate
 			GitRef string `json:"href"`
@@ -77,5 +77,5 @@ func (link *Link) UnmarshalJSON(data []byte) (err error) {
 		*link = Link(inner.surrogate)
 		link.HREF = inner.HREF.AsURL()
 	}
-	return
+	return err
 }

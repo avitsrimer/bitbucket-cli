@@ -132,3 +132,8 @@ func TestCanGetWorkspaceNameWithHTTPS(t *testing.T) {
 	assert.NotNil(t, r)
 	assert.Equal(t, "myworkspace", r.WorkspaceName())
 }
+
+func TestCanGetWorkspaceNameWithoutSlash(t *testing.T) {
+	r := remote.Remote{URL: "https://bitbucket.org"}
+	assert.Equal(t, "", r.WorkspaceName())
+}

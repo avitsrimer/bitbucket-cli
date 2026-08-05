@@ -31,22 +31,22 @@ type RenderedMessage struct {
 
 var columns = common.Columns[Commit]{
 	{Name: "hash", DefaultSorter: false, Compare: func(a, b Commit) bool {
-		return strings.Compare(strings.ToLower(a.Hash), strings.ToLower(b.Hash)) == -1
+		return strings.ToLower(a.Hash) < strings.ToLower(b.Hash)
 	}},
 	{Name: "longhash", DefaultSorter: false, Compare: func(a, b Commit) bool {
-		return strings.Compare(strings.ToLower(a.Message), strings.ToLower(b.Message)) == -1
+		return strings.ToLower(a.Message) < strings.ToLower(b.Message)
 	}},
 	{Name: "author", DefaultSorter: false, Compare: func(a, b Commit) bool {
-		return strings.Compare(strings.ToLower(a.Author.User.Name), strings.ToLower(b.Author.User.Name)) == -1
+		return strings.ToLower(a.Author.User.Name) < strings.ToLower(b.Author.User.Name)
 	}},
 	{Name: "message", DefaultSorter: false, Compare: func(a, b Commit) bool {
-		return strings.Compare(strings.ToLower(a.Message), strings.ToLower(b.Message)) == -1
+		return strings.ToLower(a.Message) < strings.ToLower(b.Message)
 	}},
 	{Name: "date", DefaultSorter: true, Compare: func(a, b Commit) bool {
 		return a.Date.Before(b.Date)
 	}},
 	{Name: "repository", DefaultSorter: false, Compare: func(a, b Commit) bool {
-		return strings.Compare(strings.ToLower(a.Repository.Name), strings.ToLower(b.Repository.Name)) == -1
+		return strings.ToLower(a.Repository.Name) < strings.ToLower(b.Repository.Name)
 	}},
 }
 

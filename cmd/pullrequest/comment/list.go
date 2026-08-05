@@ -56,7 +56,7 @@ func listProcess(cmd *cobra.Command, args []string) (err error) {
 
 	uripath := repository.GetPath(fmt.Sprintf("pullrequests/%s/comments", listOptions.PullRequestID.Value))
 
-	if len(listOptions.Query) > 0 {
+	if listOptions.Query != "" {
 		uripath = fmt.Sprintf("%s?q=%s", uripath, url.QueryEscape(listOptions.Query))
 	}
 
@@ -78,7 +78,7 @@ func listProcess(cmd *cobra.Command, args []string) (err error) {
 		cmd.Context(),
 		cmd,
 		Comments(core.Filter(comments, func(comment Comment) bool {
-			return len(comment.Content.Raw) > 0
+			return comment.Content.Raw != ""
 		})),
 	)
 }

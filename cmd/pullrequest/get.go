@@ -1,8 +1,6 @@
 package pullrequest
 
 import (
-	"fmt"
-
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	"github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
@@ -61,7 +59,7 @@ func getProcess(cmd *cobra.Command, args []string) error {
 	}
 
 	log.Infof("Displaying pull request %s", args[0])
-	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, fmt.Sprintf("Showing pull request %s", args[0])) {
+	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, "Showing pull request "+args[0]) {
 		return nil
 	}
 	var pullrequest PullRequest
