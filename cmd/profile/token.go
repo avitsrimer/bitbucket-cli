@@ -90,7 +90,7 @@ func (profile *Profile) saveAccessToken(ctx context.Context, data []byte) (acces
 		cachePath := filepath.Join(cacheDir, "bitbucket")
 		if err = os.MkdirAll(cachePath, 0o700); err == nil {
 			cacheFile := filepath.Join(cachePath, "access-token-"+profile.Name)
-			payload, _ := json.Marshal(profile.token) //nolint:gosec // caching the access token locally (0600) is the intended behavior here, not a leak
+			payload, _ := json.Marshal(profile.token) //nolint:gosec // G117: caching the access token locally (0600) is the intended behavior here, not a leak
 			if err = os.WriteFile(cacheFile, payload, 0o600); err != nil {
 				log.Errorf("Failed to save access token to cache for profile %s", profile.Name, err)
 			}

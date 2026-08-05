@@ -54,8 +54,7 @@ func initializeConfiguration(ctx context.Context, cmd *cobra.Command) (err error
 	}
 
 	err = viper.ReadInConfig()
-	var verr viper.ConfigFileNotFoundError
-	if errors.As(err, &verr) {
+	if verr, ok := errors.AsType[viper.ConfigFileNotFoundError](err); ok {
 		log.Warnf("Config file not found: %s", verr)
 	} else if err != nil {
 		return errors.Join(errors.New("failed to read config file"), err)
