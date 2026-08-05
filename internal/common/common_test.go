@@ -17,7 +17,7 @@ type CommonSuite struct {
 	Name string
 }
 
-func TestPullRequestSuite(t *testing.T) {
+func TestCommonSuite(t *testing.T) {
 	suite.Run(t, new(CommonSuite))
 }
 

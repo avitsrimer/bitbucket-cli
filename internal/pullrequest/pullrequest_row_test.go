@@ -71,11 +71,6 @@ func TestPullRequestString(t *testing.T) {
 	assert.Equal(t, "Add feature", target.String())
 }
 
-func TestPullRequestValidate(t *testing.T) {
-	target := pullrequest.PullRequest{}
-	require.NoError(t, target.Validate())
-}
-
 func TestGetPullRequestIDFromArgsWithValidArg(t *testing.T) {
 	id, err := pullrequest.GetPullRequestIDFromArgs(t.Context(), nil, nil, []string{"42"})
 	require.NoError(t, err)

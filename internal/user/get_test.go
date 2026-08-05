@@ -67,7 +67,9 @@ func TestGetProcessRendersTableOutput(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"uuid":"{` + targetID + `}","display_name":"Jane Doe","username":"jdoe"}`))
 	}, false)
-	_ = cmd.Flags().Set("output", "table")
+	if err := cmd.Flags().Set("output", "table"); err != nil {
+		t.Fatalf("cannot set output flag: %v", err)
+	}
 
 	stdout := captureStdout(t, func() {
 		if err := getProcess(cmd, []string{targetID}); err != nil {
@@ -77,6 +79,19 @@ func TestGetProcessRendersTableOutput(t *testing.T) {
 
 	if !strings.Contains(stdout, "Jane Doe") || !strings.Contains(stdout, "jdoe") {
 		t.Errorf("table output = %q, want it to contain the user's name and username", stdout)
+	}
+	// "Jane Doe"/"jdoe" alone are also substrings of the default JSON rendering, so also assert
+	// on table-specific shape: the uppercase header row and the box-drawing border tablewriter
+	// emits, and that the output does not parse as JSON.
+	if !strings.Contains(stdout, "USERNAME") || !strings.Contains(stdout, "NAME") {
+		t.Errorf("table output = %q, want it to contain the uppercase ID/USERNAME/NAME header row", stdout)
+	}
+	if !strings.Contains(stdout, "+--") {
+		t.Errorf("table output = %q, want it to contain tablewriter's box-drawing border", stdout)
+	}
+	var probe any
+	if err := json.Unmarshal([]byte(stdout), &probe); err == nil {
+		t.Errorf("table output = %q, want it not to parse as JSON", stdout)
 	}
 }
 

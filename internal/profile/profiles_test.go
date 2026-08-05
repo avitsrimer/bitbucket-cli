@@ -30,16 +30,21 @@ func newTestRootCommand() *cobra.Command {
 	return root
 }
 
-// resetProfilesState saves the current package-level Profiles/Current globals and returns a
-// function that restores them, so tests exercising the real commands don't leak state
+// resetProfilesState saves the current package-level Profiles/Current globals and the
+// process-global common.CurrentConfig(), returning a function that restores all three. Every
+// test in this file calls common.Initialize, which overwrites common's config singleton, so
+// without this a test that runs later (possibly in another package sharing the same test
+// binary) could observe a config pointed at a deleted t.TempDir() from a prior test.
 func resetProfilesState() func() {
 	oldProfiles := profile.Profiles
 	oldCurrent := profile.Current
+	oldConfig := common.CurrentConfig()
 	profile.Profiles = nil
 	profile.Current = nil
 	return func() {
 		profile.Profiles = oldProfiles
 		profile.Current = oldCurrent
+		common.SetCurrentConfig(oldConfig)
 	}
 }
 

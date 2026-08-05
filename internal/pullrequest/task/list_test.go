@@ -100,8 +100,9 @@ func TestListProcessWithQuery(t *testing.T) {
 	if len(requests) != 1 {
 		t.Fatalf("expected exactly 1 request, got %d", len(requests))
 	}
-	if requests[0].URL.Query().Get("q") == "" {
-		t.Errorf("expected the query flag to be sent as the q query parameter, got %s", requests[0].URL.RawQuery)
+	want := `content.raw~"fix"`
+	if got := requests[0].URL.Query().Get("q"); got != want {
+		t.Errorf("q query parameter = %q, want %q", got, want)
 	}
 }
 

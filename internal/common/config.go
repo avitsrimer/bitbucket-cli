@@ -37,6 +37,15 @@ func CurrentConfig() *Config {
 	return currentConfig
 }
 
+// SetCurrentConfig replaces the process-global configuration Initialize populates.
+//
+// It exists mainly so tests that call Initialize (and therefore overwrite this process-wide
+// singleton) can snapshot the previous value with CurrentConfig and restore it afterward,
+// instead of leaking state into whichever test runs next.
+func SetCurrentConfig(config *Config) {
+	currentConfig = config
+}
+
 // initializeLogger configures the logger based on the command line flags and environment variables
 func initializeLogger(cmd *cobra.Command) {
 	options := []lgr.Option{lgr.Out(os.Stderr), lgr.Err(os.Stderr)}
