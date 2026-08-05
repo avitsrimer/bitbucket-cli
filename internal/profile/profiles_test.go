@@ -102,6 +102,46 @@ func (suite *ProfileSuite) TestLoadParsesCamelCaseConfigKeys() {
 	suite.Equal(common.WarnOnError, got.ErrorProcessing)
 }
 
+// TestValidProfileNamesListsConfiguredProfiles covers the completion provider backing the root
+// --profile flag.
+func (suite *ProfileSuite) TestValidProfileNamesListsConfiguredProfiles() {
+	defer resetProfilesState()()
+
+	cmd := newTestRootCommand()
+	suite.Require().NoError(cmd.PersistentFlags().Set("config", "../../testdata/config.yml"))
+	suite.Require().NoError(common.Initialize(cmd))
+
+	names, directive := profile.ValidProfileNames(cmd, nil, "")
+	suite.Equal(cobra.ShellCompDirectiveNoFileComp, directive)
+	suite.ElementsMatch([]string{"simple", "test"}, names)
+}
+
+// TestValidProfileNamesReturnsNoCompletionsWhenArgAlreadyProvided mirrors
+// TestOpenPullRequestIDsCompletion's "argument already provided" case for this provider.
+func (suite *ProfileSuite) TestValidProfileNamesReturnsNoCompletionsWhenArgAlreadyProvided() {
+	defer resetProfilesState()()
+
+	cmd := newTestRootCommand()
+	names, directive := profile.ValidProfileNames(cmd, []string{"simple"}, "")
+	suite.Equal(cobra.ShellCompDirectiveNoFileComp, directive)
+	suite.Nil(names)
+}
+
+// TestValidProfileNamesReturnsEmptyWhenNoProfilesConfigured covers the "no profiles yet" path:
+// GetProfileFromCommand fails with ErrNoProfiles and completion should degrade to an empty list
+// rather than erroring out.
+func (suite *ProfileSuite) TestValidProfileNamesReturnsEmptyWhenNoProfilesConfigured() {
+	defer resetProfilesState()()
+
+	cmd := newTestRootCommand()
+	suite.Require().NoError(cmd.PersistentFlags().Set("config", filepath.Join(suite.T().TempDir(), "missing-config.yml")))
+	suite.Require().NoError(common.Initialize(cmd))
+
+	names, directive := profile.ValidProfileNames(cmd, nil, "")
+	suite.Equal(cobra.ShellCompDirectiveNoFileComp, directive)
+	suite.Empty(names)
+}
+
 // TestProfileCreateAndDeletePersistAcrossReloads drives the real create/delete commands against
 // a temp config file, reloading Profiles from disk between commands, to prove CRUD persistence
 // round-trips through the plain-YAML config the same way the old viper-backed one did.

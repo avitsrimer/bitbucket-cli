@@ -45,6 +45,40 @@ func registerUpdateFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("remove-reviewer", false, "")
 }
 
+func TestUpdateValidArgsListsAllPullRequestIDs(t *testing.T) {
+	var requests []*http.Request
+	cmd := setupTestNamed(t, "update-valid-args", func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[{"id":42},{"id":7}]}`))
+	}, false)
+
+	ids, directive := updateValidArgs(cmd, nil, "")
+	if directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Errorf("directive = %v, want %v", directive, cobra.ShellCompDirectiveNoFileComp)
+	}
+	if !slices.Equal(ids, []string{"42", "7"}) {
+		t.Errorf("ids = %v, want [42 7]", ids)
+	}
+	if len(requests) != 1 || requests[0].URL.Query().Get("state") != "ALL" {
+		t.Errorf("expected exactly 1 request with state=ALL, got %v", requests)
+	}
+}
+
+func TestUpdateValidArgsReturnsNoCompletionsWhenArgAlreadyProvided(t *testing.T) {
+	cmd := setupTestNamed(t, "update-valid-args-arg-provided", func(http.ResponseWriter, *http.Request) {
+		t.Error("no HTTP request expected")
+	}, false)
+
+	ids, directive := updateValidArgs(cmd, []string{"42"}, "")
+	if ids != nil {
+		t.Errorf("ids = %v, want nil", ids)
+	}
+	if directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Errorf("directive = %v, want %v", directive, cobra.ShellCompDirectiveNoFileComp)
+	}
+}
+
 func TestApplySimpleFieldUpdates(t *testing.T) {
 	withUpdateOptions(t, func() {
 		updateOptions.Title = "New title"
