@@ -2,7 +2,7 @@ package user
 
 import (
 	"encoding/json"
-	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
@@ -16,18 +16,6 @@ type Email struct {
 	IsPrimary   bool         `json:"is_primary" mapstructure:"is_primary"`
 	IsConfirmed bool         `json:"is_confirmed" mapstructure:"is_confirmed"`
 	Links       common.Links `json:"links" mapstructure:"links"`
-}
-
-var emailColumns = common.Columns[Email]{
-	{Name: "email", DefaultSorter: true, Compare: func(a, b Email) bool {
-		return strings.Compare(strings.ToLower(a.Email), strings.ToLower(b.Email)) == -1
-	}},
-	{Name: "is_primary", DefaultSorter: false, Compare: func(a, b Email) bool {
-		return !a.IsPrimary && b.IsPrimary
-	}},
-	{Name: "is_confirmed", DefaultSorter: false, Compare: func(a, b Email) bool {
-		return !a.IsConfirmed && b.IsConfirmed
-	}},
 }
 
 // GetType gets the type of the email
@@ -59,9 +47,9 @@ func (email Email) GetRow(headers []string) []string {
 		case "Email":
 			row = append(row, email.Email)
 		case "Is Primary":
-			row = append(row, fmt.Sprintf("%t", email.IsPrimary))
+			row = append(row, strconv.FormatBool(email.IsPrimary))
 		case "Is Confirmed":
-			row = append(row, fmt.Sprintf("%t", email.IsConfirmed))
+			row = append(row, strconv.FormatBool(email.IsConfirmed))
 		default:
 			row = append(row, "")
 		}

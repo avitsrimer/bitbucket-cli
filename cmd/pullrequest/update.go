@@ -1,6 +1,7 @@
 package pullrequest
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"slices"
@@ -100,28 +101,7 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 	log.Infof("Fetched pullrequest %s", args[0])
 	log.Record("pullrequest", pullrequest).Debugf("Pullrequest %s details", args[0])
 
-	updateWanted := false
-
-	if cmd.Flag("title").Changed {
-		pullrequest.Title = updateOptions.Title
-		updateWanted = true
-	}
-
-	if cmd.Flag("description").Changed {
-		pullrequest.Description = updateOptions.Description
-		pullrequest.Summary.Raw = updateOptions.Description
-		updateWanted = true
-	}
-
-	if cmd.Flag("destination").Changed {
-		pullrequest.Destination = Endpoint{Branch: Branch{Name: updateOptions.Destination.Value}}
-		updateWanted = true
-	}
-
-	if cmd.Flag("close-source-branch").Changed {
-		pullrequest.CloseSourceBranch = updateOptions.CloseSourceBranch
-		updateWanted = true
-	}
+	updateWanted := applySimpleFieldUpdates(cmd, &pullrequest)
 
 	var pullrequestWorkspace *workspace.Workspace
 	if pullrequest.Destination.Repository != nil {
@@ -139,87 +119,22 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 	log.Infof("Pullrequest workspace: %s", pullrequestWorkspace)
 
 	isMember := func(member workspace.Member, id string) bool {
-		if id, err := common.ParseUUID(id); err == nil {
-			return member.User.ID == id
+		if parsedID, uuidErr := common.ParseUUID(id); uuidErr == nil {
+			return member.User.ID == parsedID
 		}
 		return member.User.AccountID == id || strings.EqualFold(member.User.Nickname, id) || strings.EqualFold(member.User.Name, id)
 	}
 
-	if cmd.Flag("remove-reviewer").Changed {
-		if len(updateOptions.RemoveReviewers.Values) > 0 {
-			for _, reviewerNameOrID := range updateOptions.RemoveReviewers.Values {
-				var found = -1
-				for index, reviewer := range pullrequest.Reviewers {
-					if isMember(workspace.Member{User: reviewer}, reviewerNameOrID) {
-						found = index
-						break
-					}
-				}
-				if found != -1 {
-					pullrequest.Reviewers = append(pullrequest.Reviewers[:found], pullrequest.Reviewers[found+1:]...)
-					updateWanted = true
-				}
-			}
-		}
+	if removeRequestedReviewers(cmd, &pullrequest, isMember) {
+		updateWanted = true
 	}
 
-	if cmd.Flag("add-reviewer").Changed {
-		if len(updateOptions.AddReviewers.Values) > 0 {
-
-			if updateOptions.AddReviewers.Values[0] == "default" {
-				// Find me
-				log.Debugf("Finding current user")
-				me, err := user.GetMe(cmd.Context(), cmd)
-				if err != nil {
-					// RAT (repo scoped tokens) do not have access to that API endpoint usually
-					log.Warnf("Failed to get current user, this may be a RAT client. Error: %s", err.Error())
-				} else {
-					log.Infof("Current user: %s (%s)", me.Username, me.ID)
-				}
-
-				// Find the default reviewers from the repo or project settings
-				var reviewers []reviewer.Reviewer
-
-				log.Debugf("No reviewers in the repository, trying to get effective default reviewers from the repository")
-				reviewers, err = pullrequest.Source.Repository.GetEffectiveDefaultReviewers(cmd.Context(), cmd)
-				if err != nil {
-					log.Errorf("Failed to get default reviewers", err)
-					return err
-				}
-				log.Debugf("Found %d default reviewers", len(reviewers))
-
-				if me != nil {
-					// Removing myself from the reviewers since I cannot be a reviewer of my own pullrequest
-					reviewers = core.Filter(reviewers, func(reviewer reviewer.Reviewer) bool { return reviewer.User.ID != me.ID })
-					log.Debugf("Filtered reviewers to remove current user: %d reviewers remaining", len(reviewers))
-				}
-
-				// Replace the first reviewer with the list of default reviewers and appends the rest
-				updateOptions.AddReviewers.Values = append(
-					core.Map(reviewers, func(reviewer reviewer.Reviewer) string { return reviewer.User.ID.String() }),
-					updateOptions.AddReviewers.Values[1:]...,
-				)
-			}
-
-			log.Debugf("Getting all members from workspace %s", pullrequestWorkspace)
-			members, _ := pullrequestWorkspace.GetMembers(cmd.Context(), cmd)
-			log.Infof("Found %d members in workspace %s", len(members), pullrequestWorkspace)
-			for _, reviewer := range updateOptions.AddReviewers.Values {
-				log.Debugf("Processing reviewer to add: %s", reviewer)
-				if matches := core.Filter(members, func(member workspace.Member) bool { return isMember(member, reviewer) }); len(matches) > 0 {
-					if !slices.ContainsFunc(pullrequest.Reviewers, func(user user.User) bool { return user.ID == matches[0].User.ID }) {
-						log.Record("matches", matches).Infof("Adding reviewer: %s (%s)", matches[0].User.ID, matches[0].User.Nickname)
-						pullrequest.Reviewers = append(pullrequest.Reviewers, matches[0].User)
-						updateWanted = true
-					} else {
-						log.Infof("Reviewer %s (%s) is already a reviewer, skipping", matches[0].User.ID, matches[0].User.Nickname)
-					}
-				} else {
-					log.Errorf("reviewer ID %s is not a member of workspace %s", reviewer, pullrequestWorkspace)
-					fmt.Fprintf(os.Stderr, "Reviewer %s is not a member of workspace %s\n", reviewer, pullrequestWorkspace)
-				}
-			}
-		}
+	added, err := addRequestedReviewers(cmd.Context(), cmd, log, &pullrequest, pullrequestWorkspace, isMember)
+	if err != nil {
+		return err
+	}
+	if added {
+		updateWanted = true
 	}
 
 	if !updateWanted {
@@ -251,4 +166,122 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 	}
 
 	return profile.Print(cmd.Context(), cmd, updated)
+}
+
+// applySimpleFieldUpdates copies the flag-backed simple fields onto pullrequest and reports
+// whether anything changed
+func applySimpleFieldUpdates(cmd *cobra.Command, pullrequest *PullRequest) bool {
+	updateWanted := false
+	if cmd.Flag("title").Changed {
+		pullrequest.Title = updateOptions.Title
+		updateWanted = true
+	}
+	if cmd.Flag("description").Changed {
+		pullrequest.Description = updateOptions.Description
+		pullrequest.Summary.Raw = updateOptions.Description
+		updateWanted = true
+	}
+	if cmd.Flag("destination").Changed {
+		pullrequest.Destination = Endpoint{Branch: Branch{Name: updateOptions.Destination.Value}}
+		updateWanted = true
+	}
+	if cmd.Flag("close-source-branch").Changed {
+		pullrequest.CloseSourceBranch = updateOptions.CloseSourceBranch
+		updateWanted = true
+	}
+	return updateWanted
+}
+
+// removeRequestedReviewers removes reviewers listed in --remove-reviewer from pullrequest and
+// reports whether anything changed
+func removeRequestedReviewers(cmd *cobra.Command, pullrequest *PullRequest, isMember func(workspace.Member, string) bool) bool {
+	if !cmd.Flag("remove-reviewer").Changed || len(updateOptions.RemoveReviewers.Values) == 0 {
+		return false
+	}
+	updateWanted := false
+	for _, reviewerNameOrID := range updateOptions.RemoveReviewers.Values {
+		found := -1
+		for index, reviewer := range pullrequest.Reviewers {
+			if isMember(workspace.Member{User: reviewer}, reviewerNameOrID) {
+				found = index
+				break
+			}
+		}
+		if found != -1 {
+			pullrequest.Reviewers = append(pullrequest.Reviewers[:found], pullrequest.Reviewers[found+1:]...)
+			updateWanted = true
+		}
+	}
+	return updateWanted
+}
+
+// resolveDefaultReviewers replaces the "default" sentinel in --add-reviewer with the effective
+// default reviewers of the pullrequest's source repository, excluding the current user
+func resolveDefaultReviewers(ctx context.Context, cmd *cobra.Command, log *logger.Logger, pullrequest *PullRequest) error {
+	log.Debugf("Finding current user")
+	me, meErr := user.GetMe(ctx, cmd)
+	if meErr != nil {
+		// RAT (repo scoped tokens) do not have access to that API endpoint usually
+		log.Warnf("Failed to get current user, this may be a RAT client. Error: %s", meErr.Error())
+	} else {
+		log.Infof("Current user: %s (%s)", me.Username, me.ID)
+	}
+
+	// Find the default reviewers from the repo or project settings
+	log.Debugf("No reviewers in the repository, trying to get effective default reviewers from the repository")
+	reviewers, err := pullrequest.Source.Repository.GetEffectiveDefaultReviewers(ctx, cmd)
+	if err != nil {
+		log.Errorf("Failed to get default reviewers", err)
+		return err
+	}
+	log.Debugf("Found %d default reviewers", len(reviewers))
+
+	if me != nil {
+		// Removing myself from the reviewers since I cannot be a reviewer of my own pullrequest
+		reviewers = core.Filter(reviewers, func(reviewer reviewer.Reviewer) bool { return reviewer.User.ID != me.ID })
+		log.Debugf("Filtered reviewers to remove current user: %d reviewers remaining", len(reviewers))
+	}
+
+	// Replace the first reviewer with the list of default reviewers and appends the rest
+	updateOptions.AddReviewers.Values = append(
+		core.Map(reviewers, func(reviewer reviewer.Reviewer) string { return reviewer.User.ID.String() }),
+		updateOptions.AddReviewers.Values[1:]...,
+	)
+	return nil
+}
+
+// addRequestedReviewers adds reviewers listed in --add-reviewer (resolving the "default" sentinel
+// first) and reports whether anything changed
+func addRequestedReviewers(ctx context.Context, cmd *cobra.Command, log *logger.Logger, pullrequest *PullRequest, pullrequestWorkspace *workspace.Workspace, isMember func(workspace.Member, string) bool) (bool, error) {
+	if !cmd.Flag("add-reviewer").Changed || len(updateOptions.AddReviewers.Values) == 0 {
+		return false, nil
+	}
+
+	if updateOptions.AddReviewers.Values[0] == "default" {
+		if err := resolveDefaultReviewers(ctx, cmd, log, pullrequest); err != nil {
+			return false, err
+		}
+	}
+
+	updateWanted := false
+	log.Debugf("Getting all members from workspace %s", pullrequestWorkspace)
+	members, _ := pullrequestWorkspace.GetMembers(ctx, cmd)
+	log.Infof("Found %d members in workspace %s", len(members), pullrequestWorkspace)
+	for _, reviewerNameOrID := range updateOptions.AddReviewers.Values {
+		log.Debugf("Processing reviewer to add: %s", reviewerNameOrID)
+		matches := core.Filter(members, func(member workspace.Member) bool { return isMember(member, reviewerNameOrID) })
+		if len(matches) > 0 {
+			if !slices.ContainsFunc(pullrequest.Reviewers, func(u user.User) bool { return u.ID == matches[0].User.ID }) {
+				log.Record("matches", matches).Infof("Adding reviewer: %s (%s)", matches[0].User.ID, matches[0].User.Nickname)
+				pullrequest.Reviewers = append(pullrequest.Reviewers, matches[0].User)
+				updateWanted = true
+			} else {
+				log.Infof("Reviewer %s (%s) is already a reviewer, skipping", matches[0].User.ID, matches[0].User.Nickname)
+			}
+		} else {
+			log.Errorf("reviewer ID %s is not a member of workspace %s", reviewerNameOrID, pullrequestWorkspace)
+			fmt.Fprintf(os.Stderr, "Reviewer %s is not a member of workspace %s\n", reviewerNameOrID, pullrequestWorkspace)
+		}
+	}
+	return updateWanted, nil
 }

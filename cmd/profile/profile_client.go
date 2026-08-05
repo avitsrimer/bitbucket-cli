@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,22 +27,22 @@ type PaginatedResources[T any] struct {
 }
 
 // Post posts a resource
-func (profile *Profile) Post(ctx context.Context, cmd *cobra.Command, uripath string, body interface{}, response interface{}) (err error) {
+func (profile *Profile) Post(ctx context.Context, cmd *cobra.Command, uripath string, body, response any) (err error) {
 	options := &request.Options{Method: http.MethodPost, Payload: body}
-	_, err = profile.send(ctx, cmd, options, uripath, response)
+	_, err = profile.send(ctx, options, uripath, response)
 	return
 }
 
 // PostWithResult posts a resource and returns the raw result
-func (profile *Profile) PostWithResult(ctx context.Context, cmd *cobra.Command, uripath string, body interface{}) (result *request.Content, err error) {
+func (profile *Profile) PostWithResult(ctx context.Context, cmd *cobra.Command, uripath string, body any) (result *request.Content, err error) {
 	options := &request.Options{Method: http.MethodPost, Payload: body}
-	return profile.send(ctx, cmd, options, uripath, nil)
+	return profile.send(ctx, options, uripath, nil)
 }
 
 // Get gets a resource
-func (profile *Profile) Get(ctx context.Context, cmd *cobra.Command, uripath string, response interface{}) (err error) {
+func (profile *Profile) Get(ctx context.Context, cmd *cobra.Command, uripath string, response any) (err error) {
 	options := &request.Options{Method: http.MethodGet}
-	_, err = profile.send(ctx, cmd, options, uripath, response)
+	_, err = profile.send(ctx, options, uripath, response)
 	return
 }
 
@@ -51,34 +52,81 @@ func (profile *Profile) GetRaw(ctx context.Context, cmd *cobra.Command, uripath 
 		Method: http.MethodGet,
 		Accept: "*/*",
 	}
-	result, err := profile.send(ctx, cmd, options, uripath, nil)
+	result, err := profile.send(ctx, options, uripath, nil)
 	return result.Reader(), err
 }
 
 // Put puts/updates a resource
-func (profile *Profile) Put(ctx context.Context, cmd *cobra.Command, uripath string, body interface{}, response interface{}) (err error) {
+func (profile *Profile) Put(ctx context.Context, cmd *cobra.Command, uripath string, body, response any) (err error) {
 	options := &request.Options{Method: http.MethodPut, Payload: body}
-	_, err = profile.send(ctx, cmd, options, uripath, response)
+	_, err = profile.send(ctx, options, uripath, response)
 	return
 }
 
 // Delete deletes a resource
-func (profile *Profile) Delete(ctx context.Context, cmd *cobra.Command, uripath string, response interface{}) (err error) {
+func (profile *Profile) Delete(ctx context.Context, cmd *cobra.Command, uripath string, response any) (err error) {
 	options := &request.Options{Method: http.MethodDelete}
-	_, err = profile.send(ctx, cmd, options, uripath, response)
+	_, err = profile.send(ctx, options, uripath, response)
 	return
 }
 
 // Patch patches a resource
-func (profile *Profile) Patch(ctx context.Context, cmd *cobra.Command, uripath string, body interface{}, response interface{}) (err error) {
+func (profile *Profile) Patch(ctx context.Context, cmd *cobra.Command, uripath string, body, response any) (err error) {
 	options := &request.Options{Method: http.MethodPatch, Payload: body}
-	_, err = profile.send(ctx, cmd, options, uripath, response)
+	_, err = profile.send(ctx, options, uripath, response)
 	return
 }
 
-// GetAllResources gets all resources of the given type
+// GetAll gets all resources of the given type
 //
 // The Current profile will be set to the profile of the command
+// resolvePageLengthAndLimit reads the --page-length and --limit flags, falling back to defaultPageLength
+func resolvePageLengthAndLimit(log *logger.Logger, cmd *cobra.Command, defaultPageLength int) (pageLength, limit int) {
+	pageLength = defaultPageLength
+	if cmd != nil && cmd.Flag("page-length") != nil && cmd.Flag("page-length").Changed {
+		if length, err := cmd.Flags().GetInt("page-length"); err == nil && length > 0 {
+			pageLength = length
+			log.Debugf("Using page length of %d from the command line flags", pageLength)
+		}
+	}
+	if cmd != nil && cmd.Flag("limit") != nil && cmd.Flag("limit").Changed {
+		if l, err := cmd.Flags().GetInt("limit"); err == nil && l > 0 {
+			limit = l
+			log.Debugf("Using limit of %d from the command line flags", limit)
+		}
+	}
+	if limit > 0 && (pageLength == 0 || limit < pageLength) {
+		pageLength = limit
+	}
+	return pageLength, limit
+}
+
+// nextPageURL builds the URL for the next page of resources, preserving the original query
+// parameters and trimming pagelen once limit is close to being reached
+func nextPageURL(next string, originalQuery url.Values, limit, resourceCount, pageLength int) (string, error) {
+	nextURL, err := url.Parse(next)
+	if err != nil {
+		return "", err
+	}
+	nextQuery := nextURL.Query()
+	for key, values := range originalQuery {
+		if _, exists := nextQuery[key]; !exists {
+			for _, value := range values {
+				nextQuery.Add(key, value)
+			}
+		}
+	}
+	if limit > 0 {
+		remaining := limit - resourceCount
+		if remaining < pageLength {
+			// Adjust pagelen on the next URL to only fetch what we still need
+			nextQuery.Set("pagelen", strconv.Itoa(remaining))
+		}
+	}
+	nextURL.RawQuery = nextQuery.Encode()
+	return nextURL.String(), nil
+}
+
 func GetAll[T any](ctx context.Context, cmd *cobra.Command, uripath string) (resources []T, err error) {
 	log := logger.Must(logger.FromContext(ctx)).Child(nil, "getall")
 
@@ -89,26 +137,7 @@ func GetAll[T any](ctx context.Context, cmd *cobra.Command, uripath string) (res
 	}
 	Current = profile // Make sure the current profile is set
 
-	pageLength := Current.DefaultPageLength
-
-	if cmd != nil && cmd.Flag("page-length") != nil && cmd.Flag("page-length").Changed {
-		if length, err := cmd.Flags().GetInt("page-length"); err == nil && length > 0 {
-			pageLength = length
-			log.Debugf("Using page length of %d from the command line flags", pageLength)
-		}
-	}
-
-	limit := 0
-	if cmd != nil && cmd.Flag("limit") != nil && cmd.Flag("limit").Changed {
-		if l, err := cmd.Flags().GetInt("limit"); err == nil && l > 0 {
-			limit = l
-			log.Debugf("Using limit of %d from the command line flags", limit)
-		}
-	}
-
-	if limit > 0 && (pageLength == 0 || limit < pageLength) {
-		pageLength = limit
-	}
+	pageLength, limit := resolvePageLengthAndLimit(log, cmd, Current.DefaultPageLength)
 
 	if !strings.Contains(uripath, "pagelen") && pageLength > 0 {
 		if strings.Contains(uripath, "?") {
@@ -119,7 +148,7 @@ func GetAll[T any](ctx context.Context, cmd *cobra.Command, uripath string) (res
 	}
 
 	originalQuery := url.Values{}
-	if parsed, err := url.Parse(uripath); err == nil {
+	if parsed, parseErr := url.Parse(uripath); parseErr == nil {
 		originalQuery = parsed.Query()
 	}
 
@@ -148,31 +177,14 @@ func GetAll[T any](ctx context.Context, cmd *cobra.Command, uripath string) (res
 		log.Debugf("Got %d resources (total: %d)", len(paginated.Values), len(resources))
 		log.Debugf("Next page:     %s", paginated.Next)
 		log.Debugf("Previous page: %s", paginated.Previous)
-		if len(paginated.Next) == 0 {
+		if paginated.Next == "" {
 			break
 		}
 
-		nextURL, parseErr := url.Parse(paginated.Next)
-		if parseErr != nil {
-			return nil, parseErr
+		uripath, err = nextPageURL(paginated.Next, originalQuery, limit, len(resources), pageLength)
+		if err != nil {
+			return nil, err
 		}
-		nextQuery := nextURL.Query()
-		for key, values := range originalQuery {
-			if _, exists := nextQuery[key]; !exists {
-				for _, value := range values {
-					nextQuery.Add(key, value)
-				}
-			}
-		}
-		if limit > 0 {
-			remaining := limit - len(resources)
-			if remaining < pageLength {
-				// Adjust pagelen on the next URL to only fetch what we still need
-				nextQuery.Set("pagelen", fmt.Sprintf("%d", remaining))
-			}
-		}
-		nextURL.RawQuery = nextQuery.Encode()
-		uripath = nextURL.String()
 	}
 	return resources, nil
 }
@@ -192,7 +204,7 @@ func (profile *Profile) CodeGrantCallback(resultchan chan error) http.Handler {
 
 		log.Infof("Received callback from BitBucket")
 		code := r.URL.Query().Get("code")
-		if len(code) == 0 {
+		if code == "" {
 			log.Errorf("No code in the callback")
 			http.Error(w, "No code in the callback", http.StatusBadRequest)
 			return
@@ -218,22 +230,7 @@ func (profile *Profile) CodeGrantCallback(resultchan chan error) http.Handler {
 			Logger:        log,
 		}, nil)
 		if err != nil {
-			if result != nil {
-				var errorResponse struct {
-					Error            string `json:"error"`
-					ErrorDescription string `json:"error_description"`
-				}
-				if jerr := result.UnmarshalContentJSON(&errorResponse); jerr == nil {
-					var details *errors.Error
-					status := http.StatusInternalServerError
-					if errors.As(err, &details) {
-						status = details.Code
-					}
-					http.Error(w, errorResponse.ErrorDescription, status)
-				}
-			} else {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-			}
+			writeAuthorizationErrorResponse(w, err, result)
 			resultchan <- err
 			return
 		}
@@ -252,10 +249,32 @@ func (profile *Profile) CodeGrantCallback(resultchan chan error) http.Handler {
 	})
 }
 
+// writeAuthorizationErrorResponse writes the appropriate HTTP error response for a failed
+// authorization token request
+func writeAuthorizationErrorResponse(w http.ResponseWriter, err error, result *request.Content) {
+	if result == nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var errorResponse struct {
+		Error            string `json:"error"`
+		ErrorDescription string `json:"error_description"`
+	}
+	if jerr := result.UnmarshalContentJSON(&errorResponse); jerr != nil {
+		return
+	}
+	var details *errors.Error
+	status := http.StatusInternalServerError
+	if errors.As(err, &details) {
+		status = details.Code
+	}
+	http.Error(w, errorResponse.ErrorDescription, status)
+}
+
 func (profile *Profile) authorize(ctx context.Context) (authorization string, err error) {
 	log := logger.Must(logger.FromContext(ctx)).Child("profile", "authorize")
 
-	if err := profile.loadAccessToken(ctx); err == nil {
+	if loadErr := profile.loadAccessToken(ctx); loadErr == nil {
 		if !profile.isTokenExpired() {
 			log.Infof("Using access token for profile %s", profile.Name)
 			log.Debugf("Token expires on %s in %s", profile.token.GetExpiresOn().Format(time.RFC3339), profile.token.GetExpiresIn())
@@ -264,7 +283,7 @@ func (profile *Profile) authorize(ctx context.Context) (authorization string, er
 	}
 
 	payload := map[string]string{}
-	if profile.token != nil && len(profile.token.RefreshToken) > 0 {
+	if profile.token != nil && profile.token.RefreshToken != "" {
 		log.Warnf("Access token for profile %s expired %s ago and we have a refresh token", profile.Name, profile.token.GetExpiredSince())
 		payload["grant_type"] = "refresh_token"
 		payload["refresh_token"] = profile.token.RefreshToken
@@ -292,20 +311,7 @@ func (profile *Profile) authorize(ctx context.Context) (authorization string, er
 		Logger:        log,
 	}, nil)
 	if err != nil {
-		if result != nil {
-			var errorResponse struct {
-				Error            string `json:"error"`
-				ErrorDescription string `json:"error_description"`
-			}
-			if jerr := result.UnmarshalContentJSON(&errorResponse); jerr == nil {
-				var details *errors.Error
-				if errors.As(err, &details) {
-					return "", errors.NewSentinel(details.Code, errorResponse.Error, errorResponse.ErrorDescription)
-				}
-				return "", errors.NewSentinel(500, errorResponse.Error, errorResponse.ErrorDescription)
-			}
-		}
-		return
+		return "", bitbucketAuthError(err, result)
 	}
 	accessToken, err := profile.saveAccessToken(ctx, result.Data)
 	if err != nil {
@@ -314,13 +320,33 @@ func (profile *Profile) authorize(ctx context.Context) (authorization string, er
 	return request.BearerAuthorization(accessToken), err
 }
 
-func (profile *Profile) send(ctx context.Context, cmd *cobra.Command, options *request.Options, uripath string, response any) (result *request.Content, err error) {
+// bitbucketAuthError turns a failed authorization request into a sentinel error carrying
+// BitBucket's own error payload, when one is available
+func bitbucketAuthError(err error, result *request.Content) error {
+	if result == nil {
+		return err
+	}
+	var errorResponse struct {
+		Error            string `json:"error"`
+		ErrorDescription string `json:"error_description"`
+	}
+	if jerr := result.UnmarshalContentJSON(&errorResponse); jerr != nil {
+		return err
+	}
+	var details *errors.Error
+	if errors.As(err, &details) {
+		return errors.NewSentinel(details.Code, errorResponse.Error, errorResponse.ErrorDescription)
+	}
+	return errors.NewSentinel(500, errorResponse.Error, errorResponse.ErrorDescription)
+}
+
+func (profile *Profile) send(ctx context.Context, options *request.Options, uripath string, response any) (result *request.Content, err error) {
 	log := logger.Must(logger.FromContext(ctx)).Child(nil, strings.ToLower(options.Method))
 
-	if len(profile.User) > 0 {
-		password, err := profile.GetPassword(ctx)
-		if err != nil {
-			return nil, err
+	if profile.User != "" {
+		password, passErr := profile.GetPassword(ctx)
+		if passErr != nil {
+			return nil, passErr
 		}
 		options.Authorization = request.BasicAuthorization(profile.User, password)
 	} else if options.Authorization, err = profile.authorize(ctx); err != nil {
@@ -367,13 +393,13 @@ func (profile *Profile) send(ctx context.Context, cmd *cobra.Command, options *r
 		}
 		if result != nil {
 			var bberr *BitBucketError
-			if jerr := result.UnmarshalContentJSON(&bberr); jerr == nil {
+			jerr := result.UnmarshalContentJSON(&bberr)
+			if jerr == nil {
 				log.Warnf("We have a BitBucketError: %#+v", bberr)
 				return result, bberr
-			} else {
-				log.Debugf("the Error %s is not a bitbucket error: %s", err.Error(), jerr.Error())
 			}
+			log.Debugf("the Error %s is not a bitbucket error: %s", err.Error(), jerr.Error())
 		}
 	}
-	return
+	return result, err
 }

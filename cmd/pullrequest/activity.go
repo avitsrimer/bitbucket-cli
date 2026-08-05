@@ -73,51 +73,51 @@ var activityColumns = common.Columns[Activity]{
 	}},
 	{Name: "description", DefaultSorter: false, Compare: func(a, b Activity) bool {
 		if a.Update != nil && b.Update != nil {
-			return strings.Compare(strings.ToLower(a.Update.Description), strings.ToLower(b.Update.Description)) == -1
+			return strings.ToLower(a.Update.Description) < strings.ToLower(b.Update.Description)
 		}
 		return false
 	}},
 	{Name: "state", DefaultSorter: false, Compare: func(a, b Activity) bool {
 		if a.Update != nil && b.Update != nil {
-			return strings.Compare(strings.ToLower(a.Update.State), strings.ToLower(b.Update.State)) == -1
+			return strings.ToLower(a.Update.State) < strings.ToLower(b.Update.State)
 		}
 		return false
 	}},
 	{Name: "author", DefaultSorter: false, Compare: func(a, b Activity) bool {
 		if a.Update != nil && b.Update != nil {
-			return strings.Compare(strings.ToLower(a.Update.Author.Name), strings.ToLower(b.Update.Author.Name)) == -1
+			return strings.ToLower(a.Update.Author.Name) < strings.ToLower(b.Update.Author.Name)
 		}
 		return false
 	}},
 	{Name: "closed_by", DefaultSorter: false, Compare: func(a, b Activity) bool {
 		if a.Update != nil && b.Update != nil {
-			return strings.Compare(strings.ToLower(a.Update.ClosedBy.Name), strings.ToLower(b.Update.ClosedBy.Name)) == -1
+			return strings.ToLower(a.Update.ClosedBy.Name) < strings.ToLower(b.Update.ClosedBy.Name)
 		}
 		return false
 	}},
 	{Name: "reason", DefaultSorter: false, Compare: func(a, b Activity) bool {
 		if a.Update != nil && b.Update != nil {
-			return strings.Compare(strings.ToLower(a.Update.Reason), strings.ToLower(b.Update.Reason)) == -1
+			return strings.ToLower(a.Update.Reason) < strings.ToLower(b.Update.Reason)
 		}
 		return false
 	}},
 	{Name: "user", DefaultSorter: false, Compare: func(a, b Activity) bool {
 		if a.Approval != nil && b.Approval != nil {
-			return strings.Compare(strings.ToLower(a.Approval.User.Name), strings.ToLower(b.Approval.User.Name)) == -1
+			return strings.ToLower(a.Approval.User.Name) < strings.ToLower(b.Approval.User.Name)
 		} else if a.Update != nil && b.Update != nil {
-			return strings.Compare(strings.ToLower(a.Update.Author.Name), strings.ToLower(b.Update.Author.Name)) == -1
+			return strings.ToLower(a.Update.Author.Name) < strings.ToLower(b.Update.Author.Name)
 		}
 		return false
 	}},
 	{Name: "destination", DefaultSorter: false, Compare: func(a, b Activity) bool {
 		if a.Update != nil && b.Update != nil && a.Update.Destination.Repository != nil && b.Update.Destination.Repository != nil {
-			return strings.Compare(strings.ToLower(a.Update.Destination.Repository.Name), strings.ToLower(b.Update.Destination.Repository.Name)) == -1
+			return strings.ToLower(a.Update.Destination.Repository.Name) < strings.ToLower(b.Update.Destination.Repository.Name)
 		}
 		return false
 	}},
 	{Name: "source", DefaultSorter: false, Compare: func(a, b Activity) bool {
 		if a.Update != nil && b.Update != nil && a.Update.Source.Repository != nil && b.Update.Source.Repository != nil {
-			return strings.Compare(strings.ToLower(a.Update.Source.Repository.Name), strings.ToLower(b.Update.Source.Repository.Name)) == -1
+			return strings.ToLower(a.Update.Source.Repository.Name) < strings.ToLower(b.Update.Source.Repository.Name)
 		}
 		return false
 	}},
@@ -151,24 +151,24 @@ func (activity Activity) GetHeaders(cmd *cobra.Command) []string {
 //
 // implements common.Tableable
 func (activity Activity) GetRow(headers []string) []string {
-	var row []string
 	var activityDate time.Time
 	var approval bool
 	var state string
-	var user user.User
+	var actor user.User
 
-	if activity.Approval != nil {
+	switch {
+	case activity.Approval != nil:
 		activityDate = activity.Approval.Date
 		approval = true
-		user = activity.Approval.User
+		actor = activity.Approval.User
 		state = "N/A"
-	} else if activity.Update != nil {
+	case activity.Update != nil:
 		activityDate = activity.Update.Date
 		state = activity.Update.State
-		user = activity.Update.Author
-		approval = false
+		actor = activity.Update.Author
 	}
 
+	row := make([]string, 0, len(headers))
 	for _, header := range headers {
 		switch strings.ToLower(header) {
 		case "date":
@@ -176,60 +176,51 @@ func (activity Activity) GetRow(headers []string) []string {
 		case "approved":
 			row = append(row, strconv.FormatBool(approval))
 		case "description":
-			if activity.Update != nil {
-				row = append(row, activity.Update.Description)
-			} else {
-				row = append(row, " ")
-			}
+			row = append(row, activity.updateField(func(update *ActivityUpdate) string { return update.Description }))
 		case "state":
 			row = append(row, state)
 		case "author":
-			if activity.Update != nil {
-				row = append(row, activity.Update.Author.Name)
-			} else {
-				row = append(row, " ")
-			}
+			row = append(row, activity.updateField(func(update *ActivityUpdate) string { return update.Author.Name }))
 		case "closed by":
-			if activity.Update != nil {
-				row = append(row, activity.Update.ClosedBy.Name)
-			} else {
-				row = append(row, " ")
-			}
+			row = append(row, activity.updateField(func(update *ActivityUpdate) string { return update.ClosedBy.Name }))
 		case "reason":
-			if activity.Update != nil {
-				row = append(row, activity.Update.Reason)
-			} else {
-				row = append(row, " ")
-			}
+			row = append(row, activity.updateField(func(update *ActivityUpdate) string { return update.Reason }))
 		case "user":
-			row = append(row, user.Name)
+			row = append(row, actor.Name)
 		case "destination":
-			if activity.Update != nil && activity.Update.Destination.Repository != nil {
-				row = append(row, activity.Update.Destination.Repository.Name)
-			} else {
-				row = append(row, " ")
-			}
+			row = append(row, activity.updateField(func(update *ActivityUpdate) string {
+				if update.Destination.Repository == nil {
+					return " "
+				}
+				return update.Destination.Repository.Name
+			}))
 		case "source":
-			if activity.Update != nil && activity.Update.Source.Repository != nil {
-				row = append(row, activity.Update.Source.Repository.Name)
-			} else {
-				row = append(row, " ")
-			}
+			row = append(row, activity.updateField(func(update *ActivityUpdate) string {
+				if update.Source.Repository == nil {
+					return " "
+				}
+				return update.Source.Repository.Name
+			}))
 		case "created on", "created_on", "created-on", "created":
-			if activity.Update != nil {
-				row = append(row, activity.Update.CreatedOn.Format("2006-01-02 15:04:05"))
-			} else {
-				row = append(row, " ")
-			}
+			row = append(row, activity.updateField(func(update *ActivityUpdate) string { return update.CreatedOn.Format("2006-01-02 15:04:05") }))
 		case "updated on", "updated_on", "updated-on", "updated":
-			if activity.Update != nil && !activity.Update.UpdatedOn.IsZero() {
-				row = append(row, activity.Update.UpdatedOn.Format("2006-01-02 15:04:05"))
-			} else {
-				row = append(row, " ")
-			}
+			row = append(row, activity.updateField(func(update *ActivityUpdate) string {
+				if update.UpdatedOn.IsZero() {
+					return " "
+				}
+				return update.UpdatedOn.Format("2006-01-02 15:04:05")
+			}))
 		}
 	}
 	return row
+}
+
+// updateField returns " " when activity has no Update, otherwise the value returned by get
+func (activity Activity) updateField(get func(*ActivityUpdate) string) string {
+	if activity.Update == nil {
+		return " "
+	}
+	return get(activity.Update)
 }
 
 // Validate validates a Comment

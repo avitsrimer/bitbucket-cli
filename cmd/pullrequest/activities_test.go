@@ -31,7 +31,7 @@ func TestActivitySuite(t *testing.T) {
 
 func (suite *ActivitySuite) SetupSuite() {
 	_ = godotenv.Load()
-	suite.Name = strings.TrimSuffix(reflect.TypeOf(suite).Elem().Name(), "Suite")
+	suite.Name = strings.TrimSuffix(reflect.TypeFor[ActivitySuite]().Name(), "Suite")
 	suite.Logger = logger.Create("test",
 		&logger.FileStream{
 			Path:         fmt.Sprintf("./log/test-%s.log", strings.ToLower(suite.Name)),
@@ -68,14 +68,14 @@ func (suite *ActivitySuite) AfterTest(suiteName, testName string) {
 }
 
 func (suite *ActivitySuite) LoadTestData(filename string) []byte {
-	data, err := os.ReadFile(fmt.Sprintf("../../testdata/%s", filename))
+	data, err := os.ReadFile("../../testdata/" + filename)
 	if err != nil {
 		suite.T().Fatal(err)
 	}
 	return data
 }
 
-func (suite *ActivitySuite) UnmarshalData(filename string, v interface{}) error {
+func (suite *ActivitySuite) UnmarshalData(filename string, v any) error {
 	data := suite.LoadTestData(filename)
 	suite.Logger.Infof("Loaded %s: %s", filename, string(data))
 	return json.Unmarshal(data, v)
@@ -91,9 +91,9 @@ func (suite *ActivitySuite) TestCanUnmarshalApproval() {
 	suite.Require().NotNil(activity)
 	_, err = json.Marshal(activity)
 	suite.Require().NoError(err)
-	suite.Assert().NotEmpty(activity.Approval)
-	suite.Assert().Empty(activity.Comment)
-	suite.Assert().Empty(activity.Update)
+	suite.NotEmpty(activity.Approval)
+	suite.Empty(activity.Comment)
+	suite.Empty(activity.Update)
 }
 func (suite *ActivitySuite) TestCanUnmarshalUpdate() {
 	payload := suite.LoadTestData("activity-update.json")
@@ -103,9 +103,9 @@ func (suite *ActivitySuite) TestCanUnmarshalUpdate() {
 	suite.Require().NotNil(activity)
 	_, err = json.Marshal(activity)
 	suite.Require().NoError(err)
-	suite.Assert().Empty(activity.Approval)
-	suite.Assert().Empty(activity.Comment)
-	suite.Assert().NotEmpty(activity.Update)
+	suite.Empty(activity.Approval)
+	suite.Empty(activity.Comment)
+	suite.NotEmpty(activity.Update)
 }
 
 func (suite *ActivitySuite) TestCanUnmarshalComment() {
@@ -116,9 +116,9 @@ func (suite *ActivitySuite) TestCanUnmarshalComment() {
 	suite.Require().NotNil(activity)
 	_, err = json.Marshal(activity)
 	suite.Require().NoError(err)
-	suite.Assert().Empty(activity.Approval)
-	suite.Assert().NotEmpty(activity.Comment)
-	suite.Assert().Empty(activity.Update)
+	suite.Empty(activity.Approval)
+	suite.NotEmpty(activity.Comment)
+	suite.Empty(activity.Update)
 }
 
 func (suite *ActivitySuite) TestShouldFailUnmarshalWithoutApprovalNorCommentNorUpdate() {

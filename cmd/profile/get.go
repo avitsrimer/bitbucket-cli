@@ -68,7 +68,7 @@ func getProcess(cmd *cobra.Command, args []string) (err error) {
 	}
 
 	log.Infof("Displaying profile %s (Valid names: %v)", args[0], Profiles.Names())
-	if !common.WhatIf(ctx, cmd, fmt.Sprintf("Showing profile %s", args[0])) {
+	if !common.WhatIf(ctx, cmd, "Showing profile "+args[0]) {
 		return nil
 	}
 

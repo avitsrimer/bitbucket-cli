@@ -1,7 +1,6 @@
 package pullrequest
 
 import (
-	"fmt"
 	"io"
 	"os"
 
@@ -58,7 +57,7 @@ func patchProcess(cmd *cobra.Command, args []string) error {
 	}
 
 	log.Debugf("Displaying patch for Pull Request ID: %s", pullRequestID)
-	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, fmt.Sprintf("Showing patch for Pull Request %s", pullRequestID)) {
+	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, "Showing patch for Pull Request "+pullRequestID) {
 		return nil
 	}
 

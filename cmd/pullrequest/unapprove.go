@@ -65,5 +65,5 @@ func unapproveProcess(cmd *cobra.Command, args []string) (err error) {
 	if err != nil {
 		return errors.Join(errors.Errorf("Failed to unapprove Pull Request %s", pullRequestID), err)
 	}
-	return
+	return err
 }

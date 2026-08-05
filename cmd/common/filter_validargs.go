@@ -11,7 +11,7 @@ import (
 //
 // Note: the result is a new slice, the original is not modified
 func FilterValidArgs(valid, args []string, toComplete string) []string {
-	if len(toComplete) > 0 {
+	if toComplete != "" {
 		valid = core.Filter(valid, func(value string) bool {
 			return strings.HasPrefix(value, toComplete)
 		})

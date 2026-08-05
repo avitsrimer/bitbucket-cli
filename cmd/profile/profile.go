@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
@@ -65,55 +66,55 @@ var Command = &cobra.Command{
 
 var columns = common.Columns[*Profile]{
 	{Name: "name", DefaultSorter: true, Compare: func(a, b *Profile) bool {
-		return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)) == -1
+		return strings.ToLower(a.Name) < strings.ToLower(b.Name)
 	}},
 	{Name: "description", DefaultSorter: false, Compare: func(a, b *Profile) bool {
-		return strings.Compare(strings.ToLower(a.Description), strings.ToLower(b.Description)) == -1
+		return strings.ToLower(a.Description) < strings.ToLower(b.Description)
 	}},
 	{Name: "default", DefaultSorter: false, Compare: func(a, b *Profile) bool {
 		return a.Default == b.Default
 	}},
 	{Name: "user", DefaultSorter: false, Compare: func(a, b *Profile) bool {
-		return strings.Compare(strings.ToLower(a.User), strings.ToLower(b.User)) == -1
+		return strings.ToLower(a.User) < strings.ToLower(b.User)
 	}},
 	{Name: "clientid", DefaultSorter: false, Compare: func(a, b *Profile) bool {
-		return strings.Compare(strings.ToLower(a.ClientID), strings.ToLower(b.ClientID)) == -1
+		return strings.ToLower(a.ClientID) < strings.ToLower(b.ClientID)
 	}},
 	{Name: "accesstoken", DefaultSorter: false, Compare: func(a, b *Profile) bool {
-		return strings.Compare(strings.ToLower(a.AccessToken), strings.ToLower(b.AccessToken)) == -1
+		return strings.ToLower(a.AccessToken) < strings.ToLower(b.AccessToken)
 	}},
 	{Name: "apiRoot", DefaultSorter: false, Compare: func(a, b *Profile) bool {
-		return a.APIRoot != nil && b.APIRoot != nil && strings.Compare(strings.ToLower(a.APIRoot.String()), strings.ToLower(b.APIRoot.String())) == -1
+		return a.APIRoot != nil && b.APIRoot != nil && strings.ToLower(a.APIRoot.String()) < strings.ToLower(b.APIRoot.String())
 	}},
 	{Name: "defaultworkspace", DefaultSorter: false, Compare: func(a, b *Profile) bool {
-		return strings.Compare(strings.ToLower(a.DefaultWorkspace), strings.ToLower(b.DefaultWorkspace)) == -1
+		return strings.ToLower(a.DefaultWorkspace) < strings.ToLower(b.DefaultWorkspace)
 	}},
 	{Name: "defaultproject", DefaultSorter: false, Compare: func(a, b *Profile) bool {
-		return strings.Compare(strings.ToLower(a.DefaultProject), strings.ToLower(b.DefaultProject)) == -1
+		return strings.ToLower(a.DefaultProject) < strings.ToLower(b.DefaultProject)
 	}},
 	{Name: "callbackport", DefaultSorter: false, Compare: func(a, b *Profile) bool {
 		return a.CallbackPort < b.CallbackPort
 	}},
 	{Name: "outputformat", DefaultSorter: false, Compare: func(a, b *Profile) bool {
-		return strings.Compare(strings.ToLower(a.OutputFormat), strings.ToLower(b.OutputFormat)) == -1
+		return strings.ToLower(a.OutputFormat) < strings.ToLower(b.OutputFormat)
 	}},
 	{Name: "defaultpagelength", DefaultSorter: false, Compare: func(a, b *Profile) bool {
 		return a.DefaultPageLength < b.DefaultPageLength
 	}},
 	{Name: "cloneprotocol", DefaultSorter: false, Compare: func(a, b *Profile) bool {
-		return strings.Compare(strings.ToLower(a.CloneProtocol), strings.ToLower(b.CloneProtocol)) == -1
+		return strings.ToLower(a.CloneProtocol) < strings.ToLower(b.CloneProtocol)
 	}},
 	{Name: "cloneuser", DefaultSorter: false, Compare: func(a, b *Profile) bool {
-		return strings.Compare(strings.ToLower(a.CloneUser), strings.ToLower(b.CloneUser)) == -1
+		return strings.ToLower(a.CloneUser) < strings.ToLower(b.CloneUser)
 	}},
 	{Name: "sshkeyfilename", DefaultSorter: false, Compare: func(a, b *Profile) bool {
-		return strings.Compare(strings.ToLower(a.SshKeyFilename), strings.ToLower(b.SshKeyFilename)) == -1
+		return strings.ToLower(a.SshKeyFilename) < strings.ToLower(b.SshKeyFilename)
 	}},
 	{Name: "vaultkey", DefaultSorter: false, Compare: func(a, b *Profile) bool {
-		return strings.Compare(strings.ToLower(a.VaultKey), strings.ToLower(b.VaultKey)) == -1
+		return strings.ToLower(a.VaultKey) < strings.ToLower(b.VaultKey)
 	}},
 	{Name: "errorprocessing", DefaultSorter: false, Compare: func(a, b *Profile) bool {
-		return strings.Compare(strings.ToLower(a.ErrorProcessing.String()), strings.ToLower(b.ErrorProcessing.String())) == -1
+		return strings.ToLower(a.ErrorProcessing.String()) < strings.ToLower(b.ErrorProcessing.String())
 	}},
 	{Name: "progress", DefaultSorter: false, Compare: func(a, b *Profile) bool {
 		return a.Progress == b.Progress
@@ -126,17 +127,18 @@ var columns = common.Columns[*Profile]{
 func GetProfileFromCommand(context context.Context, cmd *cobra.Command) (profile *Profile, err error) {
 	log := logger.Must(logger.FromContext(context)).Child("profile", "getProfileFromCommand")
 
-	if err = Profiles.Load(context, cmd); err != nil {
+	if err := Profiles.Load(context, cmd); err != nil {
 		return nil, err
 	}
 
-	if cmd.Flag("profile").Changed {
+	switch {
+	case cmd.Flag("profile").Changed:
 		var found bool
 		log.Debugf("Command line has profile flag set to %s", cmd.Flag("profile").Value.String())
 		if profile, found = Profiles.Find(cmd.Flag("profile").Value.String()); !found {
 			return nil, errors.ArgumentInvalid.With("profile", cmd.Flag("profile").Value.String())
 		}
-	} else if Current == nil {
+	case Current == nil:
 		if len(Profiles) == 0 {
 			return nil, errors.Empty.With("profiles")
 		}
@@ -145,7 +147,7 @@ func GetProfileFromCommand(context context.Context, cmd *cobra.Command) (profile
 			return nil, errors.ArgumentMissing.With("profile")
 		}
 		profile = Current
-	} else {
+	default:
 		profile = Current
 	}
 	return
@@ -167,56 +169,46 @@ func (profile Profile) GetHeaders(cmd *cobra.Command) []string {
 //
 // implements common.Tableable
 func (profile Profile) GetRow(headers []string) []string {
-	var row []string
+	simple := map[string]string{
+		"name":              profile.Name,
+		"description":       profile.Description,
+		"default":           strconv.FormatBool(profile.Default),
+		"defaultworkspace":  profile.DefaultWorkspace,
+		"defaultproject":    profile.DefaultProject,
+		"callbackport":      strconv.FormatUint(uint64(profile.CallbackPort), 10),
+		"user":              profile.User,
+		"clientid":          profile.ClientID,
+		"outputformat":      profile.OutputFormat,
+		"defaultpagelength": strconv.Itoa(profile.DefaultPageLength),
+		"cloneprotocol":     profile.CloneProtocol,
+		"cloneuser":         profile.CloneUser,
+		"sshkeyfilename":    profile.SshKeyFilename,
+		"vaultkey":          profile.VaultKey,
+		"errorprocessing":   profile.ErrorProcessing.String(),
+		"progress":          strconv.FormatBool(profile.Progress),
+	}
 
+	row := make([]string, 0, len(headers))
 	for _, header := range headers {
-		switch strings.ToLower(header) {
+		switch key := strings.ToLower(header); key {
 		case "apiroot":
 			if profile.APIRoot != nil {
 				row = append(row, profile.APIRoot.String())
 			} else {
 				row = append(row, " ")
 			}
-		case "name":
-			row = append(row, profile.Name)
-		case "description":
-			row = append(row, profile.Description)
-		case "default":
-			row = append(row, fmt.Sprintf("%v", profile.Default))
-		case "defaultworkspace":
-			row = append(row, profile.DefaultWorkspace)
-		case "defaultproject":
-			row = append(row, profile.DefaultProject)
-		case "callbackport":
-			row = append(row, fmt.Sprintf("%d", profile.CallbackPort))
-		case "user":
-			row = append(row, profile.User)
-		case "clientid":
-			row = append(row, profile.ClientID)
 		case "accesstoken":
-			if len(profile.AccessToken) > 0 {
+			if profile.AccessToken != "" {
 				row = append(row, profile.AccessToken)
 			} else {
 				row = append(row, " ")
 			}
-		case "outputformat":
-			row = append(row, profile.OutputFormat)
-		case "defaultpagelength":
-			row = append(row, fmt.Sprintf("%d", profile.DefaultPageLength))
-		case "cloneprotocol":
-			row = append(row, profile.CloneProtocol)
-		case "cloneuser":
-			row = append(row, profile.CloneUser)
-		case "sshkeyfilename":
-			row = append(row, profile.SshKeyFilename)
-		case "vaultkey":
-			row = append(row, profile.VaultKey)
-		case "errorprocessing":
-			row = append(row, profile.ErrorProcessing.String())
-		case "progress":
-			row = append(row, fmt.Sprintf("%t", profile.Progress))
 		default:
-			row = append(row, " ")
+			if value, found := simple[key]; found {
+				row = append(row, value)
+			} else {
+				row = append(row, " ")
+			}
 		}
 	}
 	return row
@@ -227,62 +219,59 @@ func (profile Profile) GetRow(headers []string) []string {
 // implements logger.Redactable
 func (profile Profile) Redact() any {
 	redacted := profile
-	if len(redacted.ClientID) > 0 {
+	if redacted.ClientID != "" {
 		redacted.ClientID = logger.RedactWithHash(redacted.ClientID)
 	}
-	if len(redacted.ClientSecret) > 0 {
+	if redacted.ClientSecret != "" {
 		redacted.ClientSecret = logger.RedactWithHash(redacted.ClientSecret)
 	}
-	if len(redacted.User) > 0 {
+	if redacted.User != "" {
 		redacted.User = logger.RedactWithHash(redacted.User)
 	}
-	if len(redacted.Password) > 0 {
+	if redacted.Password != "" {
 		redacted.Password = logger.RedactWithHash(redacted.Password)
 	}
-	if len(redacted.AccessToken) > 0 {
+	if redacted.AccessToken != "" {
 		redacted.AccessToken = logger.RedactWithHash(redacted.AccessToken)
 	}
-	if len(redacted.CloneUser) > 0 {
+	if redacted.CloneUser != "" {
 		redacted.CloneUser = logger.RedactWithHash(redacted.CloneUser)
 	}
 	return redacted
 }
 
 // GetClientSecret gets the client secret from the profile, either from the vault or from the profile
-func (profile *Profile) GetClientSecret(ctx context.Context) (clientSecret string, err error) {
-	log := logger.Must(logger.FromContext(ctx)).Child("profile", "getClientSecret")
-	if len(profile.ClientSecret) > 0 {
-		log.Debugf("Client secret for profile %s is set in the profile", profile.Name)
-		return profile.ClientSecret, nil
-	}
-	if credential, err := profile.GetCredentialFromVault(profile.VaultKey, profile.ClientID); err == nil {
-		log.Debugf("Loaded client secret for clientID %s from the vault", profile.ClientID)
-		return credential.Password, nil
-	}
-	return "", errors.Join(errors.Errorf("Profile %s does not have a client secret", profile.Name), err)
+func (profile *Profile) GetClientSecret(ctx context.Context) (string, error) {
+	return profile.getSecretOrFromVault(ctx, "client secret", profile.ClientSecret, profile.ClientID)
 }
 
 // GetPassword gets the password from the profile, either from the vault or from the profile
-func (profile *Profile) GetPassword(ctx context.Context) (password string, err error) {
-	log := logger.Must(logger.FromContext(ctx)).Child("profile", "getPassword")
-	if len(profile.Password) > 0 {
-		log.Debugf("Password for profile %s is set in the profile", profile.Name)
-		return profile.Password, nil
+func (profile *Profile) GetPassword(ctx context.Context) (string, error) {
+	return profile.getSecretOrFromVault(ctx, "password", profile.Password, profile.User)
+}
+
+// getSecretOrFromVault returns secret when already set, otherwise loads it from the vault for username.
+func (profile *Profile) getSecretOrFromVault(ctx context.Context, kind, secret, username string) (string, error) {
+	log := logger.Must(logger.FromContext(ctx)).Child("profile", "get"+kind)
+	if secret != "" {
+		log.Debugf("The %s for profile %s is set in the profile", kind, profile.Name)
+		return secret, nil
 	}
-	if credential, err := profile.GetCredentialFromVault(profile.VaultKey, profile.User); err == nil {
-		log.Debugf("Loaded password for user %s from the vault", profile.User)
+	credential, err := profile.GetCredentialFromVault(profile.VaultKey, username)
+	if err == nil {
+		log.Debugf("Loaded %s for %s from the vault", kind, username)
 		return credential.Password, nil
 	}
-	return "", errors.Join(errors.Errorf("Profile %s does not have a password", profile.Name), err)
+	return "", errors.Join(errors.Errorf("Profile %s does not have a %s", profile.Name, kind), err)
 }
 
 // LoadSecrets fills the profile with its secret from the Vault as needed
 func (profile *Profile) LoadSecrets(ctx context.Context) (err error) {
-	if len(profile.ClientID) > 0 {
+	if profile.ClientID != "" {
 		profile.ClientSecret, err = profile.GetClientSecret(ctx)
 		return err
 	}
-	if len(profile.User) > 0 {
+	if profile.User != "" {
 		profile.Password, err = profile.GetPassword(ctx)
 		return err
 	}
@@ -291,54 +280,65 @@ func (profile *Profile) LoadSecrets(ctx context.Context) (err error) {
 
 // Update updates this profile with the given one
 func (profile *Profile) Update(other Profile) error {
-	if len(other.Name) > 0 {
+	profile.updateSimpleFields(other)
+	profile.updateCredentials(other)
+	return profile.Validate()
+}
+
+// updateSimpleFields updates the fields that have no side effect other than being overwritten
+func (profile *Profile) updateSimpleFields(other Profile) {
+	if other.Name != "" {
 		profile.Name = other.Name
 	}
-	if len(other.Description) > 0 {
+	if other.Description != "" {
 		profile.Description = other.Description
 	}
 	if other.Default {
 		profile.Default = other.Default
 	}
-	if len(other.OutputFormat) > 0 {
+	if other.OutputFormat != "" {
 		profile.OutputFormat = other.OutputFormat
-	}
-	if len(other.AccessToken) > 0 && other.AccessToken != profile.AccessToken {
-		profile.AccessToken = other.AccessToken
-	}
-	if len(other.User) > 0 && other.User != profile.User {
-		profile.User = other.User
-	}
-	if len(other.Password) > 0 && other.Password != profile.Password {
-		profile.Password = other.Password
-	}
-	if len(other.ClientID) > 0 && other.ClientID != profile.ClientID {
-		profile.ClientID = other.ClientID
-		profile.token = nil
-	}
-	if len(other.ClientSecret) > 0 && other.ClientSecret != profile.ClientSecret {
-		profile.ClientSecret = other.ClientSecret
-		profile.token = nil
 	}
 	if other.CallbackPort > 0 {
 		profile.CallbackPort = other.CallbackPort
 	}
-	if len(other.DefaultWorkspace) > 0 {
+	if other.DefaultWorkspace != "" {
 		profile.DefaultWorkspace = other.DefaultWorkspace
 	}
-	if len(other.DefaultProject) > 0 {
+	if other.DefaultProject != "" {
 		profile.DefaultProject = other.DefaultProject
 	}
-	if len(other.CloneProtocol) > 0 {
+	if other.CloneProtocol != "" {
 		profile.CloneProtocol = other.CloneProtocol
 	}
-	if len(other.CloneUser) > 0 {
+	if other.CloneUser != "" {
 		profile.CloneUser = other.CloneUser
 	}
-	if len(other.SshKeyFilename) > 0 {
+	if other.SshKeyFilename != "" {
 		profile.SshKeyFilename = other.SshKeyFilename
 	}
-	return profile.Validate()
+}
+
+// updateCredentials updates the profile's credentials, clearing the cached token when the
+// client ID or client secret change
+func (profile *Profile) updateCredentials(other Profile) {
+	if other.AccessToken != "" && other.AccessToken != profile.AccessToken {
+		profile.AccessToken = other.AccessToken
+	}
+	if other.User != "" && other.User != profile.User {
+		profile.User = other.User
+	}
+	if other.Password != "" && other.Password != profile.Password {
+		profile.Password = other.Password
+	}
+	if other.ClientID != "" && other.ClientID != profile.ClientID {
+		profile.ClientID = other.ClientID
+		profile.token = nil
+	}
+	if other.ClientSecret != "" && other.ClientSecret != profile.ClientSecret {
+		profile.ClientSecret = other.ClientSecret
+		profile.token = nil
+	}
 }
 
 // ShouldStopOnError tells if the command should stop on error
@@ -390,8 +390,6 @@ func (profile Profile) Print(context context.Context, cmd *cobra.Command, payloa
 		return profile.PrintCSV(context, cmd, payload)
 	case "tsv":
 		return profile.PrintTSV(context, cmd, payload)
-	case "table":
-		fallthrough
 	default:
 		return profile.PrintTable(context, cmd, payload)
 	}
@@ -425,39 +423,21 @@ func (profile Profile) PrintYAML(context context.Context, cmd *cobra.Command, pa
 
 // PrintCSV prints the given payload to the console as CSV
 func (profile Profile) PrintCSV(context context.Context, cmd *cobra.Command, payload any) error {
-	log := logger.Must(logger.FromContext(context))
-
-	log.Debugf("Printing payload as CSV")
-	writer := csv.NewWriter(os.Stdout)
-	defer writer.Flush()
-
-	switch actual := payload.(type) {
-	case common.Tableable:
-		headers := actual.GetHeaders(cmd)
-		_ = writer.Write(headers)
-		_ = writer.Write(actual.GetRow(headers))
-	case common.Tableables:
-		log.Debugf("Payload is a slice of %d elements", actual.Size())
-		if actual.Size() > 0 {
-			headers := actual.GetHeaders(cmd)
-			_ = writer.Write(headers)
-			for i := 0; i < actual.Size(); i++ {
-				_ = writer.Write(actual.GetRowAt(i, headers))
-			}
-		}
-	default:
-		return errors.ArgumentInvalid.With("payload", "not a tableable")
-	}
-	return nil
+	return profile.printDelimited(context, cmd, payload, ',')
 }
 
 // PrintTSV prints the given payload to the console as TSV
 func (profile Profile) PrintTSV(context context.Context, cmd *cobra.Command, payload any) error {
+	return profile.printDelimited(context, cmd, payload, '\t')
+}
+
+// printDelimited prints the given payload to the console as delimiter-separated values
+func (profile Profile) printDelimited(context context.Context, cmd *cobra.Command, payload any, comma rune) error {
 	log := logger.Must(logger.FromContext(context))
 
-	log.Debugf("Printing payload as TSV")
+	log.Debugf("Printing payload as delimited text (comma=%q)", comma)
 	writer := csv.NewWriter(os.Stdout)
-	writer.Comma = '\t'
+	writer.Comma = comma
 	defer writer.Flush()
 
 	switch actual := payload.(type) {
@@ -470,7 +450,7 @@ func (profile Profile) PrintTSV(context context.Context, cmd *cobra.Command, pay
 		if actual.Size() > 0 {
 			headers := actual.GetHeaders(cmd)
 			_ = writer.Write(headers)
-			for i := 0; i < actual.Size(); i++ {
+			for i := range actual.Size() {
 				_ = writer.Write(actual.GetRowAt(i, headers))
 			}
 		}
@@ -499,7 +479,7 @@ func (profile Profile) PrintTable(context context.Context, cmd *cobra.Command, p
 			headers := actual.GetHeaders(cmd)
 			table.SetHeader(headers)
 			table.SetAutoWrapText(false)
-			for i := 0; i < actual.Size(); i++ {
+			for i := range actual.Size() {
 				table.Append(actual.GetRowAt(i, headers))
 			}
 		}
@@ -514,21 +494,21 @@ func (profile Profile) PrintTable(context context.Context, cmd *cobra.Command, p
 func (profile *Profile) Validate() error {
 	var merr errors.MultiError
 
-	if len(profile.Name) == 0 {
+	if profile.Name == "" {
 		merr.Append(errors.ArgumentMissing.With("name"))
 	}
 
-	if len(profile.VaultKey) == 0 && runtime.GOOS != "windows" {
+	if profile.VaultKey == "" && runtime.GOOS != "windows" {
 		profile.VaultKey = "bitbucket-cli"
 	}
 
-	if len(profile.CloneProtocol) == 0 {
+	if profile.CloneProtocol == "" {
 		profile.CloneProtocol = "git"
 	}
 	if profile.CloneProtocol != "git" && profile.CloneProtocol != "https" && profile.CloneProtocol != "ssh" {
 		merr.Append(errors.ArgumentInvalid.With("cloneProtocol", profile.CloneProtocol))
 	}
-	if len(profile.OutputFormat) == 0 {
+	if profile.OutputFormat == "" {
 		profile.OutputFormat = "table"
 	}
 	if profile.DefaultPageLength == 0 {
@@ -602,7 +582,7 @@ func getWorkspaceSlugs(context context.Context, cmd *cobra.Command, args []strin
 	}
 	log.Debugf("Found %d workspaces", len(workspaces))
 	slugs = core.Map(workspaces, func(workspace Workspace) string { return workspace.Workspace.Slug })
-	core.Sort(slugs, func(a, b string) bool { return strings.Compare(strings.ToLower(a), strings.ToLower(b)) == -1 })
+	core.Sort(slugs, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
 	return slugs, nil
 }
 
@@ -614,7 +594,7 @@ func getProjectKeys(context context.Context, cmd *cobra.Command, args []string, 
 	}
 
 	workspace := cmd.Flag("default-workspace").Value.String()
-	if len(workspace) == 0 {
+	if workspace == "" {
 		log.Warnf("No workspace given")
 		return
 	}
@@ -626,24 +606,24 @@ func getProjectKeys(context context.Context, cmd *cobra.Command, args []string, 
 		return
 	}
 	keys = core.Map(projects, func(project Project) string { return project.Key })
-	core.Sort(keys, func(a, b string) bool { return strings.Compare(strings.ToLower(a), strings.ToLower(b)) == -1 })
+	core.Sort(keys, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
 	return keys, nil
 }
 
 // disableUnsupportedFlags disables the flags that are not supported by the profile command
 func disableUnsupportedFlags(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed("repository") {
-		return fmt.Errorf("the --repository flag is not supported by the profile command")
+		return errors.New("the --repository flag is not supported by the profile command")
 	}
 	if cmd.Flags().Changed("workspace") {
-		return fmt.Errorf("the --workspace flag is not supported by the profile command")
+		return errors.New("the --workspace flag is not supported by the profile command")
 	}
 	return nil
 }
 
 // hideUnsupportedFlags hides the flags that are not supported by the profile command
 func hideUnsupportedFlags(cmd *cobra.Command, args []string) {
-	cmd.Flags().MarkHidden("repository")
-	cmd.Flags().MarkHidden("workspace")
+	_ = cmd.Flags().MarkHidden("repository")
+	_ = cmd.Flags().MarkHidden("workspace")
 	cmd.Parent().HelpFunc()(cmd, args)
 }

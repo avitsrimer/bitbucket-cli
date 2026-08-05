@@ -29,28 +29,15 @@ type Links struct {
 
 // IsEmpty tells if there is no link defined
 func (links Links) IsEmpty() bool {
-	return links.Self == nil &&
-		links.HTML == nil &&
-		links.Avatar == nil &&
-		links.Branches == nil &&
-		links.Forks == nil &&
-		links.Commits == nil &&
-		links.PullRequests == nil &&
-		links.Approve == nil &&
-		links.RequestChanges == nil &&
-		links.Diff == nil &&
-		links.DiffStat == nil &&
-		links.Patch == nil &&
-		links.Comments == nil &&
-		links.Activity == nil &&
-		links.Merge == nil &&
-		links.Decline == nil &&
-		links.Statuses == nil &&
-		links.Tags == nil &&
-		links.Watchers == nil &&
-		links.Downloads == nil &&
-		links.Source == nil &&
-		len(links.Clone) == 0 &&
-		links.Hooks == nil &&
-		links.Steps == nil
+	for _, link := range []*Link{
+		links.Self, links.HTML, links.Avatar, links.Branches, links.Forks, links.Commits,
+		links.PullRequests, links.Approve, links.RequestChanges, links.Diff, links.DiffStat,
+		links.Patch, links.Comments, links.Activity, links.Merge, links.Decline, links.Statuses,
+		links.Tags, links.Watchers, links.Downloads, links.Source, links.Hooks, links.Steps,
+	} {
+		if link != nil {
+			return false
+		}
+	}
+	return len(links.Clone) == 0
 }

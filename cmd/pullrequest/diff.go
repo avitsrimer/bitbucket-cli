@@ -1,7 +1,6 @@
 package pullrequest
 
 import (
-	"fmt"
 	"io"
 	"os"
 
@@ -64,7 +63,7 @@ func diffProcess(cmd *cobra.Command, args []string) error {
 	}
 
 	log.Debugf("Displaying diff for Pull Request ID: %s", pullRequestID)
-	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, fmt.Sprintf("Showing diff for Pull Request ID %s", pullRequestID)) {
+	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, "Showing diff for Pull Request ID "+pullRequestID) {
 		return nil
 	}
 

@@ -69,5 +69,5 @@ func removeRequestChangesProcess(cmd *cobra.Command, args []string) (err error) 
 	if err != nil {
 		return errors.Join(errors.Errorf("Failed to remove request changes on Pull Request %s", pullRequestID), err)
 	}
-	return
+	return err
 }

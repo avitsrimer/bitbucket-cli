@@ -46,25 +46,25 @@ var Command = &cobra.Command{
 
 var columns = common.Columns[User]{
 	{Name: "id", DefaultSorter: true, Compare: func(a, b User) bool {
-		return strings.Compare(strings.ToLower(a.ID.String()), strings.ToLower(b.ID.String())) == -1
+		return strings.ToLower(a.ID.String()) < strings.ToLower(b.ID.String())
 	}},
 	{Name: "username", DefaultSorter: false, Compare: func(a, b User) bool {
-		return strings.Compare(strings.ToLower(a.Username), strings.ToLower(b.Username)) == -1
+		return strings.ToLower(a.Username) < strings.ToLower(b.Username)
 	}},
 	{Name: "name", DefaultSorter: false, Compare: func(a, b User) bool {
-		return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)) == -1
+		return strings.ToLower(a.Name) < strings.ToLower(b.Name)
 	}},
 	{Name: "nickname", DefaultSorter: false, Compare: func(a, b User) bool {
-		return strings.Compare(strings.ToLower(a.Nickname), strings.ToLower(b.Nickname)) == -1
+		return strings.ToLower(a.Nickname) < strings.ToLower(b.Nickname)
 	}},
 	{Name: "account", DefaultSorter: false, Compare: func(a, b User) bool {
-		return strings.Compare(strings.ToLower(a.AccountID), strings.ToLower(b.AccountID)) == -1
+		return strings.ToLower(a.AccountID) < strings.ToLower(b.AccountID)
 	}},
 	{Name: "created_on", DefaultSorter: false, Compare: func(a, b User) bool {
 		return a.CreatedOn.Before(b.CreatedOn)
 	}},
 	{Name: "account_status", DefaultSorter: false, Compare: func(a, b User) bool {
-		return strings.Compare(strings.ToLower(a.AccountStatus), strings.ToLower(b.AccountStatus)) == -1
+		return strings.ToLower(a.AccountStatus) < strings.ToLower(b.AccountStatus)
 	}},
 }
 
@@ -105,7 +105,7 @@ func (user User) GetRow(headers []string) []string {
 		case "id":
 			row = append(row, user.ID.String())
 		case "username":
-			if len(user.Username) > 0 {
+			if user.Username != "" {
 				row = append(row, user.Username)
 			} else {
 				row = append(row, user.Nickname)
@@ -152,7 +152,7 @@ func (user User) IsEmpty() bool {
 //
 // implements fmt.Stringer
 func (user User) String() string {
-	if len(user.Name) == 0 {
+	if user.Name == "" {
 		return user.ID.String()
 	}
 	return user.Name
@@ -186,7 +186,7 @@ func GetMe(context context.Context, cmd *cobra.Command) (user *User, err error) 
 	}
 	if user, err = UserCache.Get(profile.Name + ":me"); err == nil {
 		log.Debugf("User found in cache")
-		return
+		return user, nil
 	}
 	err = profile.Get(
 		context,
@@ -206,10 +206,10 @@ func GetUser(context context.Context, cmd *cobra.Command, userid string) (user *
 	if err != nil {
 		return nil, err
 	}
-	if len(userid) == 0 || strings.ToLower(userid) == "me" || strings.ToLower(userid) == "myself" {
-		me, err := GetMe(context, cmd)
-		if err != nil {
-			return nil, err
+	if userid == "" || strings.EqualFold(userid, "me") || strings.EqualFold(userid, "myself") {
+		me, meErr := GetMe(context, cmd)
+		if meErr != nil {
+			return nil, meErr
 		}
 		return me, nil
 	}
@@ -219,7 +219,7 @@ func GetUser(context context.Context, cmd *cobra.Command, userid string) (user *
 			err = profile.Get(
 				context,
 				cmd,
-				fmt.Sprintf("/users/%s", userUUID.String()),
+				"/users/"+userUUID.String(),
 				&user,
 			)
 			if err == nil {

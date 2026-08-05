@@ -28,7 +28,7 @@ func (branch Branch) String() string {
 	return branch.Name
 }
 
-// MarshalJSON custom JSON marshalling for Branch
+// MarshalJSON custom JSON marshaling for Branch
 //
 // implements json.Marshaler
 func (branch Branch) MarshalJSON() ([]byte, error) {

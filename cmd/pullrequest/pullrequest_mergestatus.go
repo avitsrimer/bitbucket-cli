@@ -1,7 +1,6 @@
 package pullrequest
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 
@@ -24,7 +23,7 @@ type PullRequestMergeStatus struct {
 // The URL location is the URL returned in the Location header of the response from Bitbucket when we request to merge a pull request asynchronously
 func NewPullRequestMergeStatusFromLocation(location string) (mergeStatus *PullRequestMergeStatus, err error) {
 	// Format: https://api.bitbucket.org/2.0/repositories/<workspace_slug>/<repo_slug>/pullrequests/<pullrequest_id>/merge/task-status/<task_id>
-	if len(location) == 0 {
+	if location == "" {
 		return nil, errors.Errorf("Failed to get the merge task URL from the Location header in the response from Bitbucket")
 	}
 	parts := strings.Split(location, "/")
@@ -33,7 +32,7 @@ func NewPullRequestMergeStatusFromLocation(location string) (mergeStatus *PullRe
 	}
 	taskID := parts[len(parts)-1]
 	pullrequestID, err := strconv.Atoi(parts[len(parts)-4])
-	if err != nil {
+	if err != nil || pullrequestID < 0 {
 		return nil, errors.Errorf("Invalid pull request ID: %s", parts[len(parts)-4])
 	}
 	return &PullRequestMergeStatus{ID: taskID, PullRequest: PullRequest{ID: uint64(pullrequestID)}}, nil
@@ -62,7 +61,7 @@ func (status PullRequestMergeStatus) GetRow(headers []string) []string {
 		case "id":
 			row = append(row, status.ID)
 		case "pull request", "pull_request", "pull-request", "pullrequest", "pr":
-			row = append(row, fmt.Sprintf("%d", status.PullRequest.ID))
+			row = append(row, strconv.FormatUint(status.PullRequest.ID, 10))
 		case "status":
 			if status.Status == "SUCCESS" {
 				row = append(row, status.Status+"/"+status.PullRequest.State)

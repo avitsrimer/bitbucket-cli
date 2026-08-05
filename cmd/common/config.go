@@ -43,7 +43,7 @@ func initializeConfiguration(ctx context.Context, cmd *cobra.Command) (err error
 	viper.SetConfigType("yaml")
 	if cmd.Root().PersistentFlags().Changed("config") {
 		viper.SetConfigFile(cmd.Root().PersistentFlags().Lookup("config").Value.String())
-	} else if configDir, _ := os.UserConfigDir(); len(configDir) > 0 {
+	} else if configDir, _ := os.UserConfigDir(); configDir != "" {
 		viper.AddConfigPath(filepath.Join(configDir, "bitbucket"))
 		viper.SetConfigName("config-cli.yml")
 	} else {
@@ -54,10 +54,10 @@ func initializeConfiguration(ctx context.Context, cmd *cobra.Command) (err error
 	}
 
 	err = viper.ReadInConfig()
-	if verr, ok := err.(viper.ConfigFileNotFoundError); ok {
+	if verr, ok := errors.AsType[viper.ConfigFileNotFoundError](err); ok {
 		log.Warnf("Config file not found: %s", verr)
 	} else if err != nil {
-		return errors.Join(errors.New("Failed to read config file"), err)
+		return errors.Join(errors.New("failed to read config file"), err)
 	} else {
 		log.Infof("Config File: %s", viper.ConfigFileUsed())
 	}

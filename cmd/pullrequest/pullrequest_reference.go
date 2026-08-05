@@ -13,7 +13,7 @@ type PullRequestReference struct {
 	Title    string       `json:"title,omitempty"  mapstructure:"title"`
 	IsDraft  bool         `json:"draft,omitempty"  mapstructure:"draft"`
 	IsQueued bool         `json:"queued,omitempty" mapstructure:"queued"`
-	Links    common.Links `json:"links,omitempty"  mapstructure:"links"`
+	Links    common.Links `json:"links"            mapstructure:"links"`
 }
 
 // GetType returns the type of the PullRequestReference.

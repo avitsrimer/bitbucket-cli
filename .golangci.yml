@@ -1,0 +1,182 @@
+version: "2"
+run:
+  concurrency: 4
+issues:
+  # report every finding, not a capped sample, so CI/make lint output is honest
+  max-issues-per-linter: 0
+  max-same-issues: 0
+linters:
+  default: none
+  enable:
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - copyloopvar
+    - dupl
+    - durationcheck
+    - errcheck
+    - errname
+    - errorlint
+    - exhaustive
+    - fatcontext
+    - gocritic
+    - gocyclo
+    - godoclint
+    - gosec
+    - govet
+    - ineffassign
+    - intrange
+    - makezero
+    - misspell
+    - modernize
+    - nakedret
+    - nestif
+    - nilerr
+    - nilnil
+    - noctx
+    - nolintlint
+    - perfsprint
+    - predeclared
+    - prealloc
+    - reassign
+    - revive
+    - sqlclosecheck
+    - staticcheck
+    - testifylint
+    - tparallel
+    - unconvert
+    - unparam
+    - unused
+    - usestdlibvars
+    - wastedassign
+    - whitespace
+    - wrapcheck
+
+  settings:
+    errcheck:
+      # diagnostic writes to stdout/stderr never need their error checked in a CLI
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+    exhaustive:
+      default-signifies-exhaustive: true
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    dupl:
+      threshold: 100
+    gocritic:
+      disabled-checks:
+        - wrapperFunc
+        - hugeParam
+        - rangeValCopy
+        # permanent: cobra command param/receiver names shadow imports in ~166
+        # places repo-wide; renaming them is low-value busywork, not fixed by any task
+        - importShadow
+      enabled-tags:
+        - performance
+        - style
+        - experimental
+    gocyclo:
+      min-complexity: 20
+    govet:
+      enable:
+        - shadow
+    lll:
+      line-length: 140
+    misspell:
+      locale: US
+      ignore-rules:
+        - cancelled # Jenkins wire field/term; kept as-is for API compatibility
+    revive:
+      rules:
+        - name: early-return
+        - name: indent-error-flow
+        - name: superfluous-else
+        - name: unreachable-code
+        - name: empty-block
+        - name: redefines-builtin-id
+  exclusions:
+    generated: lax
+    rules:
+      - linters:
+          - golint
+        text: should have a package comment, unless it's in another file for this package
+      - linters:
+          - gocritic
+        text: "exitAfterDefer:"
+      - linters:
+          - gocritic
+        text: "whyNoLint: include an explanation for nolint directive"
+      - linters:
+          - revive
+        text: should have a package comment
+      - linters:
+          - staticcheck
+        text: at least one file in a package should have a package comment
+      - linters:
+          - gocritic
+        text: "commentedOutCode: may want to remove commented-out code"
+      - linters:
+          - gocritic
+        text: "unnamedResult: consider giving a name to these results"
+      - linters:
+          - revive
+        text: "var-naming: don't use an underscore in package name"
+      - linters:
+          - staticcheck
+        text: should not use underscores in package names
+      - linters:
+          - govet
+        text: struct literal uses unkeyed fields
+      - linters:
+          - revive
+          - unparam
+          - unused
+        path: _test\.go$
+        text: unused-parameter
+      - linters:
+          - dupl
+          - noctx
+          - usestdlibvars
+        path: _test\.go$
+      - linters:
+          - gosec
+        path: _test\.go$
+      - linters:
+          - errcheck
+        text: "Error return value of .*.Close.*is not checked"
+      # temporary: removed in Task 4 (error handling migration go-errors -> stdlib errors).
+      # wrapcheck flags both the gildas/go-errors wrapping idiom and bare cross-package
+      # `return err` sites; Task 4 rewrites every call site so the whole exclusion goes away.
+      - linters:
+          - wrapcheck
+        path: \.go$
+      # temporary: removed in Task 8 (testifylint/suite-style normalization of the test suites).
+      - linters:
+          - testifylint
+        path: _test\.go$
+      # temporary: removed in Task 7 (pullrequest action boilerplate helper extracts these
+      # six files onto one shared helper, eliminating the duplication).
+      - linters:
+          - dupl
+        path: cmd/pullrequest/(approve|unapprove|decline|merge|request-changes|remove-request-changes)\.go$
+      # temporary: removed in Task 5 (config simplification drops viper and this whole
+      # if/else path-resolution chain, along with its shadowed `err`).
+      - linters:
+          - gocritic
+          - govet
+        path: cmd/common/config\.go$
+    paths:
+      - vendor
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

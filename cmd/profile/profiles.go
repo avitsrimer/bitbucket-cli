@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/go-logger"
@@ -21,21 +22,8 @@ var Profiles profiles
 func (profiles profiles) Current(context context.Context) *Profile {
 	log := logger.Must(logger.FromContext(context)).Child("profile", "current")
 
-	if gitConfig, err := common.OpenGitConfig(context); err == nil {
-		log.Debugf("Found a git config file")
-		if section, err := common.GetGitSection(context, gitConfig, `bitbucket "cli"`); err == nil {
-			log.Debugf("Found a bitbucket \"cli\" section in git config: name=%s", section.Name())
-			if profileName := section.Key("profile").String(); len(profileName) > 0 {
-				log.Debugf("Found a profile in git config: %s", profileName)
-				if profile, found := profiles.Find(profileName); found {
-					log.Infof("Using profile %s from git config", profileName)
-					return profile
-				} else {
-					log.Warnf("Profile %s not found in %s", profileName, viper.ConfigFileUsed())
-					fmt.Fprintf(os.Stderr, "Profile %s from your git config was not found in %s, ignored.\n", profileName, viper.ConfigFileUsed())
-				}
-			}
-		}
+	if profile := profiles.profileFromGitConfig(context, log); profile != nil {
+		return profile
 	}
 
 	log.Debugf("No profile found in git config, looking for default profile in %d profiles", len(profiles))
@@ -50,6 +38,37 @@ func (profiles profiles) Current(context context.Context) *Profile {
 		return profiles[0]
 	}
 	log.Warnf("No profile found")
+	return nil
+}
+
+// profileFromGitConfig looks up the profile named in the git config's bitbucket "cli" section,
+// returning nil when no git config, no such section, no profile name, or no matching profile is found
+func (profiles profiles) profileFromGitConfig(context context.Context, log *logger.Logger) *Profile {
+	gitConfig, err := common.OpenGitConfig(context)
+	if err != nil {
+		return nil
+	}
+	log.Debugf("Found a git config file")
+
+	section, err := common.GetGitSection(context, gitConfig, `bitbucket "cli"`)
+	if err != nil {
+		return nil
+	}
+	log.Debugf("Found a bitbucket \"cli\" section in git config: name=%s", section.Name())
+
+	profileName := section.Key("profile").String()
+	if profileName == "" {
+		return nil
+	}
+	log.Debugf("Found a profile in git config: %s", profileName)
+
+	profile, found := profiles.Find(profileName)
+	if found {
+		log.Infof("Using profile %s from git config", profileName)
+		return profile
+	}
+	log.Warnf("Profile %s not found in %s", profileName, viper.ConfigFileUsed())
+	fmt.Fprintf(os.Stderr, "Profile %s from your git config was not found in %s, ignored.\n", profileName, viper.ConfigFileUsed())
 	return nil
 }
 
@@ -120,7 +139,7 @@ func (profiles *profiles) Delete(names ...string) (deleted int) {
 
 // SetCurrent sets the current profile
 func (profiles profiles) SetCurrent(name string) {
-	if len(name) == 0 {
+	if name == "" {
 		return
 	}
 	if _, found := profiles.Find(name); !found {
@@ -169,4 +188,31 @@ func ValidProfileNames(cmd *cobra.Command, args []string, toComplete string) ([]
 
 	names := Profiles.Names()
 	return common.FilterValidArgs(names, args, toComplete), cobra.ShellCompDirectiveNoFileComp
+}
+
+// saveProfilesConfig persists the in-memory Profiles collection to the active config file
+func saveProfilesConfig(log *logger.Logger) error {
+	viper.Set("profiles", Profiles)
+	if viper.ConfigFileUsed() != "" {
+		log.Infof("Writing configuration to %s", viper.ConfigFileUsed())
+		return viper.WriteConfig()
+	}
+	if configDir, _ := os.UserConfigDir(); configDir != "" {
+		configPath := filepath.Join(configDir, "bitbucket")
+		if err := os.MkdirAll(configPath, 0o750); err != nil {
+			return err
+		}
+		configFile := filepath.Join(configPath, "config-cli.yml")
+		if err := viper.WriteConfigAs(configFile); err != nil {
+			return err
+		}
+		if info, err := os.Stat(configFile); err == nil && info.Mode() != 0o600 {
+			return os.Chmod(configFile, 0o600)
+		}
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	return viper.WriteConfigAs(filepath.Join(homeDir, ".bitbucket-cli"))
 }

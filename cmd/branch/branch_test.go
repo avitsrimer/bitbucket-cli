@@ -31,7 +31,7 @@ func TestBranchSuite(t *testing.T) {
 
 func (suite *BranchSuite) SetupSuite() {
 	_ = godotenv.Load()
-	suite.Name = strings.TrimSuffix(reflect.TypeOf(suite).Elem().Name(), "Suite")
+	suite.Name = strings.TrimSuffix(reflect.TypeFor[BranchSuite]().Name(), "Suite")
 	suite.Logger = logger.Create("test",
 		&logger.FileStream{
 			Path:         fmt.Sprintf("./log/test-%s.log", strings.ToLower(suite.Name)),
@@ -68,14 +68,14 @@ func (suite *BranchSuite) AfterTest(suiteName, testName string) {
 }
 
 func (suite *BranchSuite) LoadTestData(filename string) []byte {
-	data, err := os.ReadFile(fmt.Sprintf("../../testdata/%s", filename))
+	data, err := os.ReadFile("../../testdata/" + filename)
 	if err != nil {
 		suite.T().Fatal(err)
 	}
 	return data
 }
 
-func (suite *BranchSuite) UnmarshalData(filename string, v interface{}) error {
+func (suite *BranchSuite) UnmarshalData(filename string, v any) error {
 	data := suite.LoadTestData(filename)
 	suite.Logger.Infof("Loaded %s: %s", filename, string(data))
 	return json.Unmarshal(data, v)
@@ -91,5 +91,5 @@ func (suite *BranchSuite) TestCanUnmarshal() {
 	suite.Require().NotNil(b)
 	data, err := json.Marshal(b)
 	suite.Require().NoError(err)
-	suite.Assert().JSONEq(string(payload), string(data))
+	suite.JSONEq(string(payload), string(data))
 }

@@ -33,9 +33,9 @@ func meProcess(cmd *cobra.Command, args []string) (err error) {
 	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "me")
 
 	if meOptions.Emails {
-		emails, err := profile.GetAll[Email](log.ToContext(cmd.Context()), cmd, "/user/emails")
-		if err != nil {
-			return err
+		emails, emailsErr := profile.GetAll[Email](log.ToContext(cmd.Context()), cmd, "/user/emails")
+		if emailsErr != nil {
+			return emailsErr
 		}
 		log.Infof("Displaying emails for the current authenticated user")
 		return profile.Current.Print(cmd.Context(), cmd, Emails(emails))

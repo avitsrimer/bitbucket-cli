@@ -33,10 +33,10 @@ func GetRemoteFromGitConfig(context context.Context, name string) (remote *Remot
 //
 // - If the remote URL does not contain "bitbucket.org", it returns an error
 func GetRemoteFromReader(context context.Context, reader io.Reader, name string) (remote *Remote, err error) {
-	if len(name) == 0 {
-		sections, err := common.GetGitSectionsMatching(context, reader, regexp.MustCompile("remote \".*\""))
-		if err != nil {
-			return nil, err
+	if name == "" {
+		sections, sectionsErr := common.GetGitSectionsMatching(context, reader, regexp.MustCompile("remote \".*\""))
+		if sectionsErr != nil {
+			return nil, sectionsErr
 		}
 		if len(sections) == 0 {
 			return nil, errors.NotFound.With("remote", "any")
@@ -76,36 +76,30 @@ func GetRemoteFromReader(context context.Context, reader io.Reader, name string)
 func GetRemote(context context.Context, cmd *cobra.Command) (remote *Remote, err error) {
 	if cmd.Flag("git-remote") != nil {
 		remoteName := cmd.Flag("git-remote").Value.String()
-		if len(remoteName) > 0 {
+		if remoteName != "" {
 			return GetRemoteFromGitConfig(context, remoteName)
 		}
 	}
 	if remote, err = GetRemoteFromGitConfig(context, "origin"); err == nil {
-		return
+		return remote, nil
 	}
 	return GetRemoteFromGitConfig(context, "")
 }
 
 // RepositoryName gets the full repository name from the remote URL (without the .git extension)
 func (remote Remote) RepositoryName() string {
-	if strings.HasPrefix(remote.URL, "bitbucket.org:") {
+	switch {
+	case strings.HasPrefix(remote.URL, "bitbucket.org:"):
 		if strings.HasSuffix(remote.URL, ".git") {
 			return remote.URL[strings.Index(remote.URL, ":")+1 : len(remote.URL)-4]
 		}
 		return remote.URL[strings.Index(remote.URL, ":")+1:]
-	}
-	if strings.HasPrefix(remote.URL, "git@") {
+	case strings.HasPrefix(remote.URL, "git@"):
 		if strings.HasSuffix(remote.URL, ".git") {
 			return remote.URL[strings.LastIndex(remote.URL, ":")+1 : len(remote.URL)-4]
 		}
 		return remote.URL[strings.LastIndex(remote.URL, ":")+1:]
-	} else if strings.HasPrefix(remote.URL, "https://") {
-		previousToLastSlash := strings.LastIndex(remote.URL[:strings.LastIndex(remote.URL, "/")], "/")
-		if strings.HasSuffix(remote.URL, ".git") {
-			return remote.URL[previousToLastSlash+1 : len(remote.URL)-4]
-		}
-		return remote.URL[previousToLastSlash+1:]
-	} else if strings.HasPrefix(remote.URL, "ssh://") {
+	case strings.HasPrefix(remote.URL, "https://"), strings.HasPrefix(remote.URL, "ssh://"):
 		previousToLastSlash := strings.LastIndex(remote.URL[:strings.LastIndex(remote.URL, "/")], "/")
 		if strings.HasSuffix(remote.URL, ".git") {
 			return remote.URL[previousToLastSlash+1 : len(remote.URL)-4]
@@ -118,5 +112,9 @@ func (remote Remote) RepositoryName() string {
 // WorkspaceName gets the workspace name from the remote URL
 func (remote Remote) WorkspaceName() string {
 	repositoryName := remote.RepositoryName()
-	return repositoryName[:strings.Index(repositoryName, "/")]
+	workspace, _, found := strings.Cut(repositoryName, "/")
+	if !found {
+		return ""
+	}
+	return workspace
 }

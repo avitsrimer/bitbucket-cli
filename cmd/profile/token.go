@@ -23,7 +23,6 @@ type Token struct {
 
 // loadAccessToken loads the access token from the cache
 func (profile *Profile) loadAccessToken(ctx context.Context) (err error) {
-
 	log := logger.Must(logger.FromContext(ctx)).Child("profile", "loadAccessToken")
 
 	if profile.token != nil {
@@ -31,7 +30,7 @@ func (profile *Profile) loadAccessToken(ctx context.Context) (err error) {
 		return nil
 	}
 
-	if len(profile.AccessToken) > 0 {
+	if profile.AccessToken != "" {
 		log.Debugf("Repository/Project/Workspace Access token for profile %s", profile.Name)
 		profile.token = &Token{
 			AccessToken: profile.AccessToken,
@@ -44,10 +43,10 @@ func (profile *Profile) loadAccessToken(ctx context.Context) (err error) {
 	cacheDir, err := os.UserCacheDir()
 	if err == nil {
 		accessTokenFile := filepath.Join(cacheDir, "bitbucket", "access-token-"+profile.Name)
-		data, err := os.ReadFile(accessTokenFile)
-		if err == nil {
+		data, readErr := os.ReadFile(accessTokenFile) //nolint:gosec // accessTokenFile is built from the OS-provided cache dir and the profile's own name, not external input
+		if readErr == nil {
 			var token Token
-			if err = json.Unmarshal(data, &token); err == nil {
+			if readErr = json.Unmarshal(data, &token); readErr == nil {
 				log.Infof("Loaded access token from cache for profile %s", profile.Name)
 				log.Record("token", token).Debugf("Access token details for profile %s", profile.Name)
 				profile.token = &token
@@ -56,18 +55,18 @@ func (profile *Profile) loadAccessToken(ctx context.Context) (err error) {
 		}
 		// Load the access token from the vault in case this is an API Token
 		log.Debugf("Looking for access token in the vault for profile %s", profile.Name)
-		if credential, err := profile.GetCredentialFromVault(profile.VaultKey, profile.Name); err == nil {
-			profile.AccessToken = credential.Password
-			log.Infof("Loaded Repository/Project/Workspace Access Token for profile %s from the vault", profile.Name)
-			profile.token = &Token{
-				AccessToken: profile.AccessToken,
-				ExpiresOn:   core.Timestamp(time.Now().Add(100 * 365 * 24 * time.Hour)), // Loaded Access Tokens never expire
-			}
-			return nil
-		} else {
-			log.Errorf("failed to get access token for profile %s: %v", profile.Name, err)
+		credential, vaultErr := profile.GetCredentialFromVault(profile.VaultKey, profile.Name)
+		if vaultErr != nil {
+			log.Errorf("failed to get access token for profile %s: %v", profile.Name, vaultErr)
 			return nil // We don't return an error if the token is not found, so the authorization process can continue
 		}
+		profile.AccessToken = credential.Password
+		log.Infof("Loaded Repository/Project/Workspace Access Token for profile %s from the vault", profile.Name)
+		profile.token = &Token{
+			AccessToken: profile.AccessToken,
+			ExpiresOn:   core.Timestamp(time.Now().Add(100 * 365 * 24 * time.Hour)), // Loaded Access Tokens never expire
+		}
+		return nil
 	}
 	return err
 }
@@ -89,10 +88,10 @@ func (profile *Profile) saveAccessToken(ctx context.Context, data []byte) (acces
 
 	if cacheDir, err := os.UserCacheDir(); err == nil {
 		cachePath := filepath.Join(cacheDir, "bitbucket")
-		if err = os.MkdirAll(cachePath, 0700); err == nil {
+		if err = os.MkdirAll(cachePath, 0o700); err == nil {
 			cacheFile := filepath.Join(cachePath, "access-token-"+profile.Name)
-			payload, _ := json.Marshal(profile.token)
-			if err = os.WriteFile(cacheFile, payload, 0600); err != nil {
+			payload, _ := json.Marshal(profile.token) //nolint:gosec // G117: caching the access token locally (0600) is the intended behavior here, not a leak
+			if err = os.WriteFile(cacheFile, payload, 0o600); err != nil {
 				log.Errorf("Failed to save access token to cache for profile %s", profile.Name, err)
 			}
 		}
@@ -105,10 +104,10 @@ func (profile *Profile) saveAccessToken(ctx context.Context, data []byte) (acces
 // implements logger.Redactable
 func (token Token) Redact() any {
 	redacted := token
-	if len(redacted.AccessToken) > 0 {
+	if redacted.AccessToken != "" {
 		redacted.AccessToken = logger.RedactWithHash(redacted.AccessToken)
 	}
-	if len(redacted.RefreshToken) > 0 {
+	if redacted.RefreshToken != "" {
 		redacted.RefreshToken = logger.RedactWithHash(redacted.RefreshToken)
 	}
 	return redacted

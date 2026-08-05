@@ -90,23 +90,23 @@ func mergeProcess(cmd *cobra.Command, args []string) (err error) {
 	}
 
 	if mergeOptions.Async {
-		result, err := profile.PostWithResult(log.ToContext(cmd.Context()), cmd, uripath, payload)
-		if err != nil {
-			return errors.Join(errors.Errorf("Failed to merge Pull Request %s", pullRequestID), err)
+		result, asyncErr := profile.PostWithResult(log.ToContext(cmd.Context()), cmd, uripath, payload)
+		if asyncErr != nil {
+			return errors.Join(errors.Errorf("Failed to merge Pull Request %s", pullRequestID), asyncErr)
 		}
-		status, err := NewPullRequestMergeStatusFromLocation(result.Headers.Get("Location"))
-		if err != nil {
-			return errors.Join(errors.Errorf("Failed to get merge status for Pull Request %s", pullRequestID), err)
+		status, asyncErr := NewPullRequestMergeStatusFromLocation(result.Headers.Get("Location"))
+		if asyncErr != nil {
+			return errors.Join(errors.Errorf("Failed to get merge status for Pull Request %s", pullRequestID), asyncErr)
 		}
 		log.Infof("Merge request accepted, task ID: %s", status.ID)
 		return profile.Print(cmd.Context(), cmd, status)
-	} else {
-		var pullrequest PullRequest
-
-		err = profile.Post(log.ToContext(cmd.Context()), cmd, uripath, payload, &pullrequest)
-		if err != nil {
-			return errors.Join(errors.Errorf("Failed to merge Pull Request %s", pullRequestID), err)
-		}
-		return profile.Print(cmd.Context(), cmd, pullrequest)
 	}
+
+	var pullrequest PullRequest
+
+	err = profile.Post(log.ToContext(cmd.Context()), cmd, uripath, payload, &pullrequest)
+	if err != nil {
+		return errors.Join(errors.Errorf("Failed to merge Pull Request %s", pullRequestID), err)
+	}
+	return profile.Print(cmd.Context(), cmd, pullrequest)
 }

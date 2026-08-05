@@ -78,12 +78,12 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 	taskID := args[0]
 
 	taskUpdator := TaskUpdator{}
-	if len(updateOptions.Content) > 0 {
+	if updateOptions.Content != "" {
 		taskUpdator.Content = &ContentUpdator{
 			Raw: updateOptions.Content,
 		}
 	}
-	if cmd.Flags().Changed("state") && len(updateOptions.State.Value) > 0 {
+	if cmd.Flags().Changed("state") && updateOptions.State.Value != "" {
 		taskUpdator.State = updateOptions.State.Value
 	}
 

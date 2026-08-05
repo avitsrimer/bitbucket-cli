@@ -4,18 +4,50 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
+	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/bitbucket-cli/cmd/user"
 	"github.com/gildas/go-core"
 	"github.com/gildas/go-errors"
+	"github.com/gildas/go-flags"
 	"github.com/gildas/go-logger"
 	"github.com/spf13/cobra"
 )
+
+// commentEditOptions holds the flags shared by the create and update commands
+type commentEditOptions struct {
+	PullRequestID *flags.EnumFlag
+	Comment       string
+	File          string
+	From          int
+	To            int
+	ParentID      int64
+	Pending       bool
+}
+
+// registerCommentEditFlags registers the flags shared by the create and update commands
+func registerCommentEditFlags(cmd *cobra.Command, options *commentEditOptions, commentHelp, pullrequestHelp string) {
+	options.PullRequestID = flags.NewEnumFlagWithFunc(cmd, "", prcommon.GetPullRequestIDs)
+	cmd.Flags().Var(options.PullRequestID, "pullrequest", pullrequestHelp)
+	cmd.Flags().StringVar(&options.Comment, "comment", "", commentHelp)
+	cmd.Flags().StringVar(&options.File, "file", "", "File to comment on")
+	cmd.Flags().IntVar(&options.From, "line", 0, "From line to comment on. Cannot be used with --to")
+	cmd.Flags().IntVar(&options.From, "from", 0, "From line to comment on. Cannot be used with --line")
+	cmd.Flags().IntVar(&options.To, "to", 0, "To line to comment on. Cannot be used with --line")
+	cmd.Flags().Int64Var(&options.ParentID, "parent", 0, "Parent comment ID to reply to")
+	cmd.Flags().BoolVar(&options.Pending, "pending", false, "Mark the comment as pending")
+	cmd.MarkFlagsMutuallyExclusive("line", "from")
+	cmd.MarkFlagsMutuallyExclusive("line", "to")
+	_ = cmd.MarkFlagRequired("pullrequest")
+	_ = cmd.MarkFlagRequired("comment")
+	_ = cmd.RegisterFlagCompletionFunc(options.PullRequestID.CompletionFunc("pullrequest"))
+}
 
 type Comment struct {
 	Type        string                `json:"type"                 mapstructure:"type"`
@@ -67,14 +99,14 @@ var columns = common.Columns[Comment]{
 		return a.ID < b.ID
 	}},
 	{Name: "content", DefaultSorter: false, Compare: func(a, b Comment) bool {
-		return strings.Compare(strings.ToLower(a.Content.Raw), strings.ToLower(b.Content.Raw)) == -1
+		return strings.ToLower(a.Content.Raw) < strings.ToLower(b.Content.Raw)
 	}},
 	{Name: "user", DefaultSorter: false, Compare: func(a, b Comment) bool {
-		return strings.Compare(strings.ToLower(a.User.Name), strings.ToLower(b.User.Name)) == -1
+		return strings.ToLower(a.User.Name) < strings.ToLower(b.User.Name)
 	}},
 	{Name: "file", DefaultSorter: false, Compare: func(a, b Comment) bool {
 		if a.Anchor != nil && b.Anchor != nil {
-			return strings.Compare(strings.ToLower(a.Anchor.String()), strings.ToLower(b.Anchor.String())) == -1
+			return strings.ToLower(a.Anchor.String()) < strings.ToLower(b.Anchor.String())
 		}
 		return a.Anchor != nil
 	}},
@@ -122,7 +154,7 @@ func (comment Comment) GetRow(headers []string) []string {
 	for _, header := range headers {
 		switch strings.ToLower(header) {
 		case "id":
-			row = append(row, fmt.Sprintf("%d", comment.ID))
+			row = append(row, strconv.Itoa(comment.ID))
 		case "created on", "created_on", "created-on", "created":
 			row = append(row, comment.CreatedOn.Format("2006-01-02 15:04:05"))
 		case "updated on", "updated_on", "updated-on", "updated":
@@ -142,18 +174,18 @@ func (comment Comment) GetRow(headers []string) []string {
 		case "content":
 			row = append(row, comment.Content.Raw)
 		case "deleted":
-			row = append(row, fmt.Sprintf("%t", comment.IsDeleted))
+			row = append(row, strconv.FormatBool(comment.IsDeleted))
 		case "pending":
-			row = append(row, fmt.Sprintf("%t", comment.IsPending))
+			row = append(row, strconv.FormatBool(comment.IsPending))
 		case "resolution":
 			if comment.Resolution != nil {
 				switch {
 				case comment.Resolution.User.Name != "" && !comment.Resolution.CreatedOn.IsZero():
 					row = append(row, fmt.Sprintf("resolved by %s on %s", comment.Resolution.User.Name, comment.Resolution.CreatedOn.Format("2006-01-02 15:04:05")))
 				case comment.Resolution.User.Name != "":
-					row = append(row, fmt.Sprintf("resolved by %s", comment.Resolution.User.Name))
+					row = append(row, "resolved by "+comment.Resolution.User.Name)
 				case !comment.Resolution.CreatedOn.IsZero():
-					row = append(row, fmt.Sprintf("resolved on %s", comment.Resolution.CreatedOn.Format("2006-01-02 15:04:05")))
+					row = append(row, "resolved on "+comment.Resolution.CreatedOn.Format("2006-01-02 15:04:05"))
 				default:
 					row = append(row, "resolved")
 				}
@@ -230,18 +262,16 @@ func GetPullRequestCommentIDs(context context.Context, cmd *cobra.Command, args 
 		return nil, err
 	}
 
-	var pullRequestID string
-	if cmd.Flag("pullrequest") != nil {
-		pullRequestID = cmd.Flag("pullrequest").Value.String()
-	} else {
+	if cmd.Flag("pullrequest") == nil {
 		return nil, errors.New("pullrequest flag is required")
 	}
+	pullRequestID := cmd.Flag("pullrequest").Value.String()
 
 	comments, err := profile.GetAll[Comment](context, cmd, repository.GetPath(fmt.Sprintf("pullrequests/%s/comments", pullRequestID)))
 	if err != nil {
 		log.Errorf("Failed to get pullrequests", err)
 		return nil, err
 	}
-	ids = core.Map(comments, func(comment Comment) string { return fmt.Sprintf("%d", comment.ID) })
+	ids = core.Map(comments, func(comment Comment) string { return strconv.Itoa(comment.ID) })
 	return common.FilterValidArgs(ids, args, toComplete), nil
 }

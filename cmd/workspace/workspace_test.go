@@ -31,7 +31,7 @@ func TestWorkspaceSuite(t *testing.T) {
 
 func (suite *WorkspaceSuite) SetupSuite() {
 	_ = godotenv.Load()
-	suite.Name = strings.TrimSuffix(reflect.TypeOf(suite).Elem().Name(), "Suite")
+	suite.Name = strings.TrimSuffix(reflect.TypeFor[WorkspaceSuite]().Name(), "Suite")
 	suite.Logger = logger.Create("test",
 		&logger.FileStream{
 			Path:         fmt.Sprintf("./log/test-%s.log", strings.ToLower(suite.Name)),
@@ -68,14 +68,14 @@ func (suite *WorkspaceSuite) AfterTest(suiteName, testName string) {
 }
 
 func (suite *WorkspaceSuite) LoadTestData(filename string) []byte {
-	data, err := os.ReadFile(fmt.Sprintf("../../testdata/%s", filename))
+	data, err := os.ReadFile("../../testdata/" + filename)
 	if err != nil {
 		suite.T().Fatal(err)
 	}
 	return data
 }
 
-func (suite *WorkspaceSuite) UnmarshalData(filename string, v interface{}) error {
+func (suite *WorkspaceSuite) UnmarshalData(filename string, v any) error {
 	data := suite.LoadTestData(filename)
 	suite.Logger.Infof("Loaded %s: %s", filename, string(data))
 	return json.Unmarshal(data, v)

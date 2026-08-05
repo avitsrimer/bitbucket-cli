@@ -33,7 +33,7 @@ func (u *UUID) UnmarshalJSON(payload []byte) error {
 		return errors.JSONUnmarshalError.Wrap(errors.Errorf("unexpected end of JSON input"))
 	}
 	value := string(payload[1 : len(payload)-1])
-	if len(value) == 0 {
+	if value == "" {
 		*u = UUID(uuid.Nil)
 		return nil
 	}

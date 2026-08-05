@@ -25,9 +25,9 @@ type Repository struct {
 	Name                 string               `json:"name,omitempty"                  mapstructure:"name"`
 	FullName             string               `json:"full_name,omitempty"             mapstructure:"full_name"`
 	Slug                 string               `json:"slug,omitempty"                  mapstructure:"slug"`
-	Owner                user.User            `json:"owner,omitempty"                 mapstructure:"owner"`
+	Owner                user.User            `json:"owner"                            mapstructure:"owner"`
 	Workspace            *workspace.Workspace `json:"workspace,omitempty"             mapstructure:"workspace"`
-	Project              project.Project      `json:"project,omitempty"               mapstructure:"project"`
+	Project              project.Project      `json:"project"                         mapstructure:"project"`
 	HasIssues            bool                 `json:"has_issues"            mapstructure:"has_issues"`
 	HasWiki              bool                 `json:"has_wiki"              mapstructure:"has_wiki"`
 	IsPrivate            bool                 `json:"is_private"            mapstructure:"is_private"`
@@ -66,7 +66,7 @@ func (repository Repository) GetPath(paths ...string) string {
 //
 // implements fmt.Stringer
 func (repository Repository) String() string {
-	if len(repository.Slug) > 0 {
+	if repository.Slug != "" {
 		return repository.Slug
 	}
 	return repository.Name
@@ -75,7 +75,7 @@ func (repository Repository) String() string {
 // GetRepositoryName gets the name of the repository from the command line or from the git config
 func GetRepositoryName(context context.Context, cmd *cobra.Command) (repositoryName string, err error) {
 	if cmd.Flag("repository") != nil {
-		if repositoryName = cmd.Flag("repository").Value.String(); len(repositoryName) > 0 {
+		if repositoryName = cmd.Flag("repository").Value.String(); repositoryName != "" {
 			return
 		}
 	}
@@ -116,13 +116,13 @@ func GetRepositoryBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID s
 	}
 
 	// In case we got a real UUID, get the Bitbucket UUID
-	if id, err := common.ParseUUID(slugOrID); err == nil {
-		slugOrID = id.String()
+	if parsedID, uuidErr := common.ParseUUID(slugOrID); uuidErr == nil {
+		slugOrID = parsedID.String()
 	}
 
 	if repository, err = RepositoryCache.Get(fmt.Sprintf("%s/%s", ws.Slug, slugOrID)); err == nil {
 		log.Debugf("Repository %s/%s found in cache", ws.Slug, slugOrID)
-		return
+		return repository, nil
 	}
 
 	log.Infof("Getting repository %s in workspace %s", slugOrID, ws.Slug)
@@ -140,7 +140,7 @@ func GetRepositoryBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID s
 	if err == nil {
 		_ = RepositoryCache.Set(*repository, fmt.Sprintf("%s/%s", ws.Slug, slugOrID))
 	}
-	return
+	return repository, err
 }
 
 // GetEffectiveDefaultReviewers gets the effective default reviewers for a repository
@@ -155,12 +155,12 @@ func (repository Repository) GetEffectiveDefaultReviewers(ctx context.Context, c
 func (repository Repository) GetWorkspace(ctx context.Context, cmd *cobra.Command) (*workspace.Workspace, error) {
 	log := logger.Must(logger.FromContext(ctx)).Child("repository", "get_workspace")
 
-	if repository.Workspace != nil && !repository.Workspace.ID.IsNil() && len(repository.Workspace.Slug) > 0 {
+	if repository.Workspace != nil && !repository.Workspace.ID.IsNil() && repository.Workspace.Slug != "" {
 		log.Debugf("Getting workspace of repository %s/%s from cache", repository.Workspace.Slug, repository.Slug)
 		return repository.Workspace, nil
 	}
 
-	if len(repository.FullName) > 0 {
+	if repository.FullName != "" {
 		log.Debugf("Getting workspace of repository %s/%s from full name", repository.FullName, repository.Slug)
 		components := strings.Split(repository.FullName, "/")
 		if len(components) == 2 {
@@ -177,13 +177,13 @@ func (repository *Repository) Validate() error {
 	if repository.ID.IsNil() {
 		merr.Append(errors.ArgumentMissing.With("uuid"))
 	}
-	if len(repository.Name) == 0 {
+	if repository.Name == "" {
 		merr.Append(errors.ArgumentMissing.With("name"))
 	}
-	if len(repository.FullName) == 0 {
+	if repository.FullName == "" {
 		merr.Append(errors.ArgumentMissing.With("full_name"))
 	}
-	if len(repository.Slug) == 0 {
+	if repository.Slug == "" {
 		repository.Slug = repository.Name
 	}
 
@@ -210,7 +210,7 @@ func (repository Repository) MarshalJSON() (data []byte, err error) {
 	if !repository.Project.ID.IsNil() {
 		proj = &repository.Project
 	}
-	if len(repository.MainBranch) > 0 {
+	if repository.MainBranch != "" {
 		br = &branch{Type: "branch", Name: repository.MainBranch}
 	}
 	if !repository.CreatedOn.IsZero() {

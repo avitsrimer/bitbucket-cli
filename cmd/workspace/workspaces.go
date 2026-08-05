@@ -32,7 +32,7 @@ func GetWorkspacesWithQuery(ctx context.Context, cmd *cobra.Command, query url.V
 	}
 	log.Debugf("Found %d workspaces", len(workspaces))
 	core.Sort(workspaces, func(a, b Workspace) bool {
-		return strings.Compare(strings.ToLower(a.Slug), strings.ToLower(b.Slug)) == -1
+		return strings.ToLower(a.Slug) < strings.ToLower(b.Slug)
 	})
 	return workspaces, nil
 }

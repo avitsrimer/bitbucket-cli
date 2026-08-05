@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
@@ -35,7 +34,7 @@ func (workspace Workspace) GetType() string {
 //
 // implements fmt.Stringer
 func (workspace Workspace) String() string {
-	if len(workspace.Slug) > 0 {
+	if workspace.Slug != "" {
 		return workspace.Slug
 	}
 	return workspace.Name
@@ -51,7 +50,7 @@ func GetWorkspaceName(context context.Context, cmd *cobra.Command) (workspaceNam
 	log := logger.Must(logger.FromContext(context)).Child("workspace", "get_name")
 
 	if cmd.Flag("workspace") != nil {
-		if workspaceName = cmd.Flag("workspace").Value.String(); len(workspaceName) > 0 {
+		if workspaceName = cmd.Flag("workspace").Value.String(); workspaceName != "" {
 			log.Debugf("Workspace name found in command flag: %s", workspaceName)
 			return
 		}
@@ -60,7 +59,7 @@ func GetWorkspaceName(context context.Context, cmd *cobra.Command) (workspaceNam
 		log.Debugf("Workspace name found in git config: %s, from remote: %s", remote.WorkspaceName(), remote.URL)
 		return remote.WorkspaceName(), nil
 	}
-	if profile.Current != nil && len(profile.Current.DefaultWorkspace) > 0 {
+	if profile.Current != nil && profile.Current.DefaultWorkspace != "" {
 		log.Debugf("Workspace name found in profile: %s", profile.Current.DefaultWorkspace)
 		return profile.Current.DefaultWorkspace, nil
 	}
@@ -85,7 +84,7 @@ func GetWorkspace(ctx context.Context, cmd *cobra.Command) (workspace *Workspace
 func GetWorkspaceBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID string) (workspace *Workspace, err error) {
 	log := logger.Must(logger.FromContext(ctx)).Child("workspace", "get_by_slug_or_id", "workspace", slugOrID)
 
-	if len(slugOrID) == 0 {
+	if slugOrID == "" {
 		return nil, errors.ArgumentMissing.With("workspace slug or ID")
 	}
 
@@ -102,14 +101,14 @@ func GetWorkspaceBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID st
 	log.Infof("Retrieving workspace %s", slugOrID)
 
 	// In case we got a real UUID, get the Bitbucket UUID
-	if id, err := common.ParseUUID(slugOrID); err == nil {
-		slugOrID = id.String()
+	if parsedID, uuidErr := common.ParseUUID(slugOrID); uuidErr == nil {
+		slugOrID = parsedID.String()
 	}
 
 	err = currentProfile.Get(
 		log.ToContext(ctx),
 		cmd,
-		fmt.Sprintf("/workspaces/%s", slugOrID),
+		"/workspaces/"+slugOrID,
 		&workspace,
 	)
 	if err == nil {
@@ -192,7 +191,7 @@ func (workspace *Workspace) UnmarshalJSON(data []byte) error {
 
 		*workspace = Workspace(inner.surrogate)
 	default:
-		return errors.JSONUnmarshalError.Wrap(errors.InvalidType.With(typeholder.Type, strings.Join([]string{Workspace{}.GetType(), "workspace_access"}, ", ")))
+		return errors.JSONUnmarshalError.Wrap(errors.InvalidType.With(typeholder.Type, Workspace{}.GetType()+", "+"workspace_access"))
 	}
 
 	return nil
