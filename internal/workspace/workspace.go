@@ -103,7 +103,6 @@ func GetWorkspaceBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID st
 
 	err = currentProfile.Get(
 		ctx,
-		cmd,
 		"/workspaces/"+slugOrID,
 		&workspace,
 	)

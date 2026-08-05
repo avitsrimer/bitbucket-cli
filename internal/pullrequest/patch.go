@@ -59,7 +59,7 @@ func patchProcess(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	patch, err := profile.GetRaw(cmd.Context(), cmd, repository.GetPath("pullrequests", pullRequestID, "patch"))
+	patch, err := profile.GetRaw(cmd.Context(), repository.GetPath("pullrequests", pullRequestID, "patch"))
 	if err != nil {
 		return fmt.Errorf("cannot get resource: %w", err)
 	}

@@ -191,7 +191,6 @@ func GetMe(context context.Context, cmd *cobra.Command) (user *User, err error) 
 	}
 	err = profile.Get(
 		context,
-		cmd,
 		"/user",
 		&user,
 	)
@@ -226,7 +225,6 @@ func GetUser(context context.Context, cmd *cobra.Command, userid string) (user *
 	}
 	err = profile.Get(
 		context,
-		cmd,
 		"/users/"+userUUID.String(),
 		&user,
 	)

@@ -121,7 +121,7 @@ func (suite *ProfileSuite) TestGetSendsAuthHeaderAndUnmarshalsSuccessResponse() 
 	target := &profile.Profile{APIRoot: apiRoot, AccessToken: "dummy-token"}
 
 	var item testItem
-	err = target.Get(suite.Context, &cobra.Command{}, "/repo", &item)
+	err = target.Get(suite.Context, "/repo", &item)
 	suite.Require().NoError(err)
 	suite.Equal("42", item.ID)
 	suite.Equal("Bearer dummy-token", gotAuthorization, "the bearer token from the profile should be sent as the Authorization header")
@@ -145,7 +145,7 @@ func (suite *ProfileSuite) TestPostSendsJSONPayloadAndUnmarshalsResponse() {
 	target := &profile.Profile{APIRoot: apiRoot, AccessToken: "dummy-token"}
 
 	var result testItem
-	err = target.Post(suite.Context, &cobra.Command{}, "/repo", testItem{ID: "1"}, &result)
+	err = target.Post(suite.Context, "/repo", testItem{ID: "1"}, &result)
 	suite.Require().NoError(err)
 	suite.Equal("created-1", result.ID)
 	suite.Equal("application/json", gotContentType, "a JSON payload should be sent with an application/json Content-Type")
@@ -164,7 +164,7 @@ func (suite *ProfileSuite) TestGetMapsBitBucketErrorBody() {
 	target := &profile.Profile{APIRoot: apiRoot, AccessToken: "dummy-token"}
 
 	var item testItem
-	err = target.Get(suite.Context, &cobra.Command{}, "/repo", &item)
+	err = target.Get(suite.Context, "/repo", &item)
 	suite.Require().Error(err)
 	var bberr *profile.BitBucketError
 	suite.Require().ErrorAs(err, &bberr, "a BitBucket-shaped error body should be mapped to a *BitBucketError")
@@ -184,7 +184,7 @@ func (suite *ProfileSuite) TestGetNon2xxWithoutJSONBodyReturnsGenericError() {
 	target := &profile.Profile{APIRoot: apiRoot, AccessToken: "dummy-token"}
 
 	var item testItem
-	err = target.Get(suite.Context, &cobra.Command{}, "/repo", &item)
+	err = target.Get(suite.Context, "/repo", &item)
 	suite.Require().Error(err)
 	var bberr *profile.BitBucketError
 	suite.Require().NotErrorAs(err, &bberr, "a non-JSON error body should not be mapped to a BitBucketError")
@@ -208,7 +208,7 @@ func (suite *ProfileSuite) TestGetNon2xxWithUnrelatedJSONBodyReturnsGenericError
 	target := &profile.Profile{APIRoot: apiRoot, AccessToken: "dummy-token"}
 
 	var item testItem
-	err = target.Get(suite.Context, &cobra.Command{}, "/repo", &item)
+	err = target.Get(suite.Context, "/repo", &item)
 	suite.Require().Error(err)
 	var bberr *profile.BitBucketError
 	suite.Require().NotErrorAs(err, &bberr, "a JSON body not shaped like a BitBucket error should not be mapped to a blank BitBucketError")
@@ -230,7 +230,7 @@ func (suite *ProfileSuite) TestGetRawUsesWildcardAcceptAndReturnsRawBody() {
 	suite.Require().NoError(err)
 	target := &profile.Profile{APIRoot: apiRoot, AccessToken: "dummy-token"}
 
-	reader, err := target.GetRaw(suite.Context, &cobra.Command{}, "/repo/diff")
+	reader, err := target.GetRaw(suite.Context, "/repo/diff")
 	suite.Require().NoError(err)
 	data, err := io.ReadAll(reader)
 	suite.Require().NoError(err)
@@ -261,7 +261,7 @@ func (suite *ProfileSuite) TestGetRetriesAfter429ThenSucceeds() {
 	target := &profile.Profile{APIRoot: apiRoot, AccessToken: "dummy-token"}
 
 	var item testItem
-	err = target.Get(suite.Context, &cobra.Command{}, "/repo", &item)
+	err = target.Get(suite.Context, "/repo", &item)
 	suite.Require().NoError(err)
 	suite.Equal("42", item.ID)
 	suite.Equal(2, attempts, "the 429 response should have been retried exactly once")
@@ -286,7 +286,7 @@ func (suite *ProfileSuite) TestGetGivesUpAfterExhaustingRetriesOn429() {
 	target := &profile.Profile{APIRoot: apiRoot, AccessToken: "dummy-token"}
 
 	var item testItem
-	err = target.Get(suite.Context, &cobra.Command{}, "/repo", &item)
+	err = target.Get(suite.Context, "/repo", &item)
 	suite.Require().Error(err)
 	suite.Equal(5, attempts, "should attempt exactly maxRequestAttempts times before giving up")
 }
@@ -312,7 +312,7 @@ func (suite *ProfileSuite) TestGetAbortsRetryLoopWhenContextIsCanceled() {
 	}()
 
 	var item testItem
-	err = target.Get(ctx, &cobra.Command{}, "/repo", &item)
+	err = target.Get(ctx, "/repo", &item)
 	suite.Require().Error(err)
 	suite.Require().ErrorIs(err, context.Canceled)
 	suite.Less(attempts, 5, "the retry loop should have aborted before exhausting all attempts")
@@ -405,7 +405,7 @@ func (suite *ProfileSuite) TestPostWithResultExposesResponseHeaders() {
 	suite.Require().NoError(err)
 	target := &profile.Profile{APIRoot: apiRoot, AccessToken: "dummy-token"}
 
-	result, err := target.PostWithResult(suite.Context, &cobra.Command{}, "/repo/merge", nil)
+	result, err := target.PostWithResult(suite.Context, "/repo/merge", nil)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(result)
 	suite.Equal(server.URL+"/task-status/123", result.Headers.Get("Location"))

@@ -69,24 +69,24 @@ type PaginatedResources[T any] struct {
 }
 
 // Post posts a resource
-func (profile *Profile) Post(ctx context.Context, cmd *cobra.Command, uripath string, body, response any) (err error) {
+func (profile *Profile) Post(ctx context.Context, uripath string, body, response any) (err error) {
 	_, err = profile.send(ctx, &requestOptions{Method: http.MethodPost, Payload: body}, uripath, response)
 	return
 }
 
 // PostWithResult posts a resource and returns the raw result
-func (profile *Profile) PostWithResult(ctx context.Context, cmd *cobra.Command, uripath string, body any) (result *Response, err error) {
+func (profile *Profile) PostWithResult(ctx context.Context, uripath string, body any) (result *Response, err error) {
 	return profile.send(ctx, &requestOptions{Method: http.MethodPost, Payload: body}, uripath, nil)
 }
 
 // Get gets a resource
-func (profile *Profile) Get(ctx context.Context, cmd *cobra.Command, uripath string, response any) (err error) {
+func (profile *Profile) Get(ctx context.Context, uripath string, response any) (err error) {
 	_, err = profile.send(ctx, &requestOptions{Method: http.MethodGet}, uripath, response)
 	return
 }
 
 // GetRaw gets a resource without unmarshaling it
-func (profile *Profile) GetRaw(ctx context.Context, cmd *cobra.Command, uripath string) (raw io.Reader, err error) {
+func (profile *Profile) GetRaw(ctx context.Context, uripath string) (raw io.Reader, err error) {
 	result, err := profile.send(ctx, &requestOptions{Method: http.MethodGet, Accept: "*/*"}, uripath, nil)
 	if result == nil {
 		return nil, err
@@ -95,19 +95,19 @@ func (profile *Profile) GetRaw(ctx context.Context, cmd *cobra.Command, uripath 
 }
 
 // Put puts/updates a resource
-func (profile *Profile) Put(ctx context.Context, cmd *cobra.Command, uripath string, body, response any) (err error) {
+func (profile *Profile) Put(ctx context.Context, uripath string, body, response any) (err error) {
 	_, err = profile.send(ctx, &requestOptions{Method: http.MethodPut, Payload: body}, uripath, response)
 	return
 }
 
 // Delete deletes a resource
-func (profile *Profile) Delete(ctx context.Context, cmd *cobra.Command, uripath string, response any) (err error) {
+func (profile *Profile) Delete(ctx context.Context, uripath string, response any) (err error) {
 	_, err = profile.send(ctx, &requestOptions{Method: http.MethodDelete}, uripath, response)
 	return
 }
 
 // Patch patches a resource
-func (profile *Profile) Patch(ctx context.Context, cmd *cobra.Command, uripath string, body, response any) (err error) {
+func (profile *Profile) Patch(ctx context.Context, uripath string, body, response any) (err error) {
 	_, err = profile.send(ctx, &requestOptions{Method: http.MethodPatch, Payload: body}, uripath, response)
 	return
 }
@@ -195,7 +195,6 @@ func GetAll[T any](ctx context.Context, cmd *cobra.Command, uripath string) (res
 
 		err = profile.Get(
 			ctx,
-			cmd,
 			uripath,
 			&paginated,
 		)

@@ -70,7 +70,7 @@ func diffProcess(cmd *cobra.Command, args []string) error {
 		uripath = repository.GetPath("pullrequests", pullRequestID, "diffstat")
 	}
 
-	diff, err := profile.GetRaw(cmd.Context(), cmd, uripath)
+	diff, err := profile.GetRaw(cmd.Context(), uripath)
 	if err != nil {
 		return fmt.Errorf("cannot get resource: %w", err)
 	}

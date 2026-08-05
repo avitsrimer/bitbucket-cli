@@ -96,7 +96,6 @@ func updateProcess(cmd *cobra.Command, args []string) (err error) {
 
 	err = profile.Put(
 		cmd.Context(),
-		cmd,
 		repository.GetPath("pullrequests", updateOptions.PullRequestID.Value, "comments", args[0]),
 		payload,
 		&comment,

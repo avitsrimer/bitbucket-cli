@@ -131,7 +131,6 @@ func GetRepositoryBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID s
 
 	err = profile.Get(
 		ctx,
-		cmd,
 		fmt.Sprintf("/repositories/%s/%s", ws.Slug, slugOrID),
 		&repository,
 	)

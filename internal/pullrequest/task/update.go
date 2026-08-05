@@ -92,7 +92,6 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 
 	err = profile.Put(
 		cmd.Context(),
-		cmd,
 		repository.GetPath("pullrequests", updateOptions.PullRequestID.Value, "tasks", taskID),
 		taskUpdator,
 		&updated,

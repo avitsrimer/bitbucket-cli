@@ -86,7 +86,7 @@ func runAction(cmd *cobra.Command, args []string, spec actionSpec) error {
 	if spec.post {
 		var participant user.Participant
 
-		if err := profile.Post(cmd.Context(), cmd, uripath, nil, &participant); err != nil {
+		if err := profile.Post(cmd.Context(), uripath, nil, &participant); err != nil {
 			return fmt.Errorf("failed to %s pull request %s: %w", spec.errVerb, pullRequestID, err)
 		}
 		if err := profile.Print(cmd.Context(), cmd, participant); err != nil {
@@ -95,7 +95,7 @@ func runAction(cmd *cobra.Command, args []string, spec actionSpec) error {
 		return nil
 	}
 
-	if err := profile.Delete(cmd.Context(), cmd, uripath, nil); err != nil {
+	if err := profile.Delete(cmd.Context(), uripath, nil); err != nil {
 		return fmt.Errorf("failed to %s pull request %s: %w", spec.errVerb, pullRequestID, err)
 	}
 	return nil

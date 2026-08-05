@@ -87,7 +87,6 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 	lgr.Printf("[DEBUG] fetching pullrequest %s", args[0])
 	err = profile.Get(
 		cmd.Context(),
-		cmd,
 		repository.GetPath("pullrequests", args[0]),
 		&pullrequest,
 	)
@@ -152,7 +151,6 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 
 	err = profile.Put(
 		cmd.Context(),
-		cmd,
 		repository.GetPath("pullrequests", args[0]),
 		pullrequest,
 		&updated,

@@ -82,7 +82,6 @@ func createProcess(cmd *cobra.Command, args []string) (err error) {
 
 	err = profile.Post(
 		cmd.Context(),
-		cmd,
 		repository.GetPath("pullrequests", createOptions.PullRequestID.Value, "comments"),
 		payload,
 		&comment,

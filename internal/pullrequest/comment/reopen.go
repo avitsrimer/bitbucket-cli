@@ -61,7 +61,6 @@ func reopenProcess(cmd *cobra.Command, args []string) (err error) {
 
 	err = profile.Delete(
 		cmd.Context(),
-		cmd,
 		repository.GetPath("pullrequests", reopenOptions.PullRequestID.Value, "comments", args[0], "resolve"),
 		nil,
 	)
