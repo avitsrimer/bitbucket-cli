@@ -151,11 +151,6 @@ linters:
       - linters:
           - testifylint
         path: _test\.go$
-      # temporary: removed in Task 7 (pullrequest action boilerplate helper extracts these
-      # six files onto one shared helper, eliminating the duplication).
-      - linters:
-          - dupl
-        path: internal/pullrequest/(approve|unapprove|decline|merge|request-changes|remove-request-changes)\.go$
     paths:
       - vendor
       - third_party$
