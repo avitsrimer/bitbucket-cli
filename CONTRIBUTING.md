@@ -1,6 +1,6 @@
 # Contributing to Bitbucket-cli
 
-First off, thank you for taking the time to contribute to the [Bitbucket cli](https://github.com/gildas/bitbucket-cli)!
+First off, thank you for taking the time to contribute to [bb](https://github.com/avitsrimer/bitbucket-cli)!
 
 We welcome contributions from the community to help make this the best command-line interface for the Bitbucket platform.
 
@@ -22,13 +22,11 @@ To maintain code quality and a streamlined workflow, we enforce the following ru
 
 ### 1. Reporting Issues
 
-If you find a bug, please check if the issue you are addressing has already been reported. If not, please create a new [issue](https://github.com/gildas/bitbucket-cli/issues) with a clear description of the problem and link that issue in your Pull Request.
+If you find a bug, please check if the issue you are addressing has already been reported. If not, please create a new [issue](https://github.com/avitsrimer/bitbucket-cli/issues) with a clear description of the problem and link that issue in your Pull Request.
 
-### 2. Target the `dev` Branch
+### 2. Target the `master` Branch
 
-All Pull Requests **must** be targeted at the `dev` branch.
-> [!IMPORTANT]
-> PRs opened against the `master` branch will be closed or you will be asked to retarget them to `dev`.
+All Pull Requests **must** be targeted at the `master` branch (single-branch flow — there is no `dev` branch).
 
 ### 3. Signed Commits
 

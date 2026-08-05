@@ -1,14 +1,16 @@
 # Bitbucket Command Line Interface
 
+[![build](https://github.com/avitsrimer/bitbucket-cli/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/avitsrimer/bitbucket-cli/actions/workflows/ci.yml)
+
 > [!NOTE]
 > **This project is a fork of [gildas/bitbucket-cli](https://github.com/gildas/bitbucket-cli).** All credit for the original design and implementation goes to Gildas Cherruel and the upstream contributors. This fork is maintained independently of the upstream project and is **detached** from it — it does not track upstream releases and does not aim for feature parity.
 
-[bb](https://github.com/gildas/bitbucket-cli) is the missing command line interface for Bitbucket. It brings the power of the Bitbucket platform to your command line. Creating and merging Pull Requests, cloning repositories, and more are now just a few keystrokes away.
+`bb` is the missing command line interface for Bitbucket. It brings the power of the Bitbucket platform to your command line. Creating and merging Pull Requests and more are now just a few keystrokes away.
 
 > [!IMPORTANT]
 > **This is an opinionated fork that exists to do one thing: work with Bitbucket pull requests from the terminal.**
 >
-> Only the `bb pullrequest` command tree, `bb user`, and the `bb profile` authentication plumbing they depend on are supported, tested, and maintained here. Every other command group inherited from upstream (`repository`, `project`, `workspace`, `issue`, `pipeline`, `branch`, `commit`, `tag`, `artifact`, `gpg-key`, `ssh-key`, `cache`, `remote`, `component`) has been **removed** from this fork. Use [upstream](https://github.com/gildas/bitbucket-cli) if you need any of it.
+> Only the `bb pullrequest` command tree, `bb user`, and the `bb profile` authentication plumbing they depend on are supported, tested, and maintained here. Every other command group inherited from upstream (`repository`, `project`, `workspace`, `issue`, `pipeline`, `branch`, `commit`, `tag`, `artifact`, `gpg-key`, `ssh-key`, `cache`, `remote`, `component`) has been **removed** from this fork.
 
 The supported surface is:
 
@@ -21,46 +23,13 @@ The supported surface is:
 
 ## Installation
 
-### Linux
+This fork releases macOS (darwin/arm64) binaries only.
 
-You can grab the latest Debian/Ubuntu package on the [Downloads](https://github.com/gildas/bitbucket-cli/releases) pages.
-
-If you use [Homebrew](https://brew.sh), you can install `bb` with:
+### Homebrew
 
 ```bash
-brew install gildas/tap/bitbucket-cli
-```
-
-You can also install `bb` with snap:
-
-```bash
-sudo snap install bitbucket-cli
-sudo snap alias bitbucket-cli bb
-```
-
-[![Get it from the Snap Store](https://snapcraft.io/static/images/badges/en/snap-store-black.svg)](https://snapcraft.io/bitbucket-cli)
-
-### macOS
-
-You can get `bb` from [Homebrew](https://brew.sh) with:
-
-```bash
-brew install gildas/tap/bitbucket-cli
-```
-
-### Windows
-
-You can get `bb` from [Chocolatey](https://chocolatey.org) with:
-
-```bash
-choco install bitbucket-cli
-```
-
-You can also install `bb` with [scoop](https://scoop.sh):
-
-```bash
-scoop bucket add gildas https://github.com/gildas/scoop-bucket
-scoop install bitbucket-cli
+brew tap avitsrimer/apps
+brew install --cask bb
 ```
 
 ### Go
@@ -68,22 +37,12 @@ scoop install bitbucket-cli
 If you have Go installed, you can install `bb` with:
 
 ```bash
-go install github.com/gildas/bitbucket-cli@latest
-mv $GOPATH/bin/bitbucket-cli $GOPATH/bin/bb
-```
-
-This method also allows you to install `bb` from the development (`dev`) branch with:
-
-```bash
-go install github.com/gildas/bitbucket-cli@dev
-mv $GOPATH/bin/bitbucket-cli $GOPATH/bin/bb
+go install github.com/avitsrimer/bitbucket-cli/cmd/bb@latest
 ```
 
 ### Binaries
 
-You can download the latest version of `bb` from the [downloads](https://github.com/gildas/bitbucket-cli/releases) page.
-
-Once you get the `bb` executable, you can install/copy it anywhere in your `$PATH`.
+You can download the latest `bb` tar.gz from the [releases](https://github.com/avitsrimer/bitbucket-cli/releases) page and copy the extracted `bb` executable anywhere in your `$PATH`.
 
 ## Usage
 
@@ -699,48 +658,23 @@ bb completion zsh > "$(brew --prefix)/share/zsh/site-functions/_bb"
 
 ### Obtaining logs for debugging
 
-If you encounter an issue with `bb`, you can obtain logs to help with debugging.
-
-You can instruct `bb` to log its activity by using the `--log` flag:
-
-```bash
-bb --log tmp/bb.log pullrequest list
-```
-
-or with the environment variable `LOG_DESTINATION`:
+`bb` always logs to stderr; there is no log-file flag or `LOG_DESTINATION`/`LOG_LEVEL`
+environment variable. By default only `[WARN]`/`[ERROR]` lines are shown. Pass
+`--debug` to also see `[DEBUG]` lines, with the source file, line number, and function
+name of each log call:
 
 ```bash
-LOG_DESTINATION=tmp/bb.log bb pullrequest list
+bb --debug pullrequest list
 ```
 
-`bb` will create the log file as needed (but it will not create the parent directories). By default, the log level is set to `info`, but you can set it to `debug` to get more detailed logs:
+Redirect stderr to a file if you want to capture the output:
 
 ```bash
-LOG_LEVEL=DEBUG bb --log tmp/bb.log pullrequest list
+bb --debug pullrequest list 2> bb.log
 ```
 
-You can also set these environment variables in a `.env` file in the current directory, and `bb` will automatically load them:
-
-```bash
-LOG_DESTINATION=tmp/bb.log
-LOG_LEVEL=DEBUG
-```
-
-If you set the log level to DEBUG or more, `bb` will also log the source of the log message (file and line number, function name).
-
-`bb` will write log messages following the format in [gildas/go-logger](https://github.com/gildas/go-logger). You can find some extra information about the log configuration in the documentation of that package. You can use [gildas/lv](https://github.com/gildas/lv) or [The Bunyan log viewer](https://github.com/trentm/node-bunyan) to view the logs in a human readable format.
-
-**Notes**:
-
-- `bb` tries hard to not log sensitive information, but be careful when sharing the logs, and make sure to remove any sensitive information before sharing them. You can open an [issue](https://github.com/gildas/bitbucket-cli/issues) if you feel like `bb` is logging sensitive information it should not. (We will do our best to fix it as soon as possible)
-- If you set the log level to `TRACE`, the logs will contain the full HTTP requests and responses, including headers and body. This can be useful for debugging, but it can also contain sensitive information, so be careful when sharing these logs.
-- When sending the logs to our team, please send the JSON version, not the pretty printed version, as it will be easier to analyze.
-
-## TODO
-
-We will add more commands in the future. If you have any suggestions, please open an issue.
-
-We are in the process of adding support for Bitbucket Server/Data Center. (Issue [#65](https://github.com/gildas/bitbucket-cli/issues/65), Branch [feature/Issue-#65-Datacenter](https://github.com/gildas/bitbucket-cli/tree/feature/Issue-%2365-Datacenter))
+**Note**: `bb` tries hard to not log sensitive information, but be careful when
+sharing logs, and make sure to remove any sensitive information before sharing them.
 
 ## Maturity
 
@@ -749,9 +683,3 @@ We are in the process of adding support for Bitbucket Server/Data Center. (Issue
 > There are no on-call support or SLAs. Bugs and issues are tracked and addressed as time allows.
 
 This project should be considered a personal, opinionated fork, not an officially supported release of `bitbucket-cli`. Pull request, user, and profile management features are the only ones kept working; every other command group from upstream has been removed from this fork.
-
-See the upstream [`gildas/bitbucket-cli`](https://github.com/gildas/bitbucket-cli) project for the fully-featured tool this fork is based on — it is the right choice if you want the whole Bitbucket surface, Bitbucket Server/Data Center work, or a maintainer with a release cadence.
-
-## Stargazers over time
-
-[![Stargazers over time](https://starchart.cc/gildas/bitbucket-cli.svg?variant=adaptive)](https://starchart.cc/gildas/bitbucket-cli)
