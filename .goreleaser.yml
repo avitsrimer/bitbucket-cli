@@ -1,0 +1,38 @@
+version: 2
+
+project_name: bb
+
+builds:
+  - main: ./cmd/bb
+    binary: bb
+    goos:
+      - darwin
+    goarch:
+      - arm64
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X github.com/avitsrimer/bitbucket-cli/internal/cmd.version={{.Version}}
+
+archives:
+  - formats:
+      - tar.gz
+    name_template: "bb_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+homebrew_casks:
+  - repository:
+      owner: avitsrimer
+      name: homebrew-apps
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Casks
+    homepage: "https://github.com/avitsrimer/bitbucket-cli"
+    description: "Command-line interface to manage Bitbucket pull requests, profiles, and users"
+    # the binary is unsigned/ad-hoc, so a downloaded cask is Gatekeeper-quarantined;
+    # strip the quarantine attribute on install so `bb` runs without manual xattr.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/bb"]
+          end
