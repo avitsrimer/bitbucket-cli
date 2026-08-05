@@ -6,21 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/gildas/bitbucket-cli/cmd/artifact"
-	"github.com/gildas/bitbucket-cli/cmd/branch"
-	"github.com/gildas/bitbucket-cli/cmd/cache"
-	"github.com/gildas/bitbucket-cli/cmd/commit"
 	"github.com/gildas/bitbucket-cli/cmd/common"
-	"github.com/gildas/bitbucket-cli/cmd/component"
-	"github.com/gildas/bitbucket-cli/cmd/gpg-key"
-	"github.com/gildas/bitbucket-cli/cmd/issue"
-	"github.com/gildas/bitbucket-cli/cmd/pipeline"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
-	"github.com/gildas/bitbucket-cli/cmd/project"
 	"github.com/gildas/bitbucket-cli/cmd/pullrequest"
-	"github.com/gildas/bitbucket-cli/cmd/repository"
-	sshkey "github.com/gildas/bitbucket-cli/cmd/ssh-key"
-	"github.com/gildas/bitbucket-cli/cmd/tag"
 	"github.com/gildas/bitbucket-cli/cmd/user"
 	"github.com/gildas/bitbucket-cli/cmd/workspace"
 	"github.com/gildas/go-core"
@@ -94,22 +82,9 @@ func init() {
 	_ = RootCmd.RegisterFlagCompletionFunc(CmdOptions.OutputFormat.CompletionFunc("output"))
 	_ = RootCmd.RegisterFlagCompletionFunc(CmdOptions.Workspace.CompletionFunc("workspace"))
 
-	RootCmd.AddCommand(artifact.Command)
 	RootCmd.AddCommand(profile.Command)
-	RootCmd.AddCommand(project.Command)
-	RootCmd.AddCommand(branch.Command)
-	RootCmd.AddCommand(commit.Command)
-	RootCmd.AddCommand(tag.Command)
-	RootCmd.AddCommand(component.Command)
-	RootCmd.AddCommand(issue.Command)
-	RootCmd.AddCommand(pipeline.Command)
 	RootCmd.AddCommand(pullrequest.Command)
-	RootCmd.AddCommand(repository.Command)
 	RootCmd.AddCommand(user.Command)
-	RootCmd.AddCommand(workspace.Command)
-	RootCmd.AddCommand(gpgkey.Command)
-	RootCmd.AddCommand(sshkey.Command)
-	RootCmd.AddCommand(cache.Command)
 
 	RootCmd.SilenceUsage = true // Do not show usage when an error occurs
 	cobra.OnInitialize(func() {

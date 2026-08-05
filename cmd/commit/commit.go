@@ -1,19 +1,15 @@
 package commit
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"time"
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
-	"github.com/gildas/bitbucket-cli/cmd/profile"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/bitbucket-cli/cmd/user"
 	"github.com/gildas/go-core"
 	"github.com/gildas/go-errors"
-	"github.com/go-git/go-git/v5"
 	"github.com/spf13/cobra"
 )
 
@@ -31,18 +27,6 @@ type Commit struct {
 
 type RenderedMessage struct {
 	Message common.RenderedText `json:"message" mapstructure:"message"`
-}
-
-// Command represents this folder's command
-var Command = &cobra.Command{
-	Use:   "commit",
-	Short: "Manage commits",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Commit requires a subcommand:")
-		for _, command := range cmd.Commands() {
-			fmt.Println(command.Name())
-		}
-	},
 }
 
 var columns = common.Columns[Commit]{
@@ -71,14 +55,6 @@ var columns = common.Columns[Commit]{
 // implements core.TypeCarrier
 func (commit Commit) GetType() string {
 	return "commit"
-}
-
-// GetReference gets the reference string for this commit
-func (commit Commit) GetReference() *CommitReference {
-	return &CommitReference{
-		Hash:  commit.Hash,
-		Links: commit.Links,
-	}
 }
 
 // GetColumnDefinitions gets the column definitions for commits
@@ -129,41 +105,6 @@ func (commit Commit) GetShortHash() string {
 		return commit.Hash[:7]
 	}
 	return commit.Hash
-}
-
-// GetLatestCommit gets the latest commit of the repository
-func GetLatestCommit(ctx context.Context, cmd *cobra.Command) (commit *Commit, err error) {
-	repo, err := git.PlainOpenWithOptions(".", &git.PlainOpenOptions{DetectDotGit: true})
-	if err != nil {
-		return nil, err
-	}
-	head, err := repo.Head()
-	if err != nil {
-		return nil, err
-	}
-	return GetCommitByHash(ctx, cmd, head.Hash().String())
-}
-
-// GetCommitByHash gets a commit by its hash
-func GetCommitByHash(ctx context.Context, cmd *cobra.Command, hash string) (commit *Commit, err error) {
-	profile, err := profile.GetProfileFromCommand(ctx, cmd)
-	if err != nil {
-		return nil, err
-	}
-
-	repository, err := repository.GetRepository(cmd.Context(), cmd)
-	if err != nil {
-		return nil, err
-	}
-	err = profile.Get(ctx, cmd, repository.GetPath("commit", hash), &commit)
-	return commit, err
-}
-
-// Validate validates a Commit
-func (commit *Commit) Validate() error {
-	var merr errors.MultiError
-
-	return merr.AsError()
 }
 
 // String gets a string representation of this commit

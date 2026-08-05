@@ -11,44 +11,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type Workspaces []Workspace
-
-// GetHeaders gets the header for a table
-//
-// implements common.Tableables
-func (workspaces Workspaces) GetHeaders(cmd *cobra.Command) []string {
-	if cmd != nil && cmd.Flag("columns") != nil && cmd.Flag("columns").Changed {
-		if columns, err := cmd.Flags().GetStringSlice("columns"); err == nil {
-			return core.Map(columns, func(column string) string { return strings.ReplaceAll(column, "_", " ") })
-		}
-	}
-	return []string{"ID", "Slug"}
-}
-
-// GetRowAt gets the row for a table
-//
-// implements common.Tableables
-func (workspaces Workspaces) GetRowAt(index int, headers []string) []string {
-	if index < 0 || index >= len(workspaces) {
-		return []string{}
-	}
-	return workspaces[index].GetRow(headers)
-}
-
-// Size gets the number of elements
-//
-// implements common.Tableables
-func (workspaces Workspaces) Size() int {
-	return len(workspaces)
-}
-
 // GetWorkspaces gets the workspaces for the current user
-func GetWorkspaces(ctx context.Context, cmd *cobra.Command) (Workspaces, error) {
+func GetWorkspaces(ctx context.Context, cmd *cobra.Command) ([]Workspace, error) {
 	return GetWorkspacesWithQuery(ctx, cmd, url.Values{})
 }
 
 // GetWorkspacesWithQuery gets the workspaces for the current user with a query
-func GetWorkspacesWithQuery(ctx context.Context, cmd *cobra.Command, query url.Values) (Workspaces, error) {
+func GetWorkspacesWithQuery(ctx context.Context, cmd *cobra.Command, query url.Values) ([]Workspace, error) {
 	log := logger.Must(logger.FromContext(ctx)).Child("workspace", "slugs")
 
 	uripath := "/user/workspaces"

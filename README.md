@@ -8,7 +8,7 @@
 > [!IMPORTANT]
 > **This is an opinionated fork that exists to do one thing: work with Bitbucket pull requests from the terminal.**
 >
-> Only the `bb pullrequest` command tree — plus the `bb profile` authentication plumbing it depends on — is supported, tested, and maintained here. Every other command group inherited from upstream (`repository`, `project`, `workspace`, `issue`, `pipeline`, `branch`, `commit`, `tag`, `artifact`, `gpg-key`, `ssh-key`, `user`, `cache`, `remote`, `component`) is still present in the command tree but is **unsupported in this fork**: it is not exercised, and breakage in it will not be treated as a bug. Use [upstream](https://github.com/gildas/bitbucket-cli) if you need any of it.
+> Only the `bb pullrequest` command tree, `bb user`, and the `bb profile` authentication plumbing they depend on are supported, tested, and maintained here. Every other command group inherited from upstream (`repository`, `project`, `workspace`, `issue`, `pipeline`, `branch`, `commit`, `tag`, `artifact`, `gpg-key`, `ssh-key`, `cache`, `remote`, `component`) has been **removed** from this fork. Use [upstream](https://github.com/gildas/bitbucket-cli) if you need any of it.
 
 The supported surface is:
 
@@ -16,6 +16,7 @@ The supported surface is:
 - **Comments** — `bb pullrequest comment` → `list`, `get`, `create`, `update`, `delete`, `resolve`, `reopen`
 - **Tasks** — `bb pullrequest task` → `list`, `get`, `create`, `update`, `delete`
 - **Activity** — `bb pullrequest activity list`
+- **Users** — `bb user` → `get`, `me`
 - **Authentication** — `bb profile` (including API tokens stored in the macOS Keychain, see [Profiles](#profiles)) and `bb completion`
 
 ## Installation
@@ -94,10 +95,10 @@ By default `bb` works in the current git repository. You can specify a Bitbucket
 
 Many commands and flags are dynamically auto-completed. See the [Completion](#completion) section for more information about completion.
 
-Most `delete`, `upload`, and `download` commands support multiple arguments. You can pass a list of arguments or a file with one argument per line:
+Most `delete` commands support multiple arguments. You can pass a list of arguments or a file with one argument per line:
 
 ```bash
-bb repo delete myrepository1 myrepository2 myrepository3
+bb pullrequest comment delete --pullrequest 1 452466 452467 452468
 ```
 
 You can tell `bb` to stop on the first error, warn on errors, or ignore errors when processing multiple arguments with the `--stop-on-error`, `--warn-on-error`, or `--ignore-errors` flags.
@@ -105,13 +106,12 @@ You can tell `bb` to stop on the first error, warn on errors, or ignore errors w
 All commands that would modify something on Bitbucket now allow you to preview the changes before applying them. You can use the `--dry-run` flag to see what would happen.
 
 ```bash
-bb repo delete myrepository3 --dry-run
+bb pullrequest decline 1 --dry-run
 ```
 
 Most commands will support the `--workspace` and `--repository` flags to specify the workspace and repository to use. If not provided, the workspace and repository will be determined from the git configuration or the profile configuration (in that order). The workspace and repository can be combined in the `--repository` flag in the form `workspace/repository`. For example:
 
 ```bash
-bb repo list --workspace myworkspace
 bb pullrequest list --repository myrepository
 bb pullrequest list --workspace myworkspace --repository myrepository
 bb pullrequest list --repository myworkspace/myrepository
@@ -122,15 +122,15 @@ The `--workspace` flag is also dynamically auto-completed with the workspaces yo
 `get` and `list` commands support the `--columns` flag to specify which columns to display in the output. You can pass a comma-separated list of columns, repeat the flag, or use `all` to display all columns. If you do not provide this flag, the default columns are displayed.
 
 ```bash
-bb repo list --columns all
-bb repo list --columns name,slug,project
-bb repo list --columns name --columns slug
+bb pullrequest list --columns all
+bb pullrequest list --columns id,title,state
+bb pullrequest list --columns id --columns title
 ```
 
 `list` commands also support the `--sort` flag to sort the output by a specific column. You can pass a comma-separated list of columns, repeat the flag, or use `all` to sort by all columns. If you do not provide this flag, the default sorting is used.
 
 ```bash
-bb repo list --sort name
+bb pullrequest list --sort title
 ```
 
 `list` commands also support the `--query` flag to filter the output by a specific query. The query syntax is similar to the one used in the Bitbucket web interface. For example, to filter Pull Requests updated after a specific date:
@@ -144,7 +144,7 @@ Please refer to the [Bitbucket API documentation](https://developer.atlassian.co
 `list` commands also support the 'page-length' flag to set the number of items to retrieve per request to Bitbucket API at a time. By default, the page length is set on the profile and the default is 50. You can set it to a value between 1 and 100.
 
 ```bash
-bb repo list --page-length 25
+bb pullrequest list --page-length 25
 ```
 
 ### Output
@@ -162,20 +162,20 @@ The following formats are supported:
 For example:
 
 ```bash
-bb --output json workspace list
+bb --output json pullrequest list
 ```
 
 Or
 
 ```bash
-bb workspace list --output json
+bb pullrequest list --output json
 ```
 
 Changing the format with the environment variable `BB_OUTPUT_FORMAT` can be done like this:
 
 ```bash
 export BB_OUTPUT_FORMAT=json
-bb workspace list
+bb pullrequest list
 ```
 
 The Table output format displays the data in a human-readable format. Here is an example of the output for the `bb pullrequest list` command:
@@ -241,7 +241,7 @@ You can also pass the `--default-project` flag to set the default project for th
 
 You can also pass the `--default-ssh-key-file` flag to set the default SSH key file to use when cloning repositories with the `ssh` protocol.
 
-You can also pass the `--progress` flag to display a progress bar when upload/downloading artifacts and attachments.
+You can also pass the `--progress` flag to display a progress bar during upload/download operations.
 
 By default, the password or client secret is stored in the vault of the operating system (Windows Credential Manager, macOS Keychain, or Linux Secret Service). You can pass the `--no-vault` flag to disable this feature and store the password or client secret in plain text in the configuration file. This is not recommended, but can be useful for testing purposes.
 
@@ -268,9 +268,9 @@ Permission Scopes:
 
 When you use a user/password, the password is stored in the vault of the operating system (Windows Credential Manager, macOS Keychain, or Linux Secret Service). You can pass the `--no-vault` flag to disable this feature and store the password in plain text in the configuration file. This is not recommended, but can be useful for testing purposes. On Linux and macOS, you can also pass the `--vault-key` flag to set the key to use in the system keychain. By default, the key is `bitbucket-cli`. On Windows, this option is not available.
 
-You can also pass the `--clone-protocol` flag to set the default protocol to use when cloning repositories. The supported protocols are `https`, `git`, and `ssh`. This option can be overridden with the `--protocol` flag when using `repo clone`.
+You can also pass the `--clone-protocol` flag to set the default protocol to use when cloning repositories. The supported protocols are `https`, `git`, and `ssh`.
 
-In case you are not using a user/password, you can also pass a `--clone-user` flag to set the username to use when cloning repositories with the `https` protocol. If you use a user/password, you don't need to set this flag, usually, ans the username will be used for cloning repositories. This option can be overridden with the `--user` flag when using `repo clone`.
+In case you are not using a user/password, you can also pass a `--clone-user` flag to set the username to use when cloning repositories with the `https` protocol. If you use a user/password, you don't need to set this flag, usually, ans the username will be used for cloning repositories.
 
 You can get the list of your profiles with the `bb profile list` command:
 
@@ -372,7 +372,7 @@ export BB_CONFIG=~/.bb/config.json
 ```
 
 ```bash
-bb --config ~/.bb/config.json workspace list
+bb --config ~/.bb/config.json pullrequest list
 ```
 
 ### Users
@@ -393,322 +393,6 @@ Or,
 
 ```bash
 bb user get UUID
-```
-
-### Workspaces
-
-You can list workspaces with the `bb workspace list` command:
-
-```bash
-bb workspace list
-```
-
-With the `--membership` flag, you can see the kind of membership you have in each workspace:
-
-```bash
-bb workspace list --membership
-```
-
-You can also get the details of a workspace with the `bb workspace get` or `bb workspace show` command:
-
-```bash
-bb workspace get myworkspace
-```
-
-Additionally, you can get the members of a workspace with the flag `--members`:
-
-```bash
-bb workspace get myworkspace --members
-```
-
-Or, even, a specific member with the flag `--member`:
-
-```bash
-bb workspace get myworkspace --member mymember
-```
-
-You can get your permission in a workspace with the `bb workspace permission get` command:
-
-```bash
-bb workspace permission get myworkspace
-```
-
-You can list all user permissions in a workspace with the `bb workspace permission list` command:
-
-```bash
-bb workspace permission list myworkspace
-```
-
-### Projects
-
-You can list projects with the `bb project list` command:
-
-```bash
-bb project list
-```
-
-You can also get the details of a project with the `bb project get` or `bb project show` command:
-
-```bash
-bb project get myproject
-```
-
-You can create a project with the `bb project create` command:
-
-```bash
-bb project create \
-  --name myproject \
-  --key MYPROJECT
-```
-
-You can update a project with the `bb project update` command:
-
-```bash
-bb project update myproject \
-  --name myproject
-```
-
-You can delete a project with the `bb project delete` command:
-
-```bash
-bb project delete myproject
-```
-
-#### Project Default Reviewers
-
-You can list the default reviewers of a project with the `bb project reviewer list` command. Similarly to the `--workspace`, if the `--project` flag is not provided, the default project of the workspace is used (if the workspace does not have a default project, the command will fail):
-
-```bash
-bb project reviewer list --workspace myworkspace --project myproject
-bb project reviewer list --project myproject
-bb project reviewer list
-```
-
-You can add a default reviewer to a project with the `bb project reviewer add` command:
-
-```bash
-bb project reviewer add userUUID
-```
-
-The `{}` around the `userUUID` are optional.
-
-You can remove a default reviewer from a project with the `bb project reviewer remove` command:
-
-```bash
-bb project reviewer remove userUUID
-```
-
- You can get the details of a default reviewer with the `bb project reviewer get` or `bb project reviewer show` command:
-
-```bash
-bb project reviewer get --project myproject userUUID
-```
-
-### Repositories
-
-You can list repositories with the `bb repo list` command:
-
-```bash
-bb repo list --workspace myworkspace
-```
-
-If you do not provide a workspace, the command will attempt to list all repositories you have access to, which can take a very long time.
-
-You can narrow down the list of repositories with the `--role`, `--project`, `--project-key`, `--has-issues`, `--has-wiki`, `--is-private`, `--language`, and `--main-branch` flags:
-
-```bash
-bb repo list \
-  --workspace myworkspace \
-  --role        owner \
-  --project     myproject \
-  --has-issues  true \
-  --has-wiki    true \
-  --is-private  false \
-  --language    go \
-  --main-branch master
-```
-
-All filterers are optional and combined with an AND operator.
-
-You can also get the details of a repository with the `bb repo get` or `bb repo show` command:
-
-```bash
-bb repo get myrepository
-```
-
-You can clone a repository with the `bb repo clone` command:
-
-```bash
-bb repo clone myworkspace/myrepository
-```
-
-You can set the protocol to use when cloning a repository with the `--protocol` flag. The supported protocols are `https`, `git`, and `ssh`. If not provided, the protocol set in the profile is used (if the profile does not have a protocol set, the default is `git`).
-
-When using the `ssh` protocol, you can specify the SSH key to use with the `--ssh-key-file` flag. If not provided, the key set in the profile is used (if the profile does not have a key set, the default is `~/.ssh/id_rsa`).
-
-When using the `https` protocol while cloning a private repository, you can specify the username to use for authentication with the `--user` flag. If the username is not provided, the `cloneUser` from the profile is used. If the profile does not have a `cloneUser`, you cannot clone a private repository with the `https` protocol.
-
-or, with the `--workspace` flag:
-
-```bash
-bb repo clone --workspace myworkspace myrepository
-```
-
-Or, using the profile's default workspace:
-
-```bash
-bb repo clone myrepository
-```
-
-By default, the repository is cloned in a folder with the same name as the repository. You can specify a different folder with the `--destination` flag:
-
-```bash
-bb repo clone --workspace myworkspace --destination myfolder myrepository
-```
-
-By default, the repository is cloned using the `git` protocol. You can change the protocol with the `--clone-protocol` flag. The supported protocols are `https`, `git`, and `ssh`. The default protocol can also be set in the profile with the `--clone-protocol` flag when creating or updating a profile.
-
-```bash
-bb repo clone --clone-protocol https myrepository
-```
-
-When using the ssh protocol, you can also specify the SSH key to use with the `--ssh-key` flag (by default the key configured is SSH for bitbucket.org is used, and if nothing is configured: `~/.ssh/id_rsa`):
-
-```bash
-bb repo clone --ssh-key /path/to/ssh/key myrepository
-```
-
-When using the `https` protocol while cloning a private repository, you can specify the username to use for authentication with the `--username` flag. If the username is not provided, the `cloneVaultUsername` from the profile is used. If the profile does not have a `cloneVaultUsername`, you cannot clone a private repository with the `https` protocol.
-
-On Linux and macOS, the system keychain will be used to retrieve the credentials. You can set the `cloneVaultKey` in the profile to use a specific key in the keychain. If not set, the default value is `bitbucket-cli-clone`. You can also set the `cloneVaultUsername` in the profile to use a specific username for authentication.  
-On Windows, the Windows Credential Manager will be used to retrieve the credentials. And the username should be `<cloneVaultKey>:<cloneVaultUsername>`.
-
-```bash
-bb repo clone --username myusername myrepository
-```
-
-You can create a repository with the `bb repo create` command:
-
-```bash
-bb repo create myrepository_slug \
-  --name      myrepository \
-  --project   myproject \
-  --workspace myworkspace
-```
-
-If the `--project` flag is not provided, the repository will be created in the default project of the profile.
-
-You can update a repository with the `bb repo update` command:
-
-```bash
-bb repo update myrepository \
-  --private \
-  --fork-policy no_public_forks
-```
-
-You can delete a repository with the `bb repo delete` command:
-
-```bash
-bb repo delete myrepository
-```
-
-You can fork a repository with the `bb repo fork` command:
-
-```bash
-bb repo fork myrepository \
-  --workspace myworkspace \
-  --project   myproject \
-  --name      myfork
-```
-
-You can list the forks of a repository with the `bb repo get --forks` command:
-
-```bash
-bb repo get myrepository --forks
-```
-
-### Branches
-
-You can list branches with the `bb branch list` command:
-
-```bash
-bb branch list
-```
-
-### Commits
-
-You can list commits with the `bb commit list` command:
-
-```bash
-bb commit list
-```
-
-You can get the details of a commit with the `bb commit get` or `bb commit show` command:
-
-```bash
-bb commit get 123456
-```
-
-While the completion for commit hashes works, it can be a bit slow if there are a lot of commits in the repository. If you know the first few characters of the commit hash, it will be much faster to complete. You also do not need to enter the full commit hash, the first 7 characters are usually enough to identify a commit. But less can be enough if there are not many commits in the repository.
-
-You can get the difference between two commits with the `bb commit diff` command:
-
-```bash
-bb commit diff 123456 654321
-```
-
-If you provide only one commit, the difference will be between that commit and its parent:
-
-```bash
-bb commit diff 123456
-```
-
-If you want to get the diffstat of a commit, you can use the `--stat` flag:
-
-```bash
-bb commit diff --stat 123456
-```
-
-You can get the common ancestor of two commits with the `bb commit ancestor` command:
-
-```bash
-bb commit ancestor 123456 654321
-```
-
-You can also get the patch between two commits with the `bb commit patch` command:
-
-```bash
-bb commit patch 123456 654321
-```
-
-### Tags
-
-You can list tags with the `bb tag list` command:
-
-```bash
-bb tag list
-```
-
-You can get the details of a tag with the `bb tag get` or `bb tag show` command:
-
-```bash
-bb tag get v1.0.0
-```
-
-You can create a tag with the `bb tag create` command:
-
-```bash
-bb tag create v1.0.0 \
-  --message "My tag message" \
-  --target 123456
-```
-
-By default, the target of the tag is the latest commit on the default branch.
-
-You can delete tags with the `bb tag delete` command:
-
-```bash
-bb tag delete v1.0.0
 ```
 
 ### Pull Requests
@@ -951,304 +635,6 @@ You can delete a task with the `bb pullrequest task delete` command:
 bb pullrequest task delete --pullrequest 1 7643545
 ```
 
-### Issues
-
-You can list issues with the `bb issue list` command:
-
-```bash
-bb issue list
-```
-
-By default, all open and new issues are listed. You can use the `--state` flag to filter the issues by state:
-
-```bash
-bb issue list --state open
-```
-
-The flag `--state` can be used multiple times to filter by multiple states:
-
-```bash
-bb issue list --state open --state new --state resolved,wontfix
-```
-
-You can create an issue with the `bb issue create` command:
-
-```bash
-bb issue create \
-  --title "My issue" \
-  --content "My issue content"
-```
-
-You can get the details of an issue with the `bb issue get` or `bb issue show` command:
-
-```bash
-bb issue get 1
-```
-
-You can update an issue with the `bb issue update` command:
-
-```bash
-bb issue update 1 \
-  --title "My issue" \
-  --content "My issue content"
-```
-
-You can delete an issue with the `bb issue delete` command:
-
-```bash
-bb issue delete 1
-```
-
-You can vote for an issue with the `bb issue vote` command:
-
-```bash
-bb issue vote 1
-```
-
-You can unvote for an issue with the `bb issue unvote` command:
-
-```bash
-bb issue unvote 1
-```
-
-You can watch an issue with the `bb issue watch` command:
-
-```bash
-bb issue watch 1
-```
-
-You can unwatch an issue with the `bb issue unwatch` command:
-
-```bash
-bb issue unwatch 1
-```
-
-You can add a comment to an issue with the `bb issue comment create` or `bb issue comment add` command:
-
-```bash
-bb issue comment add --issue 1 \
-  --content "My comment"
-```
-
-You can get the details of a comment with the `bb issue comment get` or `bb issue comment show` command:
-
-```bash
-bb issue comment get --issue 1 7643545
-```
-
-You can update a comment with the `bb issue comment update` command:
-
-```bash
-bb issue comment update --issue 1 7643545 \
-  --content "My comment"
-```
-
-You can delete a comment with the `bb issue comment delete` command:
-
-```bash
-bb issue comment delete --issue 1 7643545
-```
-
-You can list the attachments of an issue with the `bb issue attachment list` command:
-
-```bash
-bb issue attachment list --issue 1
-```
-
-You can upload an attachment to an issue with the `bb issue attachment upload` command:
-
-```bash
-bb issue attachment upload --issue 1 myattachment.zip
-```
-
-You can download an attachment with the `bb issue attachment download` command:
-
-```bash
-bb issue attachment download --issue 1 myattachment.zip
-```
-
-You can delete an attachment with the `bb issue attachment delete` command:
-
-```bash
-bb issue attachment delete --issue 1 myattachment.zip
-```
-
-### Artifacts (Downloads)
-
-You can list artifacts with the `bb artifact list` command:
-
-```bash
-bb artifact list
-```
-
-By default the current repository is used, you can specify a repository with the `--repository` flag.
-
-You can also upload an artifact with the `bb artifact upload` command:
-
-```bash
-bb artifact upload myartifact.zip
-```
-
-At the moment, only one file at a time is supported (no folders or stdin). The artifact name is the file name.
-
-You can download an artifact with the `bb artifact download` command:
-
-```bash
-bb artifact download myartifact.zip
-```
-
-You can provide a `--destination` flag to specify the destination folder. If the folder does not exist, it will be created.
-
-You can also pass the `--progress` flag to display a progress bar when upload/downloading artifacts. This override the default value set at the Profile level.
-
-Finally, you can delete an artifact with the `bb artifact delete` command:
-
-```bash
-bb artifact delete myartifact.zip
-```
-
-### Pipelines
-
-You can list pipelines with the `bb pipeline list` command:
-
-```bash
-bb pipeline list
-```
-
-By default the current repository is used, you can specify a repository with the `--repository` flag.
-
-If there are too many pipelines and `bb pipeline list` seems to hang, you can use the `--limit` flag to set the maximum number of pipelines to retrieve. By default, the limit is set to 0, which means no limit.
-
-You can get the details of a pipeline with the `bb pipeline get` or `bb pipeline show` command:
-
-```bash
-bb pipeline get 123456
-```
-
-You can start a pipeline with the `bb pipeline trigger` command:
-
-```bash
-bb pipeline trigger --branch master --variable KEY1=VALUE1 --variable KEY2=VALUE2
-```
-
-By default, the pipeline is started on the current branch. You can also specify a tag or a commit with the `--tag` or `--commit` flags instead of a branch.
-
-You can also use the `--pattern` flag to specify the pipeline definition to use when triggering the pipeline.
-
-You can stop a running pipeline with the `bb pipeline stop` command:
-
-```bash
-bb pipeline stop 123456
-```
-
-You can get the list of the steps of a pipeline with the `bb pipeline step list` command:
-
-```bash
-bb pipeline step list --pipeline 123456
-```
-
-You can get the details of a step with the `bb pipeline step get` or `bb pipeline step show` command:
-
-```bash
-bb pipeline step get --pipeline 123456 {stepUUID}
-```
-
-You can get the logs of a step with the `bb pipeline step log` command:
-
-```bash
-bb pipeline step logs --pipeline 123456 {stepUUID}
-```
-
-### GPG Keys
-
-You can list GPG keys with the `bb key list` command:
-
-```bash
-bb gpg-key list
-```
-
-By default, the keys are listed for the current user. You can specify a user with the `--user` flag.
-
-You can also get the details of a GPG key with the `bb key get` or `bb key show` command:
-
-```bash
-bb gpg-key get <fingerprint>
-```
-
-By default, the key is retrieved for the current user. You can specify a user with the `--user` flag.
-
-You can create a GPG key with the `bb gpg-key create` command:
-
-```bash
-bb gpg-key create \
-  --user <user-id> \
-  --name <keyname> \
-  --key <key>
-```
-
-The key name is optional. You can also provide the key in a file with the `--key-file` flag. If the filename is `-`, the key is read from stdin.
-
-If the `--user` flag is not provided, the key is created for the user associated with the current profile. If it is provided, it must be the UUID of the user, not the username.
-
-You can delete one or more GPG keys with the `bb gpg-key delete` command:
-
-```bash
-bb gpg-key delete <fingerprint>
-```
-
-### SSH Keys
-
-You can list SSH keys with the `bb key list` command:
-
-```bash
-bb ssh-key list
-```
-
-By default, the keys are listed for the current user. You can specify a user with the `--user` flag.
-
-You can also get the details of an SSH key with the `bb ssh-key get` or `bb ssh-key show` command:
-
-```bash
-bb ssh-key get <fingerprint>
-```
-
-By default, the key is retrieved for the current user. You can specify a user with the `--user` flag.
-
-You can create an SSH key with the `bb ssh-key create` command:
-
-```bash
-bb ssh-key create \
-  --user <user-id> \
-  --name <keyname> \
-  --key <key>
-```
-
-The key name is optional. You can also provide the key in a file with the `--key-file` flag. If the filename is `-`, the key is read from stdin.
-
-If the `--user` flag is not provided, the key is created for the user associated with the current profile. If it is provided, it must be the UUID of the user, not the username.
-
-You can delete one or more SSH keys with the `bb ssh-key delete` command:
-
-```bash
-bb ssh-key delete <fingerprint>
-```
-
-### Cache
-
-The bitbucket-cli caches some data to speed up the commands. The following items are cached:
-
-- workspaces
-- projects
-- users
-
-The cache is stored in the [os.UserCacheDir](https://pkg.go.dev/os#UserCacheDir) directory, under `bitbucket`. The values are stored for a duration of 5 minutes, you can override this value with the environment variable `BITBUCKET_CLI_CACHE_DURATION` (for the format please follow [core.ParseDuration](https://pkg.go.dev/github.com/gildas/go-core#ParseDuration)). By default, the items are stored as JSON files unencrypted. To encrypt these files, you can set the environment variable `BITBUCKET_CLI_CACHE_ENCRYPTIONKEY` with an AES-256 key. The key must follow the [crypto/aes](https://pkg.go.dev/crypto/aes) requirements.
-
-You can clear the cache with the `bb cache clear` command:
-
-```bash
-bb cache clear
-```
-
 ### Completion
 
 `bb` supports completion for Bash, fish, Powershell, and zsh.
@@ -1318,19 +704,19 @@ If you encounter an issue with `bb`, you can obtain logs to help with debugging.
 You can instruct `bb` to log its activity by using the `--log` flag:
 
 ```bash
-bb --log tmp/bb.log workspace list
+bb --log tmp/bb.log pullrequest list
 ```
 
 or with the environment variable `LOG_DESTINATION`:
 
 ```bash
-LOG_DESTINATION=tmp/bb.log bb workspace list
+LOG_DESTINATION=tmp/bb.log bb pullrequest list
 ```
 
 `bb` will create the log file as needed (but it will not create the parent directories). By default, the log level is set to `info`, but you can set it to `debug` to get more detailed logs:
 
 ```bash
-LOG_LEVEL=DEBUG bb --log tmp/bb.log workspace list
+LOG_LEVEL=DEBUG bb --log tmp/bb.log pullrequest list
 ```
 
 You can also set these environment variables in a `.env` file in the current directory, and `bb` will automatically load them:
@@ -1362,7 +748,7 @@ We are in the process of adding support for Bitbucket Server/Data Center. (Issue
 > **This fork is under active development and maintained independently, on a best-effort basis.**
 > There are no on-call support or SLAs. Bugs and issues are tracked and addressed as time allows.
 
-This project should be considered a personal, opinionated fork, not an officially supported release of `bitbucket-cli`. Pull-request features are the only ones kept working; anything outside that surface may break without notice and is not covered by this fork's scope.
+This project should be considered a personal, opinionated fork, not an officially supported release of `bitbucket-cli`. Pull request, user, and profile management features are the only ones kept working; every other command group from upstream has been removed from this fork.
 
 See the upstream [`gildas/bitbucket-cli`](https://github.com/gildas/bitbucket-cli) project for the fully-featured tool this fork is based on — it is the right choice if you want the whole Bitbucket surface, Bitbucket Server/Data Center work, or a maintainer with a release cadence.
 

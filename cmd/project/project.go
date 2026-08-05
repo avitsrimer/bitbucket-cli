@@ -1,21 +1,13 @@
 package project
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
-	"strings"
 	"time"
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
-	"github.com/gildas/bitbucket-cli/cmd/profile"
-	"github.com/gildas/bitbucket-cli/cmd/project/reviewer"
 	"github.com/gildas/bitbucket-cli/cmd/user"
 	"github.com/gildas/bitbucket-cli/cmd/workspace"
-	"github.com/gildas/go-core"
 	"github.com/gildas/go-errors"
-	"github.com/gildas/go-logger"
-	"github.com/spf13/cobra"
 )
 
 type Project struct {
@@ -31,120 +23,6 @@ type Project struct {
 	HasPubliclyVisibleRepositories bool                `json:"has_publicly_visible_repos" mapstructure:"has_publicly_visible_repos"`
 	CreatedOn                      time.Time           `json:"created_on"                 mapstructure:"created_on"`
 	UpdatedOn                      time.Time           `json:"updated_on"                 mapstructure:"updated_on"`
-}
-
-type ProjectReference struct {
-	Key string `json:"key" mapstructure:"key"`
-}
-
-// Command represents this folder's command
-var Command = &cobra.Command{
-	Use:   "project",
-	Short: "Manage projects",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Project requires a subcommand:")
-		for _, command := range cmd.Commands() {
-			fmt.Println(command.Name())
-		}
-	},
-}
-
-var columns = common.Columns[Project]{
-	{Name: "name", DefaultSorter: true, Compare: func(a, b Project) bool {
-		return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)) == -1
-	}},
-	{Name: "key", DefaultSorter: false, Compare: func(a, b Project) bool {
-		return strings.Compare(strings.ToLower(a.Key), strings.ToLower(b.Key)) == -1
-	}},
-	{Name: "description", DefaultSorter: false, Compare: func(a, b Project) bool {
-		return strings.Compare(strings.ToLower(a.Description), strings.ToLower(b.Description)) == -1
-	}},
-	{Name: "owner", DefaultSorter: false, Compare: func(a, b Project) bool {
-		return strings.Compare(strings.ToLower(a.Owner.Name), strings.ToLower(b.Owner.Name)) == -1
-	}},
-	{Name: "workspace", DefaultSorter: false, Compare: func(a, b Project) bool {
-		return strings.Compare(strings.ToLower(a.Workspace.Name), strings.ToLower(b.Workspace.Name)) == -1
-	}},
-	{Name: "created_on", DefaultSorter: false, Compare: func(a, b Project) bool {
-		return a.CreatedOn.Before(b.CreatedOn)
-	}},
-	{Name: "updated_on", DefaultSorter: false, Compare: func(a, b Project) bool {
-		return a.UpdatedOn.Before(b.UpdatedOn)
-	}},
-	{Name: "private", DefaultSorter: false, Compare: func(a, b Project) bool {
-		return a.IsPrivate == b.IsPrivate
-	}},
-}
-
-func init() {
-	Command.AddCommand(reviewer.Command)
-}
-
-// NewReference creates a new ProjectReference
-func NewReference(key string) *ProjectReference {
-	return &ProjectReference{
-		Key: key,
-	}
-}
-
-// GetHeaders gets the header for a table
-//
-// implements common.Tableable
-func (project Project) GetHeaders(cmd *cobra.Command) []string {
-	if cmd != nil && cmd.Flag("columns") != nil && cmd.Flag("columns").Changed {
-		if columns, err := cmd.Flags().GetStringSlice("columns"); err == nil {
-			return core.Map(columns, func(column string) string { return strings.ReplaceAll(column, "_", " ") })
-		}
-	}
-	return []string{"Key", "Name", "Description"}
-}
-
-// GetRow gets the row for a table
-//
-// implements common.Tableable
-func (project Project) GetRow(headers []string) []string {
-	var row []string
-
-	for _, header := range headers {
-		switch strings.ToLower(header) {
-		case "key":
-			row = append(row, project.Key)
-		case "name":
-			row = append(row, project.Name)
-		case "description":
-			row = append(row, project.Description)
-		case "owner":
-			if project.Owner.Name == "" {
-				row = append(row, " ")
-			} else {
-				row = append(row, project.Owner.Name)
-			}
-		case "workspace":
-			if project.Workspace.Name == "" {
-				row = append(row, " ")
-			} else {
-				row = append(row, project.Workspace.Name)
-			}
-		case "created on", "created-on", "created_on", "created":
-			row = append(row, project.CreatedOn.Format("2006-01-02 15:04:05"))
-		case "updated on", "updated-on", "updated_on", "updated":
-			if !project.UpdatedOn.IsZero() {
-				row = append(row, project.UpdatedOn.Format("2006-01-02 15:04:05"))
-			} else {
-				row = append(row, " ")
-			}
-		case "private":
-			row = append(row, fmt.Sprintf("%t", project.IsPrivate))
-		}
-	}
-	return row
-}
-
-// Validate validates a Project
-func (project *Project) Validate() error {
-	var merr errors.MultiError
-
-	return merr.AsError()
 }
 
 // String gets a string representation of this pullrequest
@@ -189,65 +67,4 @@ func (project Project) MarshalJSON() (data []byte, err error) {
 		UpdatedOn: updatedOn,
 	})
 	return data, errors.JSONMarshalError.Wrap(err)
-}
-
-// GetProjectKeys gets the keys of the projects in the workspace given in the command
-func GetProjectKeys(context context.Context, cmd *cobra.Command, args []string, toComplete string) (keys []string, err error) {
-	log := logger.Must(logger.FromContext(context)).Child("project", "keys")
-
-	workspace := cmd.Flag("workspace").Value.String()
-	if len(workspace) == 0 {
-		workspace = profile.Current.DefaultWorkspace
-		if len(workspace) == 0 {
-			log.Warnf("No workspace given")
-			return
-		}
-	}
-
-	projects, err := profile.GetAll[Project](context, cmd, fmt.Sprintf("/workspaces/%s/projects", workspace))
-	if err != nil {
-		log.Errorf("Failed to get projects", err)
-		return
-	}
-	keys = core.Map(projects, func(project Project) string { return project.Key })
-	core.Sort(keys, func(a, b string) bool { return strings.Compare(strings.ToLower(a), strings.ToLower(b)) == -1 })
-	return keys, nil
-}
-
-// GetProjectNames gets the names of the projects in the workspace given in the command
-func GetProjectNames(context context.Context, cmd *cobra.Command, args []string, toComplete string) (names []string, err error) {
-	log := logger.Must(logger.FromContext(context)).Child("project", "names")
-
-	workspace := cmd.Flag("workspace").Value.String()
-	if len(workspace) == 0 {
-		workspace = profile.Current.DefaultWorkspace
-		if len(workspace) == 0 {
-			log.Warnf("No workspace given")
-			return
-		}
-	}
-
-	log.Infof("Getting all projects from workspace %s", workspace)
-	projects, err := profile.GetAll[Project](context, cmd, fmt.Sprintf("/workspaces/%s/projects", workspace))
-	if err != nil {
-		log.Errorf("Failed to get projects", err)
-		return
-	}
-	names = core.Map(projects, func(project Project) string { return project.Name })
-	core.Sort(names, func(a, b string) bool { return strings.Compare(strings.ToLower(a), strings.ToLower(b)) == -1 })
-	return names, nil
-}
-
-// disableUnsupportedFlags disables the flags that are not supported by the project command
-func disableUnsupportedFlags(cmd *cobra.Command, args []string) error {
-	if cmd.Flags().Changed("repository") {
-		return fmt.Errorf("the --repository flag is not supported by the project command")
-	}
-	return nil
-}
-
-// hideUnsupportedFlags hides the flags that are not supported by the repository command
-func hideUnsupportedFlags(cmd *cobra.Command, args []string) {
-	cmd.Flags().MarkHidden("repository")
-	cmd.Parent().HelpFunc()(cmd, args)
 }
