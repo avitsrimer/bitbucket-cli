@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/briandowns/spinner"
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
@@ -76,7 +75,6 @@ func authorizeProcess(cmd *cobra.Command, args []string) (err error) {
 
 	// Open the browser to the Authorization Code Grant URL
 	common.Verbose(cmd, "Opening browser to authorize profile %s...", profile.Name)
-	spinner := spinner.New(spinner.CharSets[11], 100*time.Millisecond)
 	bitbucketAuthURL := url.URL{
 		Scheme: "https",
 		Host:   "bitbucket.org",
@@ -88,26 +86,20 @@ func authorizeProcess(cmd *cobra.Command, args []string) (err error) {
 	}
 	common.Verbose(cmd, "\nIf you are not redirected automatically, please open the following URL in your browser:\n%s\n", bitbucketAuthURL.String())
 
-	if cmd.Flag("verbose").Changed {
-		spinner.Reverse()
-		_ = spinner.Color("blue", "bold")
-		spinner.Start()
-	}
-
 	err = openBrowser(ctx, bitbucketAuthURL)
 	if err != nil {
 		lgr.Printf("[WARN] failed to open browser: %s", err.Error())
 		if cmd.Flag("stop-on-error").Value.String() == "true" {
-			spinner.Stop()
 			return err
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "\nPlease open the following URL in your browser:\n%s\n", bitbucketAuthURL.String())
 	}
 
+	fmt.Fprintln(cmd.OutOrStdout(), "waiting for browser authorization...")
+
 	// Wait until the user stops the server by pressing Ctrl+C
 	results := <-resultchan
 
-	spinner.Stop()
 	lgr.Printf("[DEBUG] received results, shutting down server...")
 	if err := server.Shutdown(ctx); err != nil {
 		lgr.Printf("[ERROR] failed to shut down server: %v", err)

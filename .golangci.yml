@@ -156,12 +156,6 @@ linters:
       - linters:
           - dupl
         path: cmd/pullrequest/(approve|unapprove|decline|merge|request-changes|remove-request-changes)\.go$
-      # temporary: removed in Task 5 (config simplification drops viper and this whole
-      # if/else path-resolution chain, along with its shadowed `err`).
-      - linters:
-          - gocritic
-          - govet
-        path: cmd/common/config\.go$
     paths:
       - vendor
       - third_party$

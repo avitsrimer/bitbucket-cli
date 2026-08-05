@@ -2,13 +2,11 @@ package profile
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var deleteCmd = &cobra.Command{
@@ -69,11 +67,7 @@ func deleteProcess(cmd *cobra.Command, args []string) (err error) {
 	if deleted == 0 || cmd.Flag("dry-run").Changed {
 		return nil
 	}
-	viper.Set("profiles", Profiles)
-	if err := viper.WriteConfig(); err != nil {
-		return fmt.Errorf("cannot write config file: %w", err)
-	}
-	return nil
+	return saveProfilesConfig()
 }
 
 // deleteProfileCredentials deletes the vault credential of each named profile, if any
