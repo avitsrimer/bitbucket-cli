@@ -61,7 +61,6 @@ func resolveProcess(cmd *cobra.Command, args []string) (err error) {
 
 	err = profile.Post(
 		cmd.Context(),
-		cmd,
 		repository.GetPath("pullrequests", resolveOptions.PullRequestID.Value, "comments", args[0], "resolve"),
 		nil,
 		nil,

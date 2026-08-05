@@ -11,18 +11,18 @@ import (
 )
 
 type Project struct {
-	Type                           string              `json:"type"                       mapstructure:"type"`
-	ID                             common.UUID         `json:"uuid"                       mapstructure:"uuid"`
-	Name                           string              `json:"name"                       mapstructure:"name"`
-	Description                    string              `json:"description,omitempty"      mapstructure:"description"`
-	Key                            string              `json:"key"                        mapstructure:"key"`
-	Owner                          user.User           `json:"owner"                      mapstructure:"owner"`
-	Workspace                      workspace.Workspace `json:"workspace"                  mapstructure:"workspace"`
-	Links                          common.Links        `json:"links"                      mapstructure:"links"`
-	IsPrivate                      bool                `json:"is_private"                 mapstructure:"is_private"`
-	HasPubliclyVisibleRepositories bool                `json:"has_publicly_visible_repos" mapstructure:"has_publicly_visible_repos"`
-	CreatedOn                      time.Time           `json:"created_on"                 mapstructure:"created_on"`
-	UpdatedOn                      time.Time           `json:"updated_on"                 mapstructure:"updated_on"`
+	Type                           string              `json:"type"`
+	ID                             common.UUID         `json:"uuid"`
+	Name                           string              `json:"name"`
+	Description                    string              `json:"description,omitempty"`
+	Key                            string              `json:"key"`
+	Owner                          user.User           `json:"owner"`
+	Workspace                      workspace.Workspace `json:"workspace"`
+	Links                          common.Links        `json:"links"`
+	IsPrivate                      bool                `json:"is_private"`
+	HasPubliclyVisibleRepositories bool                `json:"has_publicly_visible_repos"`
+	CreatedOn                      time.Time           `json:"created_on"`
+	UpdatedOn                      time.Time           `json:"updated_on"`
 }
 
 // String gets a string representation of this pullrequest

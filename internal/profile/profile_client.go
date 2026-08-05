@@ -18,15 +18,27 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// requestTimeout is the deadline applied to every request sent to the BitBucket API and to
-// the OAuth2 token endpoint.
+// requestTimeout is the deadline applied to every single attempt of a request sent to the
+// BitBucket API or the OAuth2 token endpoint; retries each get a fresh deadline.
 const requestTimeout = 30 * time.Second
+
+// maxRequestAttempts is the total number of attempts (the initial try plus retries) made for a
+// request that keeps failing with a transport error or a retryable status code.
+const maxRequestAttempts = 5
+
+// initialRetryBackoff and maxRetryBackoff bound the exponential backoff used between retries
+// when the response carries no Retry-After header.
+const (
+	initialRetryBackoff = 500 * time.Millisecond
+	maxRetryBackoff     = 8 * time.Second
+)
 
 // userAgent is sent with every outgoing request.
 const userAgent = "bitbucket-cli"
 
-// oauthTokenURL is BitBucket's OAuth2 token endpoint.
-const oauthTokenURL = "https://bitbucket.org/site/oauth2/access_token" //nolint:gosec // endpoint URL, not a credential
+// oauthTokenURL is BitBucket's OAuth2 token endpoint. It is a var rather than a const solely so
+// internal tests can point it at an httptest server; production code never reassigns it.
+var oauthTokenURL = "https://bitbucket.org/site/oauth2/access_token" //nolint:gosec // endpoint URL, not a credential
 
 // httpClient is the shared HTTP client used for every request; per-request deadlines come
 // from the context passed to send/sendOAuthTokenRequest, so the client itself carries no
@@ -48,34 +60,34 @@ type requestOptions struct {
 	Accept  string
 }
 
+// PaginatedResources is a single page of a BitBucket paginated list response. Only the fields
+// GetAll actually reads (Values, Next, Previous) are kept; page/pagelen/size are tracked by this
+// package itself via resolvePageLengthAndLimit/nextPageURL instead.
 type PaginatedResources[T any] struct {
 	Values   []T    `json:"values"`
-	Page     int    `json:"page"`
-	PageSize int    `json:"pagelen"`
-	Size     int    `json:"size"`
 	Next     string `json:"next"`
 	Previous string `json:"previous"`
 }
 
 // Post posts a resource
-func (profile *Profile) Post(ctx context.Context, cmd *cobra.Command, uripath string, body, response any) (err error) {
+func (profile *Profile) Post(ctx context.Context, uripath string, body, response any) (err error) {
 	_, err = profile.send(ctx, &requestOptions{Method: http.MethodPost, Payload: body}, uripath, response)
 	return
 }
 
 // PostWithResult posts a resource and returns the raw result
-func (profile *Profile) PostWithResult(ctx context.Context, cmd *cobra.Command, uripath string, body any) (result *Response, err error) {
+func (profile *Profile) PostWithResult(ctx context.Context, uripath string, body any) (result *Response, err error) {
 	return profile.send(ctx, &requestOptions{Method: http.MethodPost, Payload: body}, uripath, nil)
 }
 
 // Get gets a resource
-func (profile *Profile) Get(ctx context.Context, cmd *cobra.Command, uripath string, response any) (err error) {
+func (profile *Profile) Get(ctx context.Context, uripath string, response any) (err error) {
 	_, err = profile.send(ctx, &requestOptions{Method: http.MethodGet}, uripath, response)
 	return
 }
 
 // GetRaw gets a resource without unmarshaling it
-func (profile *Profile) GetRaw(ctx context.Context, cmd *cobra.Command, uripath string) (raw io.Reader, err error) {
+func (profile *Profile) GetRaw(ctx context.Context, uripath string) (raw io.Reader, err error) {
 	result, err := profile.send(ctx, &requestOptions{Method: http.MethodGet, Accept: "*/*"}, uripath, nil)
 	if result == nil {
 		return nil, err
@@ -84,19 +96,19 @@ func (profile *Profile) GetRaw(ctx context.Context, cmd *cobra.Command, uripath 
 }
 
 // Put puts/updates a resource
-func (profile *Profile) Put(ctx context.Context, cmd *cobra.Command, uripath string, body, response any) (err error) {
+func (profile *Profile) Put(ctx context.Context, uripath string, body, response any) (err error) {
 	_, err = profile.send(ctx, &requestOptions{Method: http.MethodPut, Payload: body}, uripath, response)
 	return
 }
 
 // Delete deletes a resource
-func (profile *Profile) Delete(ctx context.Context, cmd *cobra.Command, uripath string, response any) (err error) {
+func (profile *Profile) Delete(ctx context.Context, uripath string, response any) (err error) {
 	_, err = profile.send(ctx, &requestOptions{Method: http.MethodDelete}, uripath, response)
 	return
 }
 
 // Patch patches a resource
-func (profile *Profile) Patch(ctx context.Context, cmd *cobra.Command, uripath string, body, response any) (err error) {
+func (profile *Profile) Patch(ctx context.Context, uripath string, body, response any) (err error) {
 	_, err = profile.send(ctx, &requestOptions{Method: http.MethodPatch, Payload: body}, uripath, response)
 	return
 }
@@ -184,7 +196,6 @@ func GetAll[T any](ctx context.Context, cmd *cobra.Command, uripath string) (res
 
 		err = profile.Get(
 			ctx,
-			cmd,
 			uripath,
 			&paginated,
 		)
@@ -209,6 +220,16 @@ func GetAll[T any](ctx context.Context, cmd *cobra.Command, uripath string) (res
 		}
 	}
 	return resources, nil
+}
+
+// sendResult delivers err to resultchan without blocking, so a second callback request (browser
+// reload/prefetch) arriving after the first result was already delivered cannot hang forever
+// waiting for a receiver that has already moved on.
+func sendResult(resultchan chan error, err error) {
+	select {
+	case resultchan <- err:
+	default:
+	}
 }
 
 func (profile *Profile) CodeGrantCallback(resultchan chan error) http.Handler {
@@ -236,7 +257,7 @@ func (profile *Profile) CodeGrantCallback(resultchan chan error) http.Handler {
 		if err != nil {
 			lgr.Printf("[ERROR] failed to get client secret for profile %s: %v", profile.Name, err)
 			http.Error(w, "Failed to get client secret for profile "+profile.Name+": "+err.Error(), http.StatusUnauthorized)
-			resultchan <- err
+			sendResult(resultchan, err)
 			return
 		}
 
@@ -247,7 +268,7 @@ func (profile *Profile) CodeGrantCallback(resultchan chan error) http.Handler {
 		})
 		if err != nil {
 			writeAuthorizationErrorResponse(w, err, result)
-			resultchan <- err
+			sendResult(resultchan, err)
 			return
 		}
 		if _, err := profile.saveAccessToken(r.Context(), result.Body); err != nil {
@@ -257,11 +278,11 @@ func (profile *Profile) CodeGrantCallback(resultchan chan error) http.Handler {
 			} else {
 				http.Error(w, "Failed to save access token for profile "+profile.Name+": "+err.Error(), http.StatusInternalServerError)
 			}
-			resultchan <- err
+			sendResult(resultchan, err)
 			return
 		}
 		_, _ = w.Write([]byte("Authorization Code received. You can close this window."))
-		resultchan <- nil
+		sendResult(resultchan, nil)
 	})
 }
 
@@ -381,34 +402,114 @@ func sendOAuthTokenRequest(ctx context.Context, clientID, clientSecret string, p
 	for key, value := range payload {
 		form.Set(key, value)
 	}
+	encoded := form.Encode()
 
-	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+	newReq := func(reqCtx context.Context) (*http.Request, error) {
+		req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, oauthTokenURL, strings.NewReader(encoded))
+		if err != nil {
+			return nil, fmt.Errorf("cannot build oauth token request: %w", err)
+		}
+		req.Header.Set("Authorization", basicAuthorization(clientID, clientSecret))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("User-Agent", userAgent)
+		return req, nil
+	}
+
+	result, err := doRequestWithRetry(ctx, newReq)
+	if err != nil {
+		return nil, err
+	}
+	if result.StatusCode >= http.StatusBadRequest {
+		return result, fmt.Errorf("oauth token request failed: %s", result.StatusText)
+	}
+	return result, nil
+}
+
+// isRetryableStatus reports whether a response's status code warrants an automatic retry:
+// rate-limiting and the transient upstream failure statuses BitBucket (and any gateway in front
+// of it) may return.
+func isRetryableStatus(statusCode int) bool {
+	switch statusCode {
+	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
+// retryDelay computes how long to wait before the next attempt: the response's Retry-After
+// header when present (seconds, per RFC 9110), otherwise exponential backoff capped at
+// maxRetryBackoff.
+func retryDelay(attempt int, headers http.Header) time.Duration {
+	if headers != nil {
+		if retryAfter := headers.Get("Retry-After"); retryAfter != "" {
+			if seconds, err := strconv.Atoi(retryAfter); err == nil && seconds >= 0 {
+				return time.Duration(seconds) * time.Second
+			}
+		}
+	}
+	return min(initialRetryBackoff*time.Duration(1<<attempt), maxRetryBackoff)
+}
+
+// doRequest performs a single attempt of the request built by newReq (called with a context
+// bound to requestTimeout) and reads its body fully into the returned Response.
+func doRequest(ctx context.Context, newReq func(context.Context) (*http.Request, error)) (*Response, error) {
+	attemptCtx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, oauthTokenURL, strings.NewReader(form.Encode()))
+	req, err := newReq(attemptCtx)
 	if err != nil {
-		return nil, fmt.Errorf("cannot build oauth token request: %w", err)
+		return nil, err
 	}
-	req.Header.Set("Authorization", basicAuthorization(clientID, clientSecret))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("User-Agent", userAgent)
 
 	res, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("cannot send oauth token request: %w", err)
+		return nil, fmt.Errorf("cannot send request: %w", err)
 	}
 	defer func() { _ = res.Body.Close() }()
 
 	data, err := io.ReadAll(res.Body)
 	if err != nil {
-		return nil, fmt.Errorf("cannot read oauth token response: %w", err)
+		return nil, fmt.Errorf("cannot read response body: %w", err)
 	}
+	return &Response{StatusCode: res.StatusCode, StatusText: res.Status, Headers: res.Header, Body: data}, nil
+}
 
-	result := &Response{StatusCode: res.StatusCode, StatusText: res.Status, Headers: res.Header, Body: data}
-	if res.StatusCode >= http.StatusBadRequest {
-		return result, fmt.Errorf("oauth token request failed: %s", res.Status)
+// doRequestWithRetry retries doRequest up to maxRequestAttempts times on transport errors and on
+// the retryable status codes reported by isRetryableStatus, waiting retryDelay between attempts
+// (honoring the response's Retry-After header when present) and aborting immediately if ctx is
+// done. newReq is invoked once per attempt so a request body can be rebuilt from scratch each
+// time (an *http.Request's body can only be read once).
+func doRequestWithRetry(ctx context.Context, newReq func(context.Context) (*http.Request, error)) (*Response, error) {
+	var lastErr error
+	for attempt := range maxRequestAttempts {
+		result, err := doRequest(ctx, newReq)
+		if err == nil && !isRetryableStatus(result.StatusCode) {
+			return result, nil
+		}
+		lastErr = err
+		if attempt == maxRequestAttempts-1 {
+			if err != nil {
+				return nil, err
+			}
+			return result, nil
+		}
+
+		var delay time.Duration
+		if err != nil {
+			delay = retryDelay(attempt, nil)
+			lgr.Printf("[WARN] request failed (%v), retrying in %s (attempt %d/%d)", err, delay, attempt+2, maxRequestAttempts)
+		} else {
+			delay = retryDelay(attempt, result.Headers)
+			lgr.Printf("[WARN] request returned %s, retrying in %s (attempt %d/%d)", result.StatusText, delay, attempt+2, maxRequestAttempts)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("request canceled: %w", ctx.Err())
+		case <-time.After(delay):
+		}
 	}
-	return result, nil
+	return nil, lastErr
 }
 
 // resolveAuthorization computes the Authorization header value for a request: Basic auth from
@@ -436,6 +537,14 @@ func resolveRequestURL(apiRoot *url.URL, uripath string) (*url.URL, error) {
 		if err != nil {
 			return nil, fmt.Errorf("cannot parse url: %w", err)
 		}
+		// uripath is absolute here, which only happens for a paginated "next" URL taken
+		// verbatim from a BitBucket response (see GetAll/nextPageURL). That URL is
+		// server-controlled, so reject it unless its scheme and host still match the
+		// profile's own API root - otherwise the Authorization header send() attaches next
+		// would be sent to whatever host the response claimed.
+		if !strings.EqualFold(reqURL.Scheme, apiRoot.Scheme) || !strings.EqualFold(reqURL.Host, apiRoot.Host) {
+			return nil, fmt.Errorf("refusing to send request to %s://%s: does not match the profile's API root %s://%s", reqURL.Scheme, reqURL.Host, apiRoot.Scheme, apiRoot.Host)
+		}
 		return reqURL, nil
 	}
 	components := strings.Split(uripath, "?")
@@ -450,7 +559,11 @@ func resolveRequestURL(apiRoot *url.URL, uripath string) (*url.URL, error) {
 // the body carries one, a generic status error otherwise
 func mapErrorResponse(result *Response) error {
 	var bberr BitBucketError
-	if jerr := json.Unmarshal(result.Body, &bberr); jerr == nil {
+	// BitBucketError.UnmarshalJSON's last-resort fallback succeeds for any valid JSON object
+	// (e.g. a proxy's {"message":"..."} shape, or "{}"), leaving Message/Detail/Fields all
+	// empty; only trust it when it actually carried something, otherwise fall through to the
+	// generic status-text error so failures are never reported as a completely blank message.
+	if jerr := json.Unmarshal(result.Body, &bberr); jerr == nil && (bberr.Message != "" || bberr.Detail != "" || len(bberr.Fields) > 0) {
 		lgr.Printf("[WARN] we have a BitBucketError: %#+v", bberr)
 		return &bberr
 	}
@@ -468,24 +581,14 @@ func (profile *Profile) send(ctx context.Context, options *requestOptions, uripa
 		return nil, err
 	}
 
-	var body io.Reader
+	var payload []byte
 	if options.Payload != nil {
-		payload, jerr := json.Marshal(options.Payload)
-		if jerr != nil {
-			return nil, fmt.Errorf("cannot marshal payload: %w", jerr)
+		payload, err = json.Marshal(options.Payload)
+		if err != nil {
+			return nil, fmt.Errorf("cannot marshal payload: %w", err)
 		}
-		body = bytes.NewReader(payload)
 	}
 
-	requestCtx, cancel := context.WithTimeout(ctx, requestTimeout)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(requestCtx, options.Method, reqURL.String(), body)
-	if err != nil {
-		return nil, fmt.Errorf("cannot build request: %w", err)
-	}
-	req.Header.Set("Authorization", authorization)
-	req.Header.Set("User-Agent", userAgent)
 	accept := options.Accept
 	if accept == "" {
 		accept = "*/*"
@@ -493,31 +596,38 @@ func (profile *Profile) send(ctx context.Context, options *requestOptions, uripa
 			accept = "application/json"
 		}
 	}
-	req.Header.Set("Accept", accept)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+
+	newReq := func(reqCtx context.Context) (*http.Request, error) {
+		var body io.Reader
+		if payload != nil {
+			body = bytes.NewReader(payload)
+		}
+		req, reqErr := http.NewRequestWithContext(reqCtx, options.Method, reqURL.String(), body)
+		if reqErr != nil {
+			return nil, fmt.Errorf("cannot build request: %w", reqErr)
+		}
+		req.Header.Set("Authorization", authorization)
+		req.Header.Set("User-Agent", userAgent)
+		req.Header.Set("Accept", accept)
+		if payload != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		return req, nil
 	}
 
 	lgr.Printf("[DEBUG] sending %s request to %s", options.Method, reqURL)
-	res, err := httpClient.Do(req)
+	result, err = doRequestWithRetry(ctx, newReq)
 	if err != nil {
-		return nil, fmt.Errorf("cannot send request: %w", err)
+		return nil, err
 	}
-	defer func() { _ = res.Body.Close() }()
+	lgr.Printf("[DEBUG] received %s for %s %s", result.StatusText, options.Method, reqURL)
 
-	data, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, fmt.Errorf("cannot read response body: %w", err)
-	}
-	result = &Response{StatusCode: res.StatusCode, StatusText: res.Status, Headers: res.Header, Body: data}
-	lgr.Printf("[DEBUG] received %s for %s %s", res.Status, options.Method, reqURL)
-
-	if res.StatusCode >= http.StatusBadRequest {
+	if result.StatusCode >= http.StatusBadRequest {
 		return result, mapErrorResponse(result)
 	}
 
-	if response != nil && len(data) > 0 {
-		if jerr := json.Unmarshal(data, response); jerr != nil {
+	if response != nil && len(result.Body) > 0 {
+		if jerr := json.Unmarshal(result.Body, response); jerr != nil {
 			return result, fmt.Errorf("cannot unmarshal response: %w", jerr)
 		}
 	}

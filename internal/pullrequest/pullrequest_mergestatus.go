@@ -13,10 +13,10 @@ import (
 
 // PullRequestMergeStatus describes the status of a pull request
 type PullRequestMergeStatus struct {
-	ID          string       `json:"id"          mapstructure:"id"`
-	Status      string       `json:"task_status" mapstructure:"task_status"`
-	PullRequest PullRequest  `json:"merge_result" mapstructure:"merge_result"`
-	Links       common.Links `json:"links"       mapstructure:"links"`
+	ID          string       `json:"id"`
+	Status      string       `json:"task_status"`
+	PullRequest PullRequest  `json:"merge_result"`
+	Links       common.Links `json:"links"`
 }
 
 // NewPullRequestMergeStatusFromLocation creates a new PullRequestMergeStatus from a URL location

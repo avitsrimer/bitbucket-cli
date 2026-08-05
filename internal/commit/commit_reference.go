@@ -8,8 +8,8 @@ import (
 )
 
 type CommitReference struct {
-	Hash  string       `json:"hash"  mapstructure:"hash"`
-	Links common.Links `json:"links" mapstructure:"links"`
+	Hash  string       `json:"hash"`
+	Links common.Links `json:"links"`
 }
 
 // String gets a string representation of this commit

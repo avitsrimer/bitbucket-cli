@@ -14,7 +14,7 @@ import (
 )
 
 type PullRequestID struct {
-	ID int `json:"id" mapstructure:"id"`
+	ID int `json:"id"`
 }
 
 // GetPullRequestIDsWithState gets the pullrequest Ids for completion for a given state

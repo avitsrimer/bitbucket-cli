@@ -12,10 +12,10 @@ import (
 )
 
 type Email struct {
-	Email       string       `json:"email" mapstructure:"email"`
-	IsPrimary   bool         `json:"is_primary" mapstructure:"is_primary"`
-	IsConfirmed bool         `json:"is_confirmed" mapstructure:"is_confirmed"`
-	Links       common.Links `json:"links" mapstructure:"links"`
+	Email       string       `json:"email"`
+	IsPrimary   bool         `json:"is_primary"`
+	IsConfirmed bool         `json:"is_confirmed"`
+	Links       common.Links `json:"links"`
 }
 
 // GetType gets the type of the email

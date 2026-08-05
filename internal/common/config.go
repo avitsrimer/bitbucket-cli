@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
@@ -36,6 +37,15 @@ func CurrentConfig() *Config {
 	return currentConfig
 }
 
+// SetCurrentConfig replaces the process-global configuration Initialize populates.
+//
+// It exists mainly so tests that call Initialize (and therefore overwrite this process-wide
+// singleton) can snapshot the previous value with CurrentConfig and restore it afterward,
+// instead of leaking state into whichever test runs next.
+func SetCurrentConfig(config *Config) {
+	currentConfig = config
+}
+
 // initializeLogger configures the logger based on the command line flags and environment variables
 func initializeLogger(cmd *cobra.Command) {
 	options := []lgr.Option{lgr.Out(os.Stderr), lgr.Err(os.Stderr)}
@@ -45,11 +55,13 @@ func initializeLogger(cmd *cobra.Command) {
 	lgr.Setup(options...)
 }
 
-// ConfigPath resolves the configuration file path from, in order: the --config flag,
-// os.UserConfigDir()/bitbucket/config-cli.yml, or ~/.bitbucket-cli
+// ConfigPath resolves the configuration file path from, in order: the --config flag (which also
+// carries the BB_CONFIG environment variable as its default value, so it wins whether it came
+// from the flag or the environment), os.UserConfigDir()/bitbucket/config-cli.yml, or
+// ~/.bitbucket-cli
 func ConfigPath(cmd *cobra.Command) (string, error) {
-	if cmd.Root().PersistentFlags().Changed("config") {
-		return cmd.Root().PersistentFlags().Lookup("config").Value.String(), nil
+	if flag := cmd.Root().PersistentFlags().Lookup("config"); flag != nil && flag.Value.String() != "" {
+		return flag.Value.String(), nil
 	}
 	if configDir, _ := os.UserConfigDir(); configDir != "" {
 		return filepath.Join(configDir, "bitbucket", "config-cli.yml"), nil
@@ -89,12 +101,17 @@ func LoadConfig(cmd *cobra.Command) (*Config, error) {
 
 // GetSection decodes the config's top-level key into target, leaving target untouched when the
 // key is absent
+//
+// Mapping keys are lowercased before decoding (mirroring viper's insensitivise behavior, which
+// wrote this file historically): yaml.v3 matches keys case-sensitively against the lower-cased
+// struct field name it defaults to, so a camelCase key like defaultWorkspace would otherwise be
+// silently ignored instead of populating the DefaultWorkspace field.
 func (config *Config) GetSection(key string, target any) error {
 	value, found := config.Data[key]
 	if !found {
 		return nil
 	}
-	data, err := yaml.Marshal(value)
+	data, err := yaml.Marshal(lowercaseKeys(value))
 	if err != nil {
 		return fmt.Errorf("cannot re-marshal config section %s: %w", key, err)
 	}
@@ -102,6 +119,28 @@ func (config *Config) GetSection(key string, target any) error {
 		return fmt.Errorf("cannot decode config section %s: %w", key, err)
 	}
 	return nil
+}
+
+// lowercaseKeys recursively lowercases the keys of any map[string]any found within value,
+// descending into slices, so mapping keys match the case-sensitive, lower-cased default that
+// yaml.v3 expects for untagged struct fields.
+func lowercaseKeys(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		result := make(map[string]any, len(typed))
+		for k, v := range typed {
+			result[strings.ToLower(k)] = lowercaseKeys(v)
+		}
+		return result
+	case []any:
+		result := make([]any, len(typed))
+		for i, v := range typed {
+			result[i] = lowercaseKeys(v)
+		}
+		return result
+	default:
+		return value
+	}
 }
 
 // SetSection sets a top-level key in the config and saves the file

@@ -19,6 +19,20 @@ plain YAML, 0600. Credentials are stored in the OS vault (macOS Keychain via
 `zalando/go-keyring`) unless `--no-vault` is passed. Logging goes to stderr via
 `go-pkgz/lgr`; there is no file-logging flag.
 
+`internal/common/cache.go` is a small persistent TTL cache for repository/user/workspace
+lookups, mirrored to disk under `os.UserCacheDir()/bitbucket/<sha256(key)>` as JSON. Default
+TTL is 5 minutes, overridable via `BITBUCKET_CLI_CACHE_DURATION` (a Go duration string). There
+is no encryption (dropped as a simplification: it protected non-sensitive cached metadata while
+the actual OAuth token used a separate, unencrypted mechanism) and no `bb cache clear` command —
+delete the directory directly to invalidate it.
+
+`Profile` carries five fields (`Progress`, `CloneProtocol`, `CloneUser`, `SshKeyFilename`,
+`DefaultProject`) that are persisted (read from and written back to the config file, for
+compatibility with configs upstream wrote) but never read by any command in this fork — the
+clone/upload/download features that consumed them were removed in the initial trim. Don't wire
+them up to "fix" a seemingly-dead flag, and don't delete them either — removing the fields would
+silently drop that data from a user's existing config file on the next save.
+
 The fork is permanently detached from upstream (different module path, no shared
 history intent) — do not try to keep it merge-compatible.
 
@@ -30,7 +44,7 @@ internal/cmd/             # cobra RootCmd, global flags, version
 internal/common/          # config load/save, EnumFlag, local TTL cache, error helpers
 internal/profile/         # profile CRUD, OAuth2 authorize flow, HTTP client (net/http)
 internal/pullrequest/     # pullrequest command tree + shared action helper
-  /comment, /task, /activity, /common   # subcommand packages + shared getters
+  /comment, /task, /common # subcommand packages + shared getters
 internal/user/            # bb user get/me
 internal/branch/, /commit/, /project/, /repository/, /workspace/, /remote/
                            # library packages consumed by profile/pullrequest/user;
@@ -52,6 +66,12 @@ make fmt         # gofmt -s -w . && goimports -w .
 make cross-build # GOOS=linux CGO_ENABLED=0 go build/vet ./... (proves the repo stays portable)
 make install     # build + install to ~/bin (override INSTALL_DIR=/usr/local/bin)
 ```
+
+`make fmt` and `make lint` are not self-contained: `goimports` and `golangci-lint` are neither
+`go.mod` `tool` directives nor vendored, so both must already be on `PATH` (`go install
+golang.org/x/tools/cmd/goimports@latest`; `golangci-lint` pinned to **v2.12.2** to match CI's
+`golangci-lint-action` version — a different local version can report findings that don't match
+what CI reports).
 
 The Makefile is plain POSIX recipes (no GNU-only `!=`/`?=` assignment tricks), so it
 runs under both modern GNU make and macOS's stock BSD/GNU make 3.81. If `make` on your
@@ -128,6 +148,10 @@ their error checked in a CLI). `_test.go` files are exempt from `gosec`, `dupl`,
 - One task/change = one PR against `master` (single-branch flow; `dev` was retired).
   Every PR gate is `go test -race ./...` + `golangci-lint run` green in CI before
   merge.
+- Every file under `testdata/` must be referenced by at least one test; delete orphaned
+  fixtures rather than leaving them (three were removed for exactly this reason during
+  the modernization — a stale fixture with no reader is a trap for the next person who
+  assumes it's exercised).
 - Five `gildas/*` dependencies were replaced by stdlib or small local code during the
   modernization (`go-logger` → `go-pkgz/lgr`, `go-errors` → stdlib `errors`/`fmt`,
   `go-request` → `net/http`, `go-cache`/`go-flags` → local code in

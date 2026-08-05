@@ -15,19 +15,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// RootOptions describes the options for the application
+// RootOptions describes the global flags whose value is read back through the EnumFlag/
+// EnumSliceFlag types themselves (dynamic allowed-value resolution, shell completion) rather
+// than through cmd.Flag(name); every other persistent flag is read via cmd.Flag(name) at its
+// point of use instead of being bound to a struct field here.
 type RootOptions struct {
-	ConfigFile   string           `mapstructure:"-"`
-	ProfileName  string           `mapstructure:"-"`
-	Repository   string           `mapstructure:"-"`
-	Workspace    *common.EnumFlag `mapstructure:"-"`
-	OutputFormat common.EnumFlag  `mapstructure:"-"`
-	DryRun       bool             `mapstructure:"-"`
-	Verbose      bool             `mapstructure:"-"`
-	Debug        bool             `mapstructure:"-"`
-	StopOnError  bool             `mapstructure:"-"`
-	WarnOnError  bool             `mapstructure:"-"`
-	IgnoreErrors bool             `mapstructure:"-"`
+	Workspace    *common.EnumFlag
+	OutputFormat common.EnumFlag
 }
 
 // CmdOptions contains the options for the application
@@ -61,19 +55,19 @@ func init() {
 	// Global flags
 	CmdOptions.Workspace = common.NewEnumFlagWithFunc(RootCmd, "", workspace.GetWorkspaceAllowedSlugs)
 	CmdOptions.OutputFormat = common.EnumFlag{Allowed: []string{"csv", "json", "yaml", "table", "tsv"}, Value: core.GetEnvAsString("BB_OUTPUT_FORMAT", "")}
-	RootCmd.PersistentFlags().StringVar(&CmdOptions.ConfigFile, "config", core.GetEnvAsString("BB_CONFIG", ""), "config file (default is .env, "+filepath.Join(configDir, "bitbucket", "config-cli.yml"))
-	RootCmd.PersistentFlags().StringVarP(&CmdOptions.ProfileName, "profile", "p", core.GetEnvAsString("BB_PROFILE", ""), "Profile to use. Overrides the default profile")
+	RootCmd.PersistentFlags().String("config", core.GetEnvAsString("BB_CONFIG", ""), "config file, also read from BB_CONFIG (default is "+filepath.Join(configDir, "bitbucket", "config-cli.yml")+")")
+	RootCmd.PersistentFlags().StringP("profile", "p", core.GetEnvAsString("BB_PROFILE", ""), "Profile to use. Overrides the default profile")
 	RootCmd.PersistentFlags().Var(CmdOptions.Workspace, "workspace", "Workspace to use. Overrides the default workspace of the profile. \nBy default, the workspace is determined from the git or profile configuration")
-	RootCmd.PersistentFlags().StringVar(&CmdOptions.Repository, "repository", "", "Repository to use. Overrides the default repository of the profile. \nBy default, the repository is determined from the git configuration")
-	RootCmd.PersistentFlags().BoolVar(&CmdOptions.DryRun, "dry-run", false, "Dry run, the command will not modify anything but tell what it would do. \nAlso known as --noop or --whatif")
-	RootCmd.PersistentFlags().BoolVar(&CmdOptions.DryRun, "noop", false, "Dry run, the command will not modify anything but tell what it would do. \nAlso known as --dry-run or --whatif")
-	RootCmd.PersistentFlags().BoolVar(&CmdOptions.DryRun, "whatif", false, "Dry run, the command will not modify anything but tell what it would do. \nAlso known as --dry-run or --noop")
-	RootCmd.PersistentFlags().BoolVar(&CmdOptions.Debug, "debug", false, "logs are written at DEBUG level, overrides DEBUG environment variable")
-	RootCmd.PersistentFlags().BoolVarP(&CmdOptions.Verbose, "verbose", "v", false, "Verbose mode, overrides VERBOSE environment variable")
-	RootCmd.PersistentFlags().VarP(&CmdOptions.OutputFormat, "output", "o", "Output format (json, yaml, table). Overrides the default output format of the profile")
-	RootCmd.PersistentFlags().BoolVar(&CmdOptions.StopOnError, "stop-on-error", false, "Stop on error")
-	RootCmd.PersistentFlags().BoolVar(&CmdOptions.WarnOnError, "warn-on-error", false, "Warn on error")
-	RootCmd.PersistentFlags().BoolVar(&CmdOptions.IgnoreErrors, "ignore-errors", false, "Ignore errors")
+	RootCmd.PersistentFlags().String("repository", "", "Repository to use. Overrides the default repository of the profile. \nBy default, the repository is determined from the git configuration")
+	RootCmd.PersistentFlags().Bool("dry-run", false, "Dry run, the command will not modify anything but tell what it would do. \nAlso known as --noop or --whatif")
+	RootCmd.PersistentFlags().Bool("noop", false, "Dry run, the command will not modify anything but tell what it would do. \nAlso known as --dry-run or --whatif")
+	RootCmd.PersistentFlags().Bool("whatif", false, "Dry run, the command will not modify anything but tell what it would do. \nAlso known as --dry-run or --noop")
+	RootCmd.PersistentFlags().Bool("debug", false, "logs are written at DEBUG level")
+	RootCmd.PersistentFlags().BoolP("verbose", "v", false, "Verbose mode")
+	RootCmd.PersistentFlags().VarP(&CmdOptions.OutputFormat, "output", "o", "Output format (csv, json, yaml, table, tsv), also read from BB_OUTPUT_FORMAT. Overrides the default output format of the profile")
+	RootCmd.PersistentFlags().Bool("stop-on-error", false, "Stop on error")
+	RootCmd.PersistentFlags().Bool("warn-on-error", false, "Warn on error")
+	RootCmd.PersistentFlags().Bool("ignore-errors", false, "Ignore errors")
 	RootCmd.MarkFlagsMutuallyExclusive("stop-on-error", "warn-on-error", "ignore-errors")
 	_ = RootCmd.MarkFlagFilename("config")
 	_ = RootCmd.RegisterFlagCompletionFunc("profile", profile.ValidProfileNames)

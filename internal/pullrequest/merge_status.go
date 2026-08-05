@@ -68,7 +68,6 @@ func mergeStatusProcess(cmd *cobra.Command, args []string) (err error) {
 
 	err = profile.Get(
 		cmd.Context(),
-		cmd,
 		repository.GetPath("pullrequests", pullRequestID, "merge", "task-status", mergeStatusOptions.TaskID),
 		&status,
 	)

@@ -14,13 +14,13 @@ import (
 )
 
 type TaskCreator struct {
-	Content   ContentCreator           `json:"content"           mapstructure:"content"`
-	Comment   *comment.ParentReference `json:"comment,omitempty" mapstructure:"comment"`
-	IsPending bool                     `json:"pending"           mapstructure:"pending"`
+	Content   ContentCreator           `json:"content"`
+	Comment   *comment.ParentReference `json:"comment,omitempty"`
+	IsPending bool                     `json:"pending"`
 }
 
 type ContentCreator struct {
-	Raw string `json:"raw" mapstructure:"raw"`
+	Raw string `json:"raw"`
 }
 
 var createCmd = &cobra.Command{
@@ -89,7 +89,6 @@ func createProcess(cmd *cobra.Command, args []string) error {
 
 	err = profile.Post(
 		cmd.Context(),
-		cmd,
 		repository.GetPath("pullrequests", createOptions.PullRequestID.Value, "tasks"),
 		task,
 		&created,

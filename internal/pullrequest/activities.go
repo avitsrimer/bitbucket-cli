@@ -84,7 +84,7 @@ func activitiesValidArgs(cmd *cobra.Command, args []string, toComplete string) (
 func activitiesProcess(cmd *cobra.Command, args []string) (err error) {
 	currentProfile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
-		return fmt.Errorf("cannot merge pull request: %w", err)
+		return fmt.Errorf("cannot list activities for pull request: %w", err)
 	}
 
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
@@ -99,8 +99,8 @@ func activitiesProcess(cmd *cobra.Command, args []string) (err error) {
 
 	uripath := repository.GetPath(fmt.Sprintf("pullrequests/%s/activity", pullRequestID))
 
-	if listOptions.Query != "" {
-		uripath = fmt.Sprintf("%s?q=%s", uripath, url.QueryEscape(listOptions.Query))
+	if activitiesOptions.Query != "" {
+		uripath = fmt.Sprintf("%s?q=%s", uripath, url.QueryEscape(activitiesOptions.Query))
 	}
 
 	lgr.Printf("[DEBUG] listing all activities from repository %s with profile %s", repository, currentProfile)
@@ -116,13 +116,11 @@ func activitiesProcess(cmd *cobra.Command, args []string) (err error) {
 		lgr.Printf("[DEBUG] no activities found")
 		return nil
 	}
-	core.Sort(activities, activityColumns.SortBy(listOptions.SortBy.Value))
+	core.Sort(activities, activityColumns.SortBy(activitiesOptions.SortBy.Value))
 	if err := currentProfile.Print(
 		cmd.Context(),
 		cmd,
-		Activities(core.Filter(activities, func(activity Activity) bool {
-			return true
-		})),
+		Activities(activities),
 	); err != nil {
 		return fmt.Errorf("cannot print result: %w", err)
 	}

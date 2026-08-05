@@ -2,19 +2,39 @@ package user
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/spf13/cobra"
 )
+
+func TestMain(m *testing.M) {
+	os.Exit(runTests(m))
+}
+
+// runTests points UserCache at a scratch temp directory instead of the real os.UserCacheDir()
+// for the duration of this test binary, removing it afterward so the suite never reads or
+// writes the developer's actual cache.
+func runTests(m *testing.M) int {
+	tempDir, err := os.MkdirTemp("", "bitbucket-cli-test-cache-*")
+	if err != nil {
+		panic("helpers_test: cannot create temp cache dir: " + err.Error())
+	}
+	defer func() { _ = os.RemoveAll(tempDir) }()
+
+	oldUserCache := UserCache
+	UserCache = common.NewCacheAt[User](tempDir, time.Minute)
+	defer func() { UserCache = oldUserCache }()
+
+	return m.Run()
+}
 
 // setupTest points the profile client at a fresh httptest server and returns a standalone
 // command carrying the flags this package's RunE functions read (profile, output, dry-run).
@@ -48,19 +68,13 @@ func setupTest(t *testing.T, profileName string, handler http.HandlerFunc, dryRu
 	return cmd
 }
 
-// removeCacheEntry deletes the on-disk mirror of a UserCache entry so the test run does not
-// leave residue behind in the real os.UserCacheDir().
-func removeCacheEntry(key string) {
-	dir, err := os.UserCacheDir()
-	if err != nil {
-		return
-	}
-	sum := sha256.Sum256([]byte(key))
-	_ = os.Remove(filepath.Join(dir, "bitbucket", hex.EncodeToString(sum[:])))
-}
-
 // captureStdout redirects os.Stdout for the duration of fn and returns what was written; used
 // to assert on profile.Print's rendered output (it writes straight to os.Stdout).
+//
+// The reader is drained on a goroutine started before fn runs, so output larger than the pipe
+// buffer cannot deadlock the test, and os.Stdout is restored via defer so a t.Fatalf inside fn
+// (which calls runtime.Goexit, skipping any code after it) still leaves stdout intact for the
+// rest of the test binary.
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 
@@ -70,15 +84,18 @@ func captureStdout(t *testing.T, fn func()) string {
 	}
 	original := os.Stdout
 	os.Stdout = w
+	defer func() {
+		os.Stdout = original
+	}()
+
+	captured := make(chan string, 1)
+	go func() {
+		data, _ := io.ReadAll(r)
+		captured <- string(data)
+	}()
 
 	fn()
 
 	_ = w.Close()
-	os.Stdout = original
-
-	data, err := io.ReadAll(r)
-	if err != nil {
-		t.Fatalf("cannot read captured stdout: %v", err)
-	}
-	return string(data)
+	return <-captured
 }

@@ -37,27 +37,27 @@ func redactWithHash(value string) string {
 
 // Profile describes the configuration needed to connect to BitBucket
 type Profile struct {
-	Name              string                 `json:"name"                        mapstructure:"name"`
-	Description       string                 `json:"description,omitempty"       mapstructure:"description,omitempty"       yaml:",omitempty"`
-	Default           bool                   `json:"default"                     mapstructure:"default"                     yaml:",omitempty"`
-	APIRoot           *url.URL               `json:"apiRoot,omitempty"           mapstructure:"apiRoot,omitempty"           yaml:",omitempty"`
-	DefaultWorkspace  string                 `json:"defaultWorkspace,omitempty"  mapstructure:"defaultWorkspace,omitempty"  yaml:",omitempty"`
-	DefaultProject    string                 `json:"defaultProject,omitempty"    mapstructure:"defaultProject,omitempty"    yaml:",omitempty"`
-	ErrorProcessing   common.ErrorProcessing `json:"errorProcessing,omitempty"   mapstructure:"errorProcessing,omitempty"   yaml:",omitempty"`
-	DefaultPageLength int                    `json:"defaultPageLength,omitempty" mapstructure:"defaultPageLength,omitempty" yaml:",omitempty"`
-	OutputFormat      string                 `json:"outputFormat,omitempty"      mapstructure:"outputFormat,omitempty"      yaml:",omitempty"`
-	Progress          bool                   `json:"progress,omitempty"          mapstructure:"progress,omitempty"          yaml:",omitempty"`
-	CloneProtocol     string                 `json:"cloneProtocol,omitempty"     mapstructure:"cloneProtocol,omitempty"     yaml:",omitempty"`
-	CloneUser         string                 `json:"cloneUser,omitempty"         mapstructure:"cloneUser,omitempty"         yaml:",omitempty"`
-	SshKeyFilename    string                 `json:"sshKeyFilename,omitempty"    mapstructure:"sshKeyFilename,omitempty"    yaml:",omitempty"`
-	VaultKey          string                 `json:"vaultKey,omitempty"          mapstructure:"vaultKey,omitempty"          yaml:",omitempty"`
-	User              string                 `json:"user,omitempty"              mapstructure:"user"                        yaml:",omitempty"`
-	Password          string                 `json:"password,omitempty"          mapstructure:"password"                    yaml:",omitempty"`
-	ClientID          string                 `json:"clientID,omitempty"          mapstructure:"clientID"                    yaml:",omitempty"`
-	ClientSecret      string                 `json:"clientSecret,omitempty"      mapstructure:"clientSecret"                yaml:",omitempty"`
-	CallbackPort      uint16                 `json:"callbackPort,omitempty"      mapstructure:"callbackPort"                yaml:",omitempty"`
-	AccessToken       string                 `json:"accessToken,omitempty"       mapstructure:"accessToken,omitempty"       yaml:",omitempty"`
-	token             *Token                 `json:"-"                           mapstructure:"-"                           yaml:"-"`
+	Name              string                 `json:"name"`
+	Description       string                 `json:"description,omitempty"       yaml:",omitempty"`
+	Default           bool                   `json:"default"                     yaml:",omitempty"`
+	APIRoot           *url.URL               `json:"apiRoot,omitempty"           yaml:",omitempty"`
+	DefaultWorkspace  string                 `json:"defaultWorkspace,omitempty"  yaml:",omitempty"`
+	DefaultProject    string                 `json:"defaultProject,omitempty"    yaml:",omitempty"`
+	ErrorProcessing   common.ErrorProcessing `json:"errorProcessing,omitempty"   yaml:",omitempty"`
+	DefaultPageLength int                    `json:"defaultPageLength,omitempty" yaml:",omitempty"`
+	OutputFormat      string                 `json:"outputFormat,omitempty"      yaml:",omitempty"`
+	Progress          bool                   `json:"progress,omitempty"          yaml:",omitempty"`
+	CloneProtocol     string                 `json:"cloneProtocol,omitempty"     yaml:",omitempty"`
+	CloneUser         string                 `json:"cloneUser,omitempty"         yaml:",omitempty"`
+	SshKeyFilename    string                 `json:"sshKeyFilename,omitempty"    yaml:",omitempty"`
+	VaultKey          string                 `json:"vaultKey,omitempty"          yaml:",omitempty"`
+	User              string                 `json:"user,omitempty"                        yaml:",omitempty"`
+	Password          string                 `json:"password,omitempty"                    yaml:",omitempty"`
+	ClientID          string                 `json:"clientID,omitempty"                    yaml:",omitempty"`
+	ClientSecret      string                 `json:"clientSecret,omitempty"                yaml:",omitempty"`
+	CallbackPort      uint16                 `json:"callbackPort,omitempty"                yaml:",omitempty"`
+	AccessToken       string                 `json:"accessToken,omitempty"       yaml:",omitempty"`
+	token             *Token                 `json:"-"                           yaml:"-"`
 }
 
 // Current is the current profile
@@ -227,6 +227,14 @@ func (profile Profile) GetRow(headers []string) []string {
 	return row
 }
 
+// redactedProfile is a redacted view of Profile for logging.
+//
+// It is a distinct type (not Profile itself) so that it does NOT inherit Profile's
+// fmt.Stringer implementation (Profile.String returns just the profile name): fmt prefers
+// Stringer over struct field formatting for %v/%+v, so logging a Profile value directly would
+// silently print only the name and discard every redacted field, making Redact's work pointless.
+type redactedProfile Profile
+
 // Redact redacts sensitive information from the profile, for logging purposes
 func (profile Profile) Redact() any {
 	redacted := profile
@@ -248,7 +256,7 @@ func (profile Profile) Redact() any {
 	if redacted.CloneUser != "" {
 		redacted.CloneUser = redactWithHash(redacted.CloneUser)
 	}
-	return redacted
+	return redactedProfile(redacted)
 }
 
 // GetClientSecret gets the client secret from the profile, either from the vault or from the profile
@@ -386,26 +394,29 @@ func (profile Profile) String() string {
 func (profile Profile) Print(context context.Context, cmd *cobra.Command, payload any) error {
 	outputFormat := profile.OutputFormat
 
-	if cmd.Flag("output").Changed {
-		outputFormat = cmd.Flag("output").Value.String()
+	// cmd.Flag("output").Value carries the --output flag's value, which also holds the
+	// BB_OUTPUT_FORMAT environment variable as its default; checking Changed alone would miss
+	// the env-only case, since setting a flag's default never marks it as Changed.
+	if commandFormat := cmd.Flag("output").Value.String(); commandFormat != "" {
+		outputFormat = commandFormat
 		lgr.Printf("[DEBUG] command output format: %s (was: %s)", outputFormat, profile.OutputFormat)
 	}
 	switch outputFormat {
 	case "json":
-		return profile.PrintJSON(context, cmd, payload)
+		return profile.printJSON(payload)
 	case "yaml":
-		return profile.PrintYAML(context, cmd, payload)
+		return profile.printYAML(payload)
 	case "csv":
-		return profile.PrintCSV(context, cmd, payload)
+		return profile.printDelimited(cmd, payload, ',')
 	case "tsv":
-		return profile.PrintTSV(context, cmd, payload)
+		return profile.printDelimited(cmd, payload, '\t')
 	default:
-		return profile.PrintTable(context, cmd, payload)
+		return profile.printTable(cmd, payload)
 	}
 }
 
-// PrintJSON prints the given payload to the console as JSON
-func (profile Profile) PrintJSON(_ context.Context, cmd *cobra.Command, payload any) error {
+// printJSON prints the given payload to the console as JSON
+func (profile Profile) printJSON(payload any) error {
 	lgr.Printf("[DEBUG] printing payload as JSON")
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
@@ -415,8 +426,8 @@ func (profile Profile) PrintJSON(_ context.Context, cmd *cobra.Command, payload 
 	return nil
 }
 
-// PrintYAML prints the given payload to the console as YAML
-func (profile Profile) PrintYAML(_ context.Context, cmd *cobra.Command, payload any) error {
+// printYAML prints the given payload to the console as YAML
+func (profile Profile) printYAML(payload any) error {
 	lgr.Printf("[DEBUG] printing payload as YAML")
 	data, err := yaml.Marshal(payload)
 	if err != nil {
@@ -426,18 +437,8 @@ func (profile Profile) PrintYAML(_ context.Context, cmd *cobra.Command, payload 
 	return nil
 }
 
-// PrintCSV prints the given payload to the console as CSV
-func (profile Profile) PrintCSV(context context.Context, cmd *cobra.Command, payload any) error {
-	return profile.printDelimited(context, cmd, payload, ',')
-}
-
-// PrintTSV prints the given payload to the console as TSV
-func (profile Profile) PrintTSV(context context.Context, cmd *cobra.Command, payload any) error {
-	return profile.printDelimited(context, cmd, payload, '\t')
-}
-
 // printDelimited prints the given payload to the console as delimiter-separated values
-func (profile Profile) printDelimited(_ context.Context, cmd *cobra.Command, payload any, comma rune) error {
+func (profile Profile) printDelimited(cmd *cobra.Command, payload any, comma rune) error {
 	lgr.Printf("[DEBUG] printing payload as delimited text (comma=%q)", comma)
 	writer := csv.NewWriter(os.Stdout)
 	writer.Comma = comma
@@ -463,8 +464,8 @@ func (profile Profile) printDelimited(_ context.Context, cmd *cobra.Command, pay
 	return nil
 }
 
-// PrintTable prints the given payload to the console as a table
-func (profile Profile) PrintTable(_ context.Context, cmd *cobra.Command, payload any) error {
+// printTable prints the given payload to the console as a table
+func (profile Profile) printTable(cmd *cobra.Command, payload any) error {
 	lgr.Printf("[DEBUG] printing payload as table")
 	table := tablewriter.NewWriter(os.Stdout)
 

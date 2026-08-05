@@ -49,36 +49,36 @@ func registerCommentEditFlags(cmd *cobra.Command, options *commentEditOptions, c
 }
 
 type Comment struct {
-	Type        string                `json:"type"                 mapstructure:"type"`
-	ID          int                   `json:"id"                   mapstructure:"id"`
-	Content     common.RenderedText   `json:"content"              mapstructure:"content"`
-	User        user.User             `json:"user"                 mapstructure:"user"`
-	Anchor      *common.FileAnchor    `json:"inline,omitempty"     mapstructure:"inline"`
-	Parent      *Comment              `json:"parent,omitempty"     mapstructure:"parent"`
-	CreatedOn   time.Time             `json:"created_on"           mapstructure:"created_on"`
-	UpdatedOn   time.Time             `json:"updated_on"           mapstructure:"updated_on"`
-	IsDeleted   bool                  `json:"deleted"              mapstructure:"deleted"`
-	IsPending   bool                  `json:"pending"              mapstructure:"pending"`
-	Resolution  *Resolution           `json:"resolution,omitempty" mapstructure:"resolution"`
-	PullRequest *PullRequestReference `json:"pullrequest"          mapstructure:"pullrequest"`
-	Links       common.Links          `json:"links"                mapstructure:"links"`
+	Type        string                `json:"type"`
+	ID          int                   `json:"id"`
+	Content     common.RenderedText   `json:"content"`
+	User        user.User             `json:"user"`
+	Anchor      *common.FileAnchor    `json:"inline,omitempty"`
+	Parent      *Comment              `json:"parent,omitempty"`
+	CreatedOn   time.Time             `json:"created_on"`
+	UpdatedOn   time.Time             `json:"updated_on"`
+	IsDeleted   bool                  `json:"deleted"`
+	IsPending   bool                  `json:"pending"`
+	Resolution  *Resolution           `json:"resolution,omitempty"`
+	PullRequest *PullRequestReference `json:"pullrequest"`
+	Links       common.Links          `json:"links"`
 }
 
 type Resolution struct {
-	Type      string    `json:"type"       mapstructure:"type"`
-	User      user.User `json:"user"       mapstructure:"user"`
-	CreatedOn time.Time `json:"created_on" mapstructure:"created_on"`
+	Type      string    `json:"type"`
+	User      user.User `json:"user"`
+	CreatedOn time.Time `json:"created_on"`
 }
 
 type PullRequestReference struct {
-	Type  string       `json:"type"  mapstructure:"type"`
-	ID    int          `json:"id"    mapstructure:"id"`
-	Title string       `json:"title" mapstructure:"title"`
-	Links common.Links `json:"links" mapstructure:"links"`
+	Type  string       `json:"type"`
+	ID    int          `json:"id"`
+	Title string       `json:"title"`
+	Links common.Links `json:"links"`
 }
 
 type ParentReference struct {
-	ID int64 `json:"id" mapstructure:"id"`
+	ID int64 `json:"id"`
 }
 
 // Command represents this folder's command

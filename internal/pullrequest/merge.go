@@ -37,7 +37,7 @@ func init() {
 }
 
 func mergeValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	return openPullRequestIDsCompletion(cmd, args, toComplete, false)
+	return openPullRequestIDsCompletion(cmd, args, toComplete)
 }
 
 func mergeProcess(cmd *cobra.Command, args []string) (err error) {
@@ -78,7 +78,7 @@ func mergeProcess(cmd *cobra.Command, args []string) (err error) {
 	}
 
 	if mergeOptions.Async {
-		result, asyncErr := profile.PostWithResult(cmd.Context(), cmd, uripath, payload)
+		result, asyncErr := profile.PostWithResult(cmd.Context(), uripath, payload)
 		if asyncErr != nil {
 			return fmt.Errorf("failed to merge pull request %s: %w", pullRequestID, asyncErr)
 		}
@@ -95,7 +95,7 @@ func mergeProcess(cmd *cobra.Command, args []string) (err error) {
 
 	var pullrequest PullRequest
 
-	err = profile.Post(cmd.Context(), cmd, uripath, payload, &pullrequest)
+	err = profile.Post(cmd.Context(), uripath, payload, &pullrequest)
 	if err != nil {
 		return fmt.Errorf("failed to merge pull request %s: %w", pullRequestID, err)
 	}

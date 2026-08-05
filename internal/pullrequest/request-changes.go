@@ -1,7 +1,5 @@
 package pullrequest
 
-import "net/http"
-
 var requestChangesSpec = actionSpec{
 	name:     "request-changes",
 	aliases:  []string{"requestChanges", "requestchanges"},
@@ -9,8 +7,7 @@ var requestChangesSpec = actionSpec{
 	whatIf:   "Requesting changes on",
 	errVerb:  "request changes on",
 	endpoint: "request-changes",
-	method:   http.MethodPost,
-	logFetch: true,
+	post:     true,
 }
 
 func init() {

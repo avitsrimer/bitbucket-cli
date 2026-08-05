@@ -6,11 +6,6 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 )
 
-func (suite *CommonSuite) TestCanCreateUUID() {
-	uuid := common.NewUUID()
-	suite.Require().NotNil(uuid)
-}
-
 func (suite *CommonSuite) TestCanMarshalUUID() {
 	expected := "{c32f719b-6c8a-4c87-93e2-9ba8f5cd90dd}" // a Bitbucket String for UUIDs
 	uuid, err := common.ParseUUID(expected)

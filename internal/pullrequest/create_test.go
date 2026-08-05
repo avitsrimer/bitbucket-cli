@@ -60,7 +60,6 @@ func TestCreateProcessSuccessWithDefaultReviewers(t *testing.T) {
 
 	const profileName = "create-success"
 	cmd := setupTestNamed(t, profileName, mux.ServeHTTP, false)
-	t.Cleanup(func() { removeCacheEntry(profileName + ":me") })
 
 	stdout := captureStdout(t, func() {
 		if err := createProcess(cmd, nil); err != nil {
@@ -126,7 +125,6 @@ func TestCreateProcessDefaultReviewersAPIError(t *testing.T) {
 
 	const profileName = "create-reviewers-error"
 	cmd := setupTestNamed(t, profileName, mux.ServeHTTP, false)
-	t.Cleanup(func() { removeCacheEntry(profileName + ":me") })
 
 	err := createProcess(cmd, nil)
 	if err == nil {
@@ -169,7 +167,6 @@ func TestCreateProcessPostAPIError(t *testing.T) {
 
 	const profileName = "create-post-error"
 	cmd := setupTestNamed(t, profileName, mux.ServeHTTP, false)
-	t.Cleanup(func() { removeCacheEntry(profileName + ":me") })
 
 	err = createProcess(cmd, nil)
 	if err == nil {
@@ -207,7 +204,6 @@ func TestCreateProcessDryRun(t *testing.T) {
 
 	const profileName = "create-dry-run"
 	cmd := setupTestNamed(t, profileName, mux.ServeHTTP, true)
-	t.Cleanup(func() { removeCacheEntry(profileName + ":me") })
 
 	if err := createProcess(cmd, nil); err != nil {
 		t.Fatalf("createProcess() error = %v", err)

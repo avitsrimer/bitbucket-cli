@@ -80,7 +80,11 @@ func (flag EnumFlag) String() string {
 // implements pflag.Value
 func (flag *EnumFlag) Set(value string) error {
 	if flag.AllowedFunc != nil && len(flag.Allowed) == 0 {
-		flag.Allowed, _ = flag.AllowedFunc(flag.cmd.Context(), flag.cmd, nil, "")
+		allowed, err := flag.AllowedFunc(flag.cmd.Context(), flag.cmd, nil, "")
+		if err != nil {
+			return fmt.Errorf("cannot resolve allowed values: %w", err)
+		}
+		flag.Allowed = allowed
 	}
 	if !slices.Contains(flag.Allowed, value) {
 		return fmt.Errorf("flag value %q is invalid, expected one of: %s", value, strings.Join(flag.Allowed, ", "))
@@ -107,36 +111,22 @@ func (flag *EnumFlag) CompletionFunc(flagName string) (string, func(*cobra.Comma
 // EnumSliceFlag is a repeatable flag that only accepts values out of a fixed or dynamically
 // resolved list. It can be set multiple times, or with a single comma-separated value.
 //
-// implements pflag.Value and pflag.SliceValue
+// implements pflag.Value
 type EnumSliceFlag struct {
 	Allowed     []string
 	Values      []string
-	Default     []string
 	AllowedFunc AllowedFunc
 	AllAllowed  bool
-	all         bool
 	cmd         *cobra.Command
 }
 
 // NewEnumSliceFlag creates an EnumSliceFlag from a fixed list of allowed values.
 //
-// Values prefixed with "+" are both allowed and part of the default selection; the prefix
-// is stripped from the allowed list itself.
-//
 // Example:
 //
-//	flag := common.NewEnumSliceFlag("+one", "+two", "three")
+//	flag := common.NewEnumSliceFlag("one", "two", "three")
 func NewEnumSliceFlag(allowed ...string) *EnumSliceFlag {
-	flag := &EnumSliceFlag{}
-	for _, value := range allowed {
-		if trimmed, isDefault := strings.CutPrefix(value, "+"); isDefault {
-			flag.Default = append(flag.Default, trimmed)
-			flag.Allowed = append(flag.Allowed, trimmed)
-		} else {
-			flag.Allowed = append(flag.Allowed, value)
-		}
-	}
-	return flag
+	return &EnumSliceFlag{Allowed: allowed}
 }
 
 // NewEnumSliceFlagWithAllAllowed creates an EnumSliceFlag like NewEnumSliceFlag, additionally
@@ -149,16 +139,11 @@ func NewEnumSliceFlagWithAllAllowed(allowed ...string) *EnumSliceFlag {
 
 // NewEnumSliceFlagWithAllAllowedAndFunc creates an EnumSliceFlag whose allowed values are
 // resolved by allowedFunc, additionally accepting the literal value "all".
-func NewEnumSliceFlagWithAllAllowedAndFunc(cmd *cobra.Command, allowedFunc AllowedFunc, defaultValues ...string) *EnumSliceFlag {
+func NewEnumSliceFlagWithAllAllowedAndFunc(cmd *cobra.Command, allowedFunc AllowedFunc) *EnumSliceFlag {
 	if cmd == nil {
 		panic("cobra.Command cmd cannot be nil")
 	}
-	return &EnumSliceFlag{
-		AllowedFunc: allowedFunc,
-		Default:     append([]string{}, defaultValues...),
-		AllAllowed:  true,
-		cmd:         cmd,
-	}
+	return &EnumSliceFlag{AllowedFunc: allowedFunc, AllAllowed: true, cmd: cmd}
 }
 
 // Type returns the type of the flag.
@@ -175,7 +160,9 @@ func (flag EnumSliceFlag) String() string {
 	return "[" + strings.Join(flag.Values, ",") + "]"
 }
 
-// Set sets the flag value. It accepts a single value or a comma-separated list of values.
+// Set sets the flag value. It accepts a single value or a comma-separated list of values; every
+// value in the list must be allowed, or the whole call fails naming the first offending one (no
+// values are appended on a partial match).
 //
 // If AllowedFunc is set and the allowed values have not been resolved yet, it is called
 // first to populate them.
@@ -183,33 +170,23 @@ func (flag EnumSliceFlag) String() string {
 // implements pflag.Value
 func (flag *EnumSliceFlag) Set(value string) error {
 	if flag.AllowedFunc != nil && len(flag.Allowed) == 0 {
-		flag.Allowed, _ = flag.AllowedFunc(flag.cmd.Context(), flag.cmd, nil, "")
+		allowed, err := flag.AllowedFunc(flag.cmd.Context(), flag.cmd, nil, "")
+		if err != nil {
+			return fmt.Errorf("cannot resolve allowed values: %w", err)
+		}
+		flag.Allowed = allowed
 	}
 	if value == "all" && flag.AllAllowed {
-		flag.Values = flag.Allowed
-		flag.all = true
+		flag.Values = slices.Clone(flag.Allowed)
 		return nil
 	}
-	found := false
-	for v := range strings.SplitSeq(value, ",") {
-		if slices.Contains(flag.Allowed, v) {
-			found = true
-			if !slices.Contains(flag.Values, v) {
-				flag.Values = append(flag.Values, v)
-			}
+	values := strings.Split(value, ",")
+	for _, v := range values {
+		if !slices.Contains(flag.Allowed, v) {
+			return fmt.Errorf("flag value %q is invalid, expected one of: %s", v, strings.Join(flag.Allowed, ", "))
 		}
 	}
-	if !found {
-		return fmt.Errorf("flag value %q is invalid, expected one of: %s", value, strings.Join(flag.Allowed, ", "))
-	}
-	return nil
-}
-
-// Append appends a value to the flag.
-//
-// implements pflag.SliceValue
-func (flag *EnumSliceFlag) Append(value string) error {
-	for v := range strings.SplitSeq(value, ",") {
+	for _, v := range values {
 		if !slices.Contains(flag.Values, v) {
 			flag.Values = append(flag.Values, v)
 		}
@@ -217,27 +194,12 @@ func (flag *EnumSliceFlag) Append(value string) error {
 	return nil
 }
 
-// Replace replaces the flag values with the given values.
-//
-// implements pflag.SliceValue
-func (flag *EnumSliceFlag) Replace(values []string) error {
-	flag.Values = make([]string, 0, len(values))
-	for _, value := range values {
-		_ = flag.Append(value)
-	}
-	return nil
-}
-
 // GetSlice returns the flag value list as a slice of strings.
 //
-// implements pflag.SliceValue
+// implements cobra.SliceValue, so shell completion recognizes this flag can be specified
+// multiple times; production code reads the resolved values through cmd.Flags().GetStringSlice,
+// which goes through Type/String instead.
 func (flag EnumSliceFlag) GetSlice() []string {
-	if len(flag.Values) == 0 {
-		return flag.Default
-	}
-	if flag.all {
-		return append(append([]string{}, "all"), flag.Values...)
-	}
 	return flag.Values
 }
 

@@ -45,6 +45,7 @@ func (profiles profiles) profileFromGitConfig(context context.Context) *Profile 
 	if err != nil {
 		return nil
 	}
+	defer func() { _ = gitConfig.Close() }()
 	lgr.Printf("[DEBUG] found a git config file")
 
 	section, err := common.GetGitSection(context, gitConfig, `bitbucket "cli"`)

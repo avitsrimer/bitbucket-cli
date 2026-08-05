@@ -1,4 +1,4 @@
-package task
+package comment
 
 import (
 	"context"
@@ -71,7 +71,7 @@ func newFixtureRepository(t *testing.T, ws *workspace.Workspace) repository.Repo
 
 // setupTest primes the workspace/repository caches, points the profile client at a fresh
 // httptest server, and returns a standalone command carrying the flags this package's RunE
-// functions read (profile, repository, output, dry-run).
+// functions read (profile, repository, output, dry-run, pending).
 func setupTest(t *testing.T, handler http.HandlerFunc, dryRun bool) *cobra.Command {
 	t.Helper()
 
@@ -92,7 +92,7 @@ func setupTest(t *testing.T, handler http.HandlerFunc, dryRun bool) *cobra.Comma
 		t.Fatalf("cannot parse test server URL: %v", err)
 	}
 
-	testProfile := &profile.Profile{Name: "task-test", APIRoot: apiRoot, AccessToken: "dummy-token", OutputFormat: "json"}
+	testProfile := &profile.Profile{Name: "comment-test", APIRoot: apiRoot, AccessToken: "dummy-token", OutputFormat: "json"}
 	oldProfiles, oldCurrent := profile.Profiles, profile.Current
 	profile.Profiles = append(profile.Profiles, testProfile)
 	profile.Current = testProfile
@@ -107,7 +107,22 @@ func setupTest(t *testing.T, handler http.HandlerFunc, dryRun bool) *cobra.Comma
 	cmd.Flags().String("repository", fixtureRepositoryFlag, "")
 	cmd.Flags().String("output", "", "")
 	cmd.Flags().Bool("dry-run", dryRun, "")
+	cmd.Flags().Bool("pending", false, "")
 	return cmd
+}
+
+// withCommentEditOptions saves/restores a commentEditOptions value (createOptions or
+// updateOptions, both package-level singletons bound to their command's flags at init) so tests
+// can set the values they need without leaking state across other tests.
+func withCommentEditOptions(t *testing.T, options *commentEditOptions, mutate func()) {
+	t.Helper()
+	old := *options
+	oldPullRequestIDValue := options.PullRequestID.Value
+	t.Cleanup(func() {
+		*options = old
+		options.PullRequestID.Value = oldPullRequestIDValue
+	})
+	mutate()
 }
 
 // captureStdout redirects os.Stdout for the duration of fn and returns what was written; used

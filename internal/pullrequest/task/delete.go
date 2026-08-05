@@ -63,7 +63,6 @@ func deleteProcess(cmd *cobra.Command, args []string) error {
 		if common.WhatIf(cmd, "Deleting task %s from pullrequest %s", taskID, deleteOptions.PullRequestID) {
 			err := profile.Delete(
 				cmd.Context(),
-				cmd,
 				repository.GetPath("pullrequests", deleteOptions.PullRequestID.Value, "tasks", taskID),
 				nil,
 			)

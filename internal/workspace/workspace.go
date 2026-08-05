@@ -14,11 +14,11 @@ import (
 )
 
 type Workspace struct {
-	ID            common.UUID  `json:"uuid"  mapstructure:"uuid"`
-	Name          string       `json:"name"  mapstructure:"name"`
-	Slug          string       `json:"slug"  mapstructure:"slug"`
-	Administrator bool         `json:"administrator" mapstructure:"administrator"`
-	Links         common.Links `json:"links" mapstructure:"links"`
+	ID            common.UUID  `json:"uuid"`
+	Name          string       `json:"name"`
+	Slug          string       `json:"slug"`
+	Administrator bool         `json:"administrator"`
+	Links         common.Links `json:"links"`
 }
 
 var WorkspaceCache = common.NewCache[Workspace]()
@@ -103,14 +103,16 @@ func GetWorkspaceBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID st
 
 	err = currentProfile.Get(
 		ctx,
-		cmd,
 		"/workspaces/"+slugOrID,
 		&workspace,
 	)
 	if err != nil {
 		return workspace, fmt.Errorf("failed to get workspace %s: %w", slugOrID, err)
 	}
-	_ = WorkspaceCache.Set(*workspace, slugOrID)
+	if workspace == nil {
+		return nil, fmt.Errorf("received an empty response for workspace %s", slugOrID)
+	}
+	_ = WorkspaceCache.Set(slugOrID, *workspace)
 	return workspace, nil
 }
 

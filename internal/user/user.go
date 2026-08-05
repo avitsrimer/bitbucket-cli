@@ -3,6 +3,7 @@ package user
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -15,17 +16,17 @@ import (
 )
 
 type User struct {
-	Type          string       `json:"type"                     mapstructure:"type"`
-	ID            common.UUID  `json:"uuid"                     mapstructure:"uuid"`
-	AccountID     string       `json:"account_id"               mapstructure:"account_id"`
-	Username      string       `json:"username,omitempty"       mapstructure:"username"`
-	Name          string       `json:"display_name"             mapstructure:"display_name"`
-	Nickname      string       `json:"nickname,omitempty"       mapstructure:"nickname"`
-	Raw           string       `json:"raw,omitempty"            mapstructure:"raw"`
-	Kind          string       `json:"kind,omitempty"           mapstructure:"kind"`
-	Links         common.Links `json:"links"                    mapstructure:"links"`
-	CreatedOn     time.Time    `json:"created_on"               mapstructure:"created_on"`
-	AccountStatus string       `json:"account_status,omitempty" mapstructure:"account_status"`
+	Type          string       `json:"type"`
+	ID            common.UUID  `json:"uuid"`
+	AccountID     string       `json:"account_id"`
+	Username      string       `json:"username,omitempty"`
+	Name          string       `json:"display_name"`
+	Nickname      string       `json:"nickname,omitempty"`
+	Raw           string       `json:"raw,omitempty"`
+	Kind          string       `json:"kind,omitempty"`
+	Links         common.Links `json:"links"`
+	CreatedOn     time.Time    `json:"created_on"`
+	AccountStatus string       `json:"account_status,omitempty"`
 }
 
 var UserCache = common.NewCache[User]()
@@ -190,12 +191,14 @@ func GetMe(context context.Context, cmd *cobra.Command) (user *User, err error) 
 	}
 	err = profile.Get(
 		context,
-		cmd,
 		"/user",
 		&user,
 	)
 	if err == nil {
-		_ = UserCache.Set(*user, profile.Name+":me")
+		if user == nil {
+			return nil, errors.New("received an empty response for the current user")
+		}
+		_ = UserCache.Set(profile.Name+":me", *user)
 	}
 	return
 }
@@ -214,26 +217,23 @@ func GetUser(context context.Context, cmd *cobra.Command, userid string) (user *
 		return me, nil
 	}
 	userUUID, err := common.ParseUUID(userid)
-	if err == nil {
-		if user, err = UserCache.Get(profile.Name + ":" + userUUID.String()); err != nil {
-			err = profile.Get(
-				context,
-				cmd,
-				"/users/"+userUUID.String(),
-				&user,
-			)
-			if err == nil {
-				_ = UserCache.Set(*user, profile.Name+":"+userUUID.String())
-			}
-		}
+	if err != nil {
+		return nil, fmt.Errorf("cannot parse user id %s: %w", userid, err)
 	}
-	return
-}
-
-// GetUserFromFlags gets the user from the command
-func GetUserFromFlags(context context.Context, cmd *cobra.Command) (*User, error) {
-	if cmd.Flag("user") == nil {
-		return nil, fmt.Errorf("the command %s does not have a --user flag", cmd.Name())
+	if user, err = UserCache.Get(profile.Name + ":" + userUUID.String()); err == nil {
+		return user, nil
 	}
-	return GetUser(context, cmd, cmd.Flag("user").Value.String())
+	err = profile.Get(
+		context,
+		"/users/"+userUUID.String(),
+		&user,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("cannot get user %s: %w", userUUID.String(), err)
+	}
+	if user == nil {
+		return nil, fmt.Errorf("received an empty response for user %s", userUUID.String())
+	}
+	_ = UserCache.Set(profile.Name+":"+userUUID.String(), *user)
+	return user, nil
 }

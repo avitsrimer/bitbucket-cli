@@ -20,31 +20,31 @@ import (
 )
 
 type Repository struct {
-	ID                   common.UUID          `json:"uuid"                  mapstructure:"uuid"`
-	Name                 string               `json:"name,omitempty"                  mapstructure:"name"`
-	FullName             string               `json:"full_name,omitempty"             mapstructure:"full_name"`
-	Slug                 string               `json:"slug,omitempty"                  mapstructure:"slug"`
-	Owner                user.User            `json:"owner"                            mapstructure:"owner"`
-	Workspace            *workspace.Workspace `json:"workspace,omitempty"             mapstructure:"workspace"`
-	Project              project.Project      `json:"project"                         mapstructure:"project"`
-	HasIssues            bool                 `json:"has_issues"            mapstructure:"has_issues"`
-	HasWiki              bool                 `json:"has_wiki"              mapstructure:"has_wiki"`
-	IsPrivate            bool                 `json:"is_private"            mapstructure:"is_private"`
-	ForkPolicy           string               `json:"fork_policy,omitempty" mapstructure:"fork_policy"`
-	Size                 int64                `json:"size,omitempty"                  mapstructure:"size"`
-	Language             string               `json:"language,omitempty"    mapstructure:"language"`
-	MainBranch           string               `json:"-"                     mapstructure:"-"`
-	DefaultMergeStrategy string               `json:"-"                     mapstructure:"-"`
-	BranchingModel       string               `json:"-"                     mapstructure:"-"`
-	Parent               *Repository          `json:"parent,omitempty"      mapstructure:"parent"`
-	Links                common.Links         `json:"links"                 mapstructure:"links"`
-	CreatedOn            time.Time            `json:"created_on"            mapstructure:"created_on"`
-	UpdatedOn            time.Time            `json:"updated_on"            mapstructure:"updated_on"`
+	ID                   common.UUID          `json:"uuid"`
+	Name                 string               `json:"name,omitempty"`
+	FullName             string               `json:"full_name,omitempty"`
+	Slug                 string               `json:"slug,omitempty"`
+	Owner                user.User            `json:"owner"`
+	Workspace            *workspace.Workspace `json:"workspace,omitempty"`
+	Project              project.Project      `json:"project"`
+	HasIssues            bool                 `json:"has_issues"`
+	HasWiki              bool                 `json:"has_wiki"`
+	IsPrivate            bool                 `json:"is_private"`
+	ForkPolicy           string               `json:"fork_policy,omitempty"`
+	Size                 int64                `json:"size,omitempty"`
+	Language             string               `json:"language,omitempty"`
+	MainBranch           string               `json:"-"`
+	DefaultMergeStrategy string               `json:"-"`
+	BranchingModel       string               `json:"-"`
+	Parent               *Repository          `json:"parent,omitempty"`
+	Links                common.Links         `json:"links"`
+	CreatedOn            time.Time            `json:"created_on"`
+	UpdatedOn            time.Time            `json:"updated_on"`
 }
 
 type branch struct {
-	Type string `json:"type" mapstructure:"type"`
-	Name string `json:"name" mapstructure:"name"`
+	Type string `json:"type"`
+	Name string `json:"name"`
 }
 
 var RepositoryCache = common.NewCache[Repository]()
@@ -131,14 +131,16 @@ func GetRepositoryBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID s
 
 	err = profile.Get(
 		ctx,
-		cmd,
 		fmt.Sprintf("/repositories/%s/%s", ws.Slug, slugOrID),
 		&repository,
 	)
 	if err != nil {
 		return repository, fmt.Errorf("cannot get resource: %w", err)
 	}
-	_ = RepositoryCache.Set(*repository, fmt.Sprintf("%s/%s", ws.Slug, slugOrID))
+	if repository == nil {
+		return nil, fmt.Errorf("received an empty response for repository %s/%s", ws.Slug, slugOrID)
+	}
+	_ = RepositoryCache.Set(fmt.Sprintf("%s/%s", ws.Slug, slugOrID), *repository)
 	return repository, nil
 }
 

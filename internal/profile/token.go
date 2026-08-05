@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/gildas/go-core"
@@ -134,11 +133,6 @@ func (token *Token) GetExpiredSince() time.Duration {
 		return 0
 	}
 	return time.Since(time.Time(token.ExpiresOn))
-}
-
-// GetScopes returns the scopes of the token
-func (token *Token) GetScopes() []string {
-	return strings.Split(token.Scope, " ")
 }
 
 // UnmarshalTokenFromBitbucketData unmarshals the token data from the BitBucket response

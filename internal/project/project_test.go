@@ -41,12 +41,20 @@ func TestProjectMarshalJSONOmitsNilOwnerAndWorkspace(t *testing.T) {
 }
 
 func TestProjectMarshalJSONIncludesOwnerWorkspaceAndDates(t *testing.T) {
+	ownerID, err := common.ParseUUID("{11111111-1111-1111-1111-111111111111}")
+	if err != nil {
+		t.Fatalf("cannot parse fixture uuid: %v", err)
+	}
+	workspaceID, err := common.ParseUUID("{22222222-2222-2222-2222-222222222222}")
+	if err != nil {
+		t.Fatalf("cannot parse fixture uuid: %v", err)
+	}
 	createdOn := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
 	target := Project{
 		Key:       "OS",
 		Name:      "Open Source",
-		Owner:     user.User{ID: common.NewUUID(), Name: "Jane Doe"},
-		Workspace: workspace.Workspace{ID: common.NewUUID(), Slug: "acme"},
+		Owner:     user.User{ID: ownerID, Name: "Jane Doe"},
+		Workspace: workspace.Workspace{ID: workspaceID, Slug: "acme"},
 		CreatedOn: createdOn,
 	}
 

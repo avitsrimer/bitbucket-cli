@@ -30,16 +30,21 @@ func newTestRootCommand() *cobra.Command {
 	return root
 }
 
-// resetProfilesState saves the current package-level Profiles/Current globals and returns a
-// function that restores them, so tests exercising the real commands don't leak state
+// resetProfilesState saves the current package-level Profiles/Current globals and the
+// process-global common.CurrentConfig(), returning a function that restores all three. Every
+// test in this file calls common.Initialize, which overwrites common's config singleton, so
+// without this a test that runs later (possibly in another package sharing the same test
+// binary) could observe a config pointed at a deleted t.TempDir() from a prior test.
 func resetProfilesState() func() {
 	oldProfiles := profile.Profiles
 	oldCurrent := profile.Current
+	oldConfig := common.CurrentConfig()
 	profile.Profiles = nil
 	profile.Current = nil
 	return func() {
 		profile.Profiles = oldProfiles
 		profile.Current = oldCurrent
+		common.SetCurrentConfig(oldConfig)
 	}
 }
 
@@ -68,6 +73,73 @@ func (suite *ProfileSuite) TestLoadParsesTestdataConfigYAMLProfilesIdentically()
 	suite.True(profile.Profiles[1].Default)
 	suite.Equal("s3cr3tT0k3n", profile.Profiles[1].AccessToken)
 	suite.Empty(profile.Profiles[1].User)
+}
+
+// TestLoadParsesCamelCaseConfigKeys is a regression test proving camelCase config keys (the
+// spelling documented by Profile's json tags, and the shape viper used to accept before the
+// plain-YAML loader replaced it) still populate their fields instead of being silently dropped
+// by yaml.v3's case-sensitive key matching.
+func (suite *ProfileSuite) TestLoadParsesCamelCaseConfigKeys() {
+	defer resetProfilesState()()
+
+	cmd := newTestRootCommand()
+	suite.Require().NoError(cmd.PersistentFlags().Set("config", "../../testdata/config-camelcase.yml"))
+	suite.Require().NoError(common.Initialize(cmd))
+
+	err := profile.Profiles.Load(suite.Context, cmd)
+	suite.Require().NoError(err)
+	suite.Require().Len(profile.Profiles, 1)
+
+	got := profile.Profiles[0]
+	suite.Equal("camel", got.Name)
+	suite.Equal("user1", got.User)
+	suite.Equal("myworkspace", got.DefaultWorkspace)
+	suite.Equal("abc123", got.ClientID)
+	suite.Equal("s3cr3t", got.ClientSecret)
+	suite.Equal("t0k3n", got.AccessToken)
+	suite.Equal(uint16(8080), got.CallbackPort)
+	suite.Equal("json", got.OutputFormat)
+	suite.Equal(common.WarnOnError, got.ErrorProcessing)
+}
+
+// TestValidProfileNamesListsConfiguredProfiles covers the completion provider backing the root
+// --profile flag.
+func (suite *ProfileSuite) TestValidProfileNamesListsConfiguredProfiles() {
+	defer resetProfilesState()()
+
+	cmd := newTestRootCommand()
+	suite.Require().NoError(cmd.PersistentFlags().Set("config", "../../testdata/config.yml"))
+	suite.Require().NoError(common.Initialize(cmd))
+
+	names, directive := profile.ValidProfileNames(cmd, nil, "")
+	suite.Equal(cobra.ShellCompDirectiveNoFileComp, directive)
+	suite.ElementsMatch([]string{"simple", "test"}, names)
+}
+
+// TestValidProfileNamesReturnsNoCompletionsWhenArgAlreadyProvided mirrors
+// TestOpenPullRequestIDsCompletion's "argument already provided" case for this provider.
+func (suite *ProfileSuite) TestValidProfileNamesReturnsNoCompletionsWhenArgAlreadyProvided() {
+	defer resetProfilesState()()
+
+	cmd := newTestRootCommand()
+	names, directive := profile.ValidProfileNames(cmd, []string{"simple"}, "")
+	suite.Equal(cobra.ShellCompDirectiveNoFileComp, directive)
+	suite.Nil(names)
+}
+
+// TestValidProfileNamesReturnsEmptyWhenNoProfilesConfigured covers the "no profiles yet" path:
+// GetProfileFromCommand fails with ErrNoProfiles and completion should degrade to an empty list
+// rather than erroring out.
+func (suite *ProfileSuite) TestValidProfileNamesReturnsEmptyWhenNoProfilesConfigured() {
+	defer resetProfilesState()()
+
+	cmd := newTestRootCommand()
+	suite.Require().NoError(cmd.PersistentFlags().Set("config", filepath.Join(suite.T().TempDir(), "missing-config.yml")))
+	suite.Require().NoError(common.Initialize(cmd))
+
+	names, directive := profile.ValidProfileNames(cmd, nil, "")
+	suite.Equal(cobra.ShellCompDirectiveNoFileComp, directive)
+	suite.Empty(names)
 }
 
 // TestProfileCreateAndDeletePersistAcrossReloads drives the real create/delete commands against

@@ -37,9 +37,18 @@ Integrity is key. **All commits in Pull Requests must be signed** (GPG, SSH, or 
 
 ### 4. Command Structure
 
+* **This fork's scope is intentionally narrow:**  
+Only the `bb pullrequest` command tree, `bb user`, and the `bb profile` authentication plumbing
+they depend on are supported — see the README's `[!IMPORTANT]` note. Every other resource
+inherited from upstream (`repository`, `project`, `workspace`, `issue`, `pipeline`, `branch`,
+`commit`, `tag`, `artifact`, `gpg-key`, `ssh-key`, `cache`, `remote`, `component`) was removed
+deliberately. **New top-level command groups are out of scope** for this fork; contributions
+should extend the existing `pullrequest`/`user`/`profile` trees (new subcommands, flags, or
+columns), not reintroduce a removed resource or add a new one. Packages now live under
+`internal/` (Go 1.26 minimum), not `cmd/`.
 * **Resources and commands:**  
 `bb` is built as a modern CLI using subcommands. Ensure new features follow this pattern (e.g., `bb <resource> <subresource...> <command>`).  
-Resources should be nouns (e.g., `repository`, `pullrequest`), and commands should be verbs (e.g., `list`, `create`, `delete`). Resources should support the standard CRUD operations (Create -> `create`, Read -> `list` and `get`, Update -> `update`, Delete -> `delete`) where applicable. Additional commands are welcome.
+Commands should be verbs (e.g., `list`, `create`, `delete`) and support the standard CRUD operations (Create -> `create`, Read -> `list` and `get`, Update -> `update`, Delete -> `delete`) where applicable, within the scope above.
 * **Dry Run Support:**  
 All commands that modify data on Bitbucket should support the --dry-run flag to allow users to preview changes.
 * **Output Formats:**  
@@ -55,9 +64,11 @@ Ensure your code follows the standard Go language conventions (you can run `make
 If you are adding a feature, please update any relevant documentation or help text within the CLI and the [README.md](README.md) file.
 * **Tests**:  
 Verify your changes by running existing tests and adding new ones where applicable.  
-If you add JSON paylods in the tests, make sure to add them in the `testdata` directory and reference them in your test code. You can find examples in the existing test files.  
+If you add JSON paylods in the tests, make sure to add them in the `testdata` directory and reference them in your test code. You can find examples in the existing test files. An unreferenced file left in `testdata` will be flagged in review — delete it instead of leaving it behind.  
 Please ensure that the payloads are anonymized enough and do not contain any sensitive information.  
 You can run all tests with `make test`.
+* **CI gate**:  
+Every Pull Request must pass `go test -race ./...` and `golangci-lint run` (pinned to the version `.github/workflows/ci.yml` uses) before it can merge — this is the same gate CI enforces, so running both locally first avoids a red PR.
 
 ---
 

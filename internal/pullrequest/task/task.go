@@ -20,16 +20,16 @@ import (
 
 // Task represents a pull request task
 type Task struct {
-	ID         int                 `json:"id"                    mapstructure:"id"`
-	Content    common.RenderedText `json:"content"               mapstructure:"content"`
-	Creator    user.User           `json:"creator"               mapstructure:"creator"`
-	IsPending  bool                `json:"pending"               mapstructure:"pending"`
-	State      string              `json:"state"                 mapstructure:"state"`
-	Comment    *comment.Comment    `json:"comment,omitempty"     mapstructure:"comment"`
-	ResolvedBy *user.User          `json:"resolved_by,omitempty" mapstructure:"resolved_by"`
-	CreatedOn  time.Time           `json:"created_on"            mapstructure:"created_on"`
-	UpdatedOn  time.Time           `json:"updated_on"            mapstructure:"updated_on"`
-	ResolvedOn *time.Time          `json:"resolved_on,omitempty" mapstructure:"resolved_on"`
+	ID         int                 `json:"id"`
+	Content    common.RenderedText `json:"content"`
+	Creator    user.User           `json:"creator"`
+	IsPending  bool                `json:"pending"`
+	State      string              `json:"state"`
+	Comment    *comment.Comment    `json:"comment,omitempty"`
+	ResolvedBy *user.User          `json:"resolved_by,omitempty"`
+	CreatedOn  time.Time           `json:"created_on"`
+	UpdatedOn  time.Time           `json:"updated_on"`
+	ResolvedOn *time.Time          `json:"resolved_on,omitempty"`
 }
 
 // Command represents this folder's command

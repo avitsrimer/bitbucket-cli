@@ -12,14 +12,14 @@ import (
 )
 
 type CommentUpdator struct {
-	Content ContentUpdator     `json:"content"           mapstructure:"content"`
-	Anchor  *common.FileAnchor `json:"inline,omitempty"  mapstructure:"inline"`
-	Parent  *ParentReference   `json:"parent,omitempty"  mapstructure:"parent"`
-	Pending *bool              `json:"pending,omitempty" mapstructure:"pending"`
+	Content ContentUpdator     `json:"content"`
+	Anchor  *common.FileAnchor `json:"inline,omitempty"`
+	Parent  *ParentReference   `json:"parent,omitempty"`
+	Pending *bool              `json:"pending,omitempty"`
 }
 
 type ContentUpdator struct {
-	Raw string `json:"raw" mapstructure:"raw"`
+	Raw string `json:"raw"`
 }
 
 var updateCmd = &cobra.Command{
@@ -96,7 +96,6 @@ func updateProcess(cmd *cobra.Command, args []string) (err error) {
 
 	err = profile.Put(
 		cmd.Context(),
-		cmd,
 		repository.GetPath("pullrequests", updateOptions.PullRequestID.Value, "comments", args[0]),
 		payload,
 		&comment,

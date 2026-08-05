@@ -1,0 +1,10 @@
+profiles:
+    - name: camel
+      user: user1
+      defaultWorkspace: myworkspace
+      clientID: abc123
+      clientSecret: s3cr3t
+      accessToken: t0k3n
+      callbackPort: 8080
+      outputFormat: json
+      errorProcessing: 1
