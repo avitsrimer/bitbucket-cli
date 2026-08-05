@@ -1,6 +1,22 @@
 # Bitbucket Command Line Interface
 
+> [!NOTE]
+> **This project is a fork of [gildas/bitbucket-cli](https://github.com/gildas/bitbucket-cli).** All credit for the original design and implementation goes to Gildas Cherruel and the upstream contributors. This fork is maintained independently of the upstream project and is **detached** from it — it does not track upstream releases and does not aim for feature parity.
+
 [bb](https://github.com/gildas/bitbucket-cli) is the missing command line interface for Bitbucket. It brings the power of the Bitbucket platform to your command line. Creating and merging Pull Requests, cloning repositories, and more are now just a few keystrokes away.
+
+> [!IMPORTANT]
+> **This is an opinionated fork that exists to do one thing: work with Bitbucket pull requests from the terminal.**
+>
+> Only the `bb pullrequest` command tree — plus the `bb profile` authentication plumbing it depends on — is supported, tested, and maintained here. Every other command group inherited from upstream (`repository`, `project`, `workspace`, `issue`, `pipeline`, `branch`, `commit`, `tag`, `artifact`, `gpg-key`, `ssh-key`, `user`, `cache`, `remote`, `component`) is still present in the command tree but is **unsupported in this fork**: it is not exercised, and breakage in it will not be treated as a bug. Use [upstream](https://github.com/gildas/bitbucket-cli) if you need any of it.
+
+The supported surface is:
+
+- **Pull requests** — `bb pullrequest` → `list`, `get`, `create`, `update`, `decline`, `merge`, `merge-status`, `approve`, `unapprove`, `request-changes`, `remove-request-changes`, `diff`, `patch`, `commits`, `activities`
+- **Comments** — `bb pullrequest comment` → `list`, `get`, `create`, `update`, `delete`, `resolve`, `reopen`
+- **Tasks** — `bb pullrequest task` → `list`, `get`, `create`, `update`, `delete`
+- **Activity** — `bb pullrequest activity list`
+- **Authentication** — `bb profile` (including API tokens stored in the macOS Keychain, see [Profiles](#profiles)) and `bb completion`
 
 ## Installation
 
@@ -1339,6 +1355,16 @@ If you set the log level to DEBUG or more, `bb` will also log the source of the 
 We will add more commands in the future. If you have any suggestions, please open an issue.
 
 We are in the process of adding support for Bitbucket Server/Data Center. (Issue [#65](https://github.com/gildas/bitbucket-cli/issues/65), Branch [feature/Issue-#65-Datacenter](https://github.com/gildas/bitbucket-cli/tree/feature/Issue-%2365-Datacenter))
+
+## Maturity
+
+> [!WARNING]
+> **This fork is under active development and maintained independently, on a best-effort basis.**
+> There are no on-call support or SLAs. Bugs and issues are tracked and addressed as time allows.
+
+This project should be considered a personal, opinionated fork, not an officially supported release of `bitbucket-cli`. Pull-request features are the only ones kept working; anything outside that surface may break without notice and is not covered by this fork's scope.
+
+See the upstream [`gildas/bitbucket-cli`](https://github.com/gildas/bitbucket-cli) project for the fully-featured tool this fork is based on — it is the right choice if you want the whole Bitbucket surface, Bitbucket Server/Data Center work, or a maintainer with a release cadence.
 
 ## Stargazers over time
 
