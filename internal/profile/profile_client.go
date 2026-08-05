@@ -704,12 +704,14 @@ func (profile *Profile) send(ctx context.Context, options *requestOptions, uripa
 		return req, nil
 	}
 
-	lgr.Printf("[DEBUG] sending %s request to %s", options.Method, reqURL)
+	// reqURL.Redacted() masks any userinfo password before it hits the debug log; String() (what
+	// %s would otherwise call) does not.
+	lgr.Printf("[DEBUG] sending %s request to %s", options.Method, reqURL.Redacted())
 	result, err = doRequestWithRetry(ctx, options.Method, newReq)
 	if err != nil {
 		return nil, err
 	}
-	lgr.Printf("[DEBUG] received %s for %s %s", result.StatusText, options.Method, reqURL)
+	lgr.Printf("[DEBUG] received %s for %s %s", result.StatusText, options.Method, reqURL.Redacted())
 
 	if result.StatusCode >= http.StatusBadRequest {
 		return result, mapErrorResponse(result)

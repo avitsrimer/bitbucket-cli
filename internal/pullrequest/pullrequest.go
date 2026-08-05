@@ -241,6 +241,23 @@ func GetReviewerNicknames(ctx context.Context, cmd *cobra.Command, args []string
 	return common.FilterValidArgs(nicknames, args, toComplete), nil
 }
 
+// reviewerCompletionFunc adapts GetReviewerNicknames to cobra's shell-completion function
+// signature for the --reviewer/--add-reviewer/--remove-reviewer flags.
+//
+// These flags are plain string slices, not common.EnumSliceFlag: the reviewer identifier a user
+// may pass is not limited to a workspace member's nickname -- it can be an Account ID, a UUID, a
+// display name, or the documented `default` sentinel (see resolveExplicitReviewers/
+// resolveDefaultReviewers, which validate and resolve the value at request time instead).
+// GetReviewerNicknames' member list is used here purely as a shell-completion aid, never to reject
+// an otherwise valid value at flag-parse time.
+func reviewerCompletionFunc(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	nicknames, err := GetReviewerNicknames(cmd.Context(), cmd, args, toComplete)
+	if err != nil {
+		return []string{}, cobra.ShellCompDirectiveError
+	}
+	return nicknames, cobra.ShellCompDirectiveNoFileComp
+}
+
 // MarshalJSON implements the json.Marshaler interface.
 func (pullrequest PullRequest) MarshalJSON() (data []byte, err error) {
 	type surrogate PullRequest

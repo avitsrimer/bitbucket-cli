@@ -14,14 +14,14 @@ func withCreateOptions(t *testing.T, mutate func()) {
 	t.Helper()
 	oldTitle, oldDescription := createOptions.Title, createOptions.Description
 	oldSourceValue, oldDestinationValue := createOptions.Source.Value, createOptions.Destination.Value
-	oldReviewerValues := createOptions.Reviewers.Values
+	oldReviewerValues := createOptions.Reviewers
 	oldCloseSourceBranch, oldDraft := createOptions.CloseSourceBranch, createOptions.Draft
 	t.Cleanup(func() {
 		createOptions.Title = oldTitle
 		createOptions.Description = oldDescription
 		createOptions.Source.Value = oldSourceValue
 		createOptions.Destination.Value = oldDestinationValue
-		createOptions.Reviewers.Values = oldReviewerValues
+		createOptions.Reviewers = oldReviewerValues
 		createOptions.CloseSourceBranch = oldCloseSourceBranch
 		createOptions.Draft = oldDraft
 	})
@@ -34,7 +34,7 @@ func TestCreateProcessSuccessWithDefaultReviewers(t *testing.T) {
 		createOptions.Description = "some description"
 		createOptions.Source.Value = "feature"
 		createOptions.Destination.Value = ""
-		createOptions.Reviewers.Values = nil
+		createOptions.Reviewers = nil
 	})
 
 	var requests []*http.Request
@@ -105,7 +105,7 @@ func TestCreateProcessDefaultReviewersAPIError(t *testing.T) {
 		createOptions.Title = "Add feature"
 		createOptions.Source.Value = "feature"
 		createOptions.Destination.Value = ""
-		createOptions.Reviewers.Values = nil
+		createOptions.Reviewers = nil
 	})
 
 	var pullrequestRequests int
@@ -146,7 +146,7 @@ func TestCreateProcessPostAPIError(t *testing.T) {
 		createOptions.Title = "Add feature"
 		createOptions.Source.Value = "dummy"
 		createOptions.Destination.Value = ""
-		createOptions.Reviewers.Values = nil
+		createOptions.Reviewers = nil
 	})
 
 	fixture, err := os.ReadFile("../../testdata/error-badrequest-nobranch.json")
@@ -185,7 +185,7 @@ func TestCreateProcessDryRun(t *testing.T) {
 		createOptions.Title = "Add feature"
 		createOptions.Source.Value = "feature"
 		createOptions.Destination.Value = ""
-		createOptions.Reviewers.Values = nil
+		createOptions.Reviewers = nil
 	})
 
 	var pullrequestRequests int

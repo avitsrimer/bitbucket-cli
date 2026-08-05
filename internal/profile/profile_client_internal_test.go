@@ -1,6 +1,7 @@
 package profile
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -8,10 +9,12 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -459,6 +462,45 @@ func TestDoRequestWithRetryRetriesPostOnPreSendConnectionError(t *testing.T) {
 }
 
 var errStopTest = errors.New("stop test")
+
+// TestSendRedactsURLUserinfoInDebugLogs is a regression test for review-iter4 finding 4: send's
+// two debug log lines interpolated reqURL directly with %s, which calls url.URL.String() -- it
+// does not mask a userinfo password -- so an APIRoot carrying userinfo credentials (preserved
+// verbatim by MarshalYAML/UnmarshalYAML's string-form round trip) leaked its password in plain
+// text on every request. reqURL.Redacted() must be used in both lines instead.
+func TestSendRedactsURLUserinfoInDebugLogs(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	apiRoot, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("cannot parse test server URL: %v", err)
+	}
+	apiRoot.User = url.UserPassword("alice", "s3cr3t-userinfo-password")
+
+	var buf bytes.Buffer
+	lgr.Setup(lgr.Out(&buf), lgr.Debug)
+	defer lgr.Setup() // restore the package's zero-value default logger
+
+	target := &Profile{APIRoot: apiRoot, AccessToken: "dummy-token"}
+	if err := target.Get(context.Background(), "/repo", &struct{}{}); err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+
+	logged := buf.String()
+	if strings.Contains(logged, "s3cr3t-userinfo-password") {
+		t.Errorf("debug log = %q, must not contain the apiRoot userinfo password in plain text", logged)
+	}
+	if !strings.Contains(logged, "alice") {
+		t.Errorf("debug log = %q, want the apiRoot username still visible for context", logged)
+	}
+	if !strings.Contains(logged, "sending") || !strings.Contains(logged, "received") {
+		t.Errorf("debug log = %q, want both the \"sending\" and \"received\" lines present", logged)
+	}
+}
 
 // TestDoRequestWithRetryStopsAtOverallBudget is a regression test: honoring an uncapped
 // Retry-After with no overall deadline could freeze a request for hours. This shrinks

@@ -79,7 +79,7 @@ func (profile *Profile) loadAccessToken(_ context.Context) (err error) {
 		return ErrNoAccessToken // Not found is not a fatal error: the caller can fall through to the OAuth2 flow
 	}
 	profile.AccessToken = credential.Password
-	profile.accessTokenFromVault = true // must never be written back to the config file in plain text
+	profile.vault.accessToken = true // must never be written back to the config file in plain text
 	lgr.Printf("[DEBUG] loaded repository/project/workspace access token for profile %s from the vault", profile.Name)
 	profile.token = &Token{
 		AccessToken: profile.AccessToken,

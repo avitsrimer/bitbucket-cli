@@ -145,7 +145,7 @@ func resolveProfileCredentials(cmd *cobra.Command, profile *Profile) error {
 		}
 	}
 
-	if profile.AccessToken != "" || profile.ClientSecret != "" || profile.Password != "" {
+	if profile.hasPlainTextSecret() {
 		lgr.Printf("[DEBUG] profile %s stored its credentials in plain text, we should keep it that way", profile.Name)
 		updateOptions.NoVault = true
 	}
@@ -204,6 +204,7 @@ func moveCredentialsToVault(profile *Profile, vaultKey string) error {
 		}
 		lgr.Printf("[DEBUG] stored client secret in the vault for %s", profile.ClientID)
 		profile.ClientSecret = ""
+		profile.vault.clientSecret = false
 		updateOptions.ClientSecret = ""
 	case profile.Password != "":
 		if err := profile.SetCredentialInVault(vaultKey, profile.User, profile.Password); err != nil {
@@ -211,6 +212,7 @@ func moveCredentialsToVault(profile *Profile, vaultKey string) error {
 		}
 		lgr.Printf("[DEBUG] stored user password in the vault for %s", profile.User)
 		profile.Password = ""
+		profile.vault.password = false
 		updateOptions.Password = ""
 	case profile.AccessToken != "":
 		if err := profile.SetCredentialInVault(vaultKey, profile.Name, profile.AccessToken); err != nil {
@@ -218,7 +220,7 @@ func moveCredentialsToVault(profile *Profile, vaultKey string) error {
 		}
 		lgr.Printf("[DEBUG] stored access token in the vault for %s", profile.Name)
 		profile.AccessToken = ""
-		profile.accessTokenFromVault = false
+		profile.vault.accessToken = false
 		updateOptions.AccessToken = ""
 	}
 	return nil

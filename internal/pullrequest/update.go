@@ -34,8 +34,8 @@ var updateOptions struct {
 	Title             string
 	Description       string
 	Destination       *common.EnumFlag
-	AddReviewers      *common.EnumSliceFlag
-	RemoveReviewers   *common.EnumSliceFlag
+	AddReviewers      []string
+	RemoveReviewers   []string
 	CloseSourceBranch bool
 }
 
@@ -43,19 +43,17 @@ func init() {
 	Command.AddCommand(updateCmd)
 
 	updateOptions.Destination = common.NewEnumFlagWithFunc(updateCmd, "", branch.GetBranchNames)
-	updateOptions.AddReviewers = common.NewEnumSliceFlagWithAllAllowedAndFunc(updateCmd, GetReviewerNicknames)
-	updateOptions.RemoveReviewers = common.NewEnumSliceFlagWithAllAllowedAndFunc(updateCmd, GetReviewerNicknames)
 
 	updateCmd.Flags().StringVar(&updateOptions.Title, "title", "", "Title of the pullrequest")
 	updateCmd.Flags().StringVar(&updateOptions.Description, "description", "", "Description of the pullrequest")
 	updateCmd.Flags().Var(updateOptions.Destination, "destination", "Destination branch of the pullrequest")
-	updateCmd.Flags().Var(updateOptions.AddReviewers, "add-reviewer", "Reviewer(s) to add to the pullrequest. Can be specified multiple times, or as a comma-separated list. Can be the user Account ID, UUID, name, or nickname.")
-	updateCmd.Flags().Var(updateOptions.RemoveReviewers, "remove-reviewer", "Reviewer(s) to remove from the pullrequest. Can be specified multiple times, or as a comma-separated list. Can be the user Account ID, UUID, name, or nickname.")
+	updateCmd.Flags().StringSliceVar(&updateOptions.AddReviewers, "add-reviewer", nil, "Reviewer(s) to add to the pullrequest. Can be specified multiple times, or as a comma-separated list. Can be the user Account ID, UUID, name, or nickname. If the first reviewer is `default`, the command will try to find the default reviewers from the repository or project settings.")
+	updateCmd.Flags().StringSliceVar(&updateOptions.RemoveReviewers, "remove-reviewer", nil, "Reviewer(s) to remove from the pullrequest. Can be specified multiple times, or as a comma-separated list. Can be the user Account ID, UUID, name, or nickname.")
 	updateCmd.Flags().BoolVar(&updateOptions.CloseSourceBranch, "close-source-branch", false, "Close the source branch after merging")
 
 	_ = updateCmd.RegisterFlagCompletionFunc(updateOptions.Destination.CompletionFunc("destination"))
-	_ = updateCmd.RegisterFlagCompletionFunc(updateOptions.AddReviewers.CompletionFunc("add-reviewer"))
-	_ = updateCmd.RegisterFlagCompletionFunc(updateOptions.RemoveReviewers.CompletionFunc("remove-reviewer"))
+	_ = updateCmd.RegisterFlagCompletionFunc("add-reviewer", reviewerCompletionFunc)
+	_ = updateCmd.RegisterFlagCompletionFunc("remove-reviewer", reviewerCompletionFunc)
 }
 
 func updateValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
@@ -192,11 +190,11 @@ func applySimpleFieldUpdates(cmd *cobra.Command, pullrequest *PullRequest) bool 
 // removeRequestedReviewers removes reviewers listed in --remove-reviewer from pullrequest and
 // reports whether anything changed
 func removeRequestedReviewers(cmd *cobra.Command, pullrequest *PullRequest, isMember func(workspace.Member, string) bool) bool {
-	if !cmd.Flag("remove-reviewer").Changed || len(updateOptions.RemoveReviewers.Values) == 0 {
+	if !cmd.Flag("remove-reviewer").Changed || len(updateOptions.RemoveReviewers) == 0 {
 		return false
 	}
 	updateWanted := false
-	for _, reviewerNameOrID := range updateOptions.RemoveReviewers.Values {
+	for _, reviewerNameOrID := range updateOptions.RemoveReviewers {
 		found := -1
 		for index, reviewer := range pullrequest.Reviewers {
 			if isMember(workspace.Member{User: reviewer}, reviewerNameOrID) {
@@ -215,7 +213,7 @@ func removeRequestedReviewers(cmd *cobra.Command, pullrequest *PullRequest, isMe
 // resolveDefaultReviewers resolves the "default" sentinel in --add-reviewer to the effective
 // default reviewers of the pullrequest's source repository (excluding the current user),
 // returning the resolved reviewer values with the rest of the original --add-reviewer list
-// appended. It reads updateOptions.AddReviewers.Values but never writes to it, so repeated
+// appended. It reads updateOptions.AddReviewers but never writes to it, so repeated
 // calls (e.g. across tests reusing the package-level singleton) are idempotent.
 func resolveDefaultReviewers(ctx context.Context, cmd *cobra.Command, pullrequest *PullRequest) ([]string, error) {
 	if pullrequest.Source.Repository == nil {
@@ -249,18 +247,18 @@ func resolveDefaultReviewers(ctx context.Context, cmd *cobra.Command, pullreques
 	// Replace the first reviewer with the list of default reviewers and append the rest
 	return append(
 		core.Map(reviewers, func(reviewer project.Reviewer) string { return reviewer.User.ID.String() }),
-		updateOptions.AddReviewers.Values[1:]...,
+		updateOptions.AddReviewers[1:]...,
 	), nil
 }
 
 // addRequestedReviewers adds reviewers listed in --add-reviewer (resolving the "default" sentinel
 // first) and reports whether anything changed
 func addRequestedReviewers(ctx context.Context, cmd *cobra.Command, pullrequest *PullRequest, pullrequestWorkspace *workspace.Workspace, isMember func(workspace.Member, string) bool) (bool, error) {
-	if !cmd.Flag("add-reviewer").Changed || len(updateOptions.AddReviewers.Values) == 0 {
+	if !cmd.Flag("add-reviewer").Changed || len(updateOptions.AddReviewers) == 0 {
 		return false, nil
 	}
 
-	reviewerValues := updateOptions.AddReviewers.Values
+	reviewerValues := updateOptions.AddReviewers
 	if reviewerValues[0] == "default" {
 		resolved, err := resolveDefaultReviewers(ctx, cmd, pullrequest)
 		if err != nil {
