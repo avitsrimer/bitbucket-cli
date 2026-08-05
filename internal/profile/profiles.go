@@ -199,8 +199,35 @@ func saveProfilesConfig() error {
 		return errors.New("configuration not loaded")
 	}
 	lgr.Printf("[DEBUG] writing configuration to %s", config.Path)
+	restore := Profiles.clearVaultLoadedAccessTokens()
+	defer restore()
 	if err := config.SetSection("profiles", Profiles); err != nil {
 		return fmt.Errorf("cannot write config file: %w", err)
 	}
 	return nil
+}
+
+// clearVaultLoadedAccessTokens blanks the AccessToken field of any profile whose value was loaded
+// from the vault at runtime (Profile.accessTokenFromVault), so that value is never serialized back
+// to the config file in plain text: e.g. authorizing a command's own workspace-completion request
+// against the current profile must not leave its vault-stored access token sitting in
+// config-cli.yml the next time any profile is saved. It returns a function that restores the
+// in-memory values afterward, so the rest of this process keeps working with them.
+func (profiles profiles) clearVaultLoadedAccessTokens() func() {
+	type saved struct {
+		profile *Profile
+		value   string
+	}
+	var cleared []saved
+	for _, p := range profiles {
+		if p.accessTokenFromVault {
+			cleared = append(cleared, saved{profile: p, value: p.AccessToken})
+			p.AccessToken = ""
+		}
+	}
+	return func() {
+		for _, entry := range cleared {
+			entry.profile.AccessToken = entry.value
+		}
+	}
 }

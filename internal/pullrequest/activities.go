@@ -53,6 +53,7 @@ var activitiesOptions struct {
 	Columns    *common.EnumSliceFlag
 	SortBy     *common.EnumFlag
 	PageLength int
+	Limit      int
 }
 
 func init() {
@@ -64,6 +65,7 @@ func init() {
 	activitiesCmd.Flags().Var(activitiesOptions.Columns, "columns", "Comma-separated list of columns to display")
 	activitiesCmd.Flags().Var(activitiesOptions.SortBy, "sort", "Column to sort by")
 	activitiesCmd.Flags().IntVar(&activitiesOptions.PageLength, "page-length", 0, "Number of items per page to retrieve from Bitbucket. Default is the profile's default page length")
+	activitiesCmd.Flags().IntVar(&activitiesOptions.Limit, "limit", 0, "Maximum total number of activities to retrieve. Default is to retrieve all of them")
 	_ = activitiesCmd.RegisterFlagCompletionFunc(activitiesOptions.Columns.CompletionFunc("columns"))
 	_ = activitiesCmd.RegisterFlagCompletionFunc(activitiesOptions.SortBy.CompletionFunc("sort"))
 }

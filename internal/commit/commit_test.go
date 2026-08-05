@@ -73,3 +73,40 @@ func (suite *CommitSuite) TestCanMarshalCommitReference() {
 	suite.Require().NoError(err)
 	suite.JSONEq(expected, string(data))
 }
+
+// TestCommitReferenceGetShortHashLongHash proves the normal case still returns a 7-character
+// short hash.
+func (suite *CommitSuite) TestCommitReferenceGetShortHashLongHash() {
+	reference := commit.CommitReference{Hash: "026560720168aa12820a01e8262f6bb60f0639d1"}
+	suite.Equal("0265607", reference.GetShortHash())
+}
+
+// TestCommitReferenceGetShortHashShortHashDoesNotPanic is a regression test: the refactor that
+// introduced CommitReference dropped the length-guarded GetShortHash helper the old
+// CommitReference (58a098e:cmd/commit/commit_reference.go) had, so any merge_commit hash shorter
+// than 7 characters sliced out of range and panicked. It must now return the hash as-is instead.
+func (suite *CommitSuite) TestCommitReferenceGetShortHashShortHashDoesNotPanic() {
+	reference := commit.CommitReference{Hash: "abc"}
+	suite.NotPanics(func() {
+		suite.Equal("abc", reference.GetShortHash())
+	})
+}
+
+// TestCommitReferenceGetShortHashEmptyHash covers the boundary case of an empty hash.
+func (suite *CommitSuite) TestCommitReferenceGetShortHashEmptyHash() {
+	reference := commit.CommitReference{}
+	suite.Empty(reference.GetShortHash())
+}
+
+// TestLongHashSorterComparesHash is a regression test: the "longhash" column's Compare used to
+// compare Message instead of Hash, so "bb pr commits --sort longhash" silently sorted by commit
+// message even though it is exposed as a hash-based sorter.
+func (suite *CommitSuite) TestLongHashSorterComparesHash() {
+	compare := commit.Commit{}.GetColumnDefinitions().SortBy("longhash")
+
+	a := commit.Commit{Hash: "aaaaaaa", Message: "zzz message"}
+	b := commit.Commit{Hash: "bbbbbbb", Message: "aaa message"}
+
+	suite.True(compare(a, b), "expected a (hash aaaaaaa) to sort before b (hash bbbbbbb)")
+	suite.False(compare(b, a), "expected b (hash bbbbbbb) not to sort before a (hash aaaaaaa)")
+}

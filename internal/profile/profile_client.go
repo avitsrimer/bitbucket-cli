@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -32,6 +33,19 @@ const (
 	initialRetryBackoff = 500 * time.Millisecond
 	maxRetryBackoff     = 8 * time.Second
 )
+
+// maxRetryAfterBackoff caps how long a server-supplied Retry-After header is honored for. A
+// header can legitimately ask for minutes or hours (a sustained rate-limit window); honoring it
+// verbatim would otherwise freeze an interactive CLI command for that entire duration with only a
+// single [WARN] line to show for it. Past this cap, doRequestWithRetry's own maxRetryBudget and
+// maxRequestAttempts end the request instead.
+const maxRetryAfterBackoff = 30 * time.Second
+
+// maxRetryBudget is the overall wall-clock budget for a single request's attempts and backoff
+// delays combined, independent of what any individual Retry-After header asks for. It is a var
+// (not a const) solely so tests can shrink it to exercise the budget-exceeded path quickly;
+// production code never reassigns it.
+var maxRetryBudget = 2 * time.Minute
 
 // userAgent is sent with every outgoing request.
 const userAgent = "bitbucket-cli"
@@ -309,12 +323,13 @@ func writeAuthorizationErrorResponse(w http.ResponseWriter, err error, result *R
 }
 
 func (profile *Profile) authorize(ctx context.Context) (authorization string, err error) {
-	if loadErr := profile.loadAccessToken(ctx); loadErr == nil {
-		if !profile.isTokenExpired() {
-			lgr.Printf("[DEBUG] using access token for profile %s", profile.Name)
-			lgr.Printf("[DEBUG] token expires on %s in %s", profile.token.GetExpiresOn().Format(time.RFC3339), profile.token.GetExpiresIn())
-			return bearerAuthorization(profile.token.AccessToken), nil
-		}
+	// loadAccessToken's contract guarantees profile.token is non-nil whenever it returns a nil
+	// error, so the nil-safe isTokenExpired() and the token.GetExpiresOn() dereference below are
+	// only reached once we know we actually have a token.
+	if loadErr := profile.loadAccessToken(ctx); loadErr == nil && !profile.isTokenExpired() {
+		lgr.Printf("[DEBUG] using access token for profile %s", profile.Name)
+		lgr.Printf("[DEBUG] token expires on %s in %s", profile.token.GetExpiresOn().Format(time.RFC3339), profile.token.GetExpiresIn())
+		return bearerAuthorization(profile.token.AccessToken), nil
 	}
 
 	payload := map[string]string{}
@@ -415,7 +430,7 @@ func sendOAuthTokenRequest(ctx context.Context, clientID, clientSecret string, p
 		return req, nil
 	}
 
-	result, err := doRequestWithRetry(ctx, newReq)
+	result, err := doRequestWithRetry(ctx, http.MethodPost, newReq)
 	if err != nil {
 		return nil, err
 	}
@@ -425,26 +440,71 @@ func sendOAuthTokenRequest(ctx context.Context, clientID, clientSecret string, p
 	return result, nil
 }
 
-// isRetryableStatus reports whether a response's status code warrants an automatic retry:
-// rate-limiting and the transient upstream failure statuses BitBucket (and any gateway in front
-// of it) may return.
-func isRetryableStatus(statusCode int) bool {
-	switch statusCode {
-	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+// isIdempotentMethod reports whether method is safe to retry after an ambiguous failure: repeating
+// it cannot itself create a duplicate side effect on the server, because performing it more than
+// once has the same effect as performing it once.
+func isIdempotentMethod(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodPut, http.MethodDelete:
 		return true
 	default:
 		return false
 	}
 }
 
-// retryDelay computes how long to wait before the next attempt: the response's Retry-After
-// header when present (seconds, per RFC 9110), otherwise exponential backoff capped at
-// maxRetryBackoff.
+// isRetryableStatus reports whether a response's status code warrants an automatic retry for the
+// given request method. Rate-limiting (429) is always safe to retry: BitBucket rejected the
+// request outright, so it was never processed. The upstream-gateway statuses (502/503/504) are
+// ambiguous - the request may have reached and been applied by BitBucket before the gateway lost
+// the response - so they are only retried for idempotent methods; retrying a non-idempotent
+// POST/PATCH on one of these could create a duplicate pull request, comment, task, or repeat a
+// merge/approve/decline.
+func isRetryableStatus(method string, statusCode int) bool {
+	switch statusCode {
+	case http.StatusTooManyRequests:
+		return true
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return isIdempotentMethod(method)
+	default:
+		return false
+	}
+}
+
+// isPreSendConnectionError reports whether err represents a failure establishing the connection
+// itself (DNS resolution, TCP dial, TLS handshake) rather than one that could have occurred after
+// the request was already written to the wire. Such failures are safe to retry even for a
+// non-idempotent method, since the server never received the request.
+func isPreSendConnectionError(err error) bool {
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		switch opErr.Op {
+		case "dial", "resolve":
+			return true
+		}
+	}
+	var dnsErr *net.DNSError
+	return errors.As(err, &dnsErr)
+}
+
+// isRetryableError reports whether a transport-level error (no response received at all) warrants
+// an automatic retry for the given request method: always for idempotent methods, and for a
+// non-idempotent method only when the failure demonstrably happened before the request could have
+// reached the server.
+func isRetryableError(method string, err error) bool {
+	return isIdempotentMethod(method) || isPreSendConnectionError(err)
+}
+
+// retryDelay computes how long to wait before the next attempt: the response's Retry-After header
+// when present and strictly positive (seconds, per RFC 9110), capped at maxRetryAfterBackoff;
+// otherwise exponential backoff capped at maxRetryBackoff. A "Retry-After: 0" (or a negative/
+// unparsable value) is treated the same as no header at all - use the computed backoff - rather
+// than as "retry with no delay", which would otherwise hammer a server that just told us it is
+// rate-limiting us.
 func retryDelay(attempt int, headers http.Header) time.Duration {
 	if headers != nil {
 		if retryAfter := headers.Get("Retry-After"); retryAfter != "" {
-			if seconds, err := strconv.Atoi(retryAfter); err == nil && seconds >= 0 {
-				return time.Duration(seconds) * time.Second
+			if seconds, err := strconv.Atoi(retryAfter); err == nil && seconds > 0 {
+				return min(time.Duration(seconds)*time.Second, maxRetryAfterBackoff)
 			}
 		}
 	}
@@ -475,17 +535,25 @@ func doRequest(ctx context.Context, newReq func(context.Context) (*http.Request,
 	return &Response{StatusCode: res.StatusCode, StatusText: res.Status, Headers: res.Header, Body: data}, nil
 }
 
-// doRequestWithRetry retries doRequest up to maxRequestAttempts times on transport errors and on
-// the retryable status codes reported by isRetryableStatus, waiting retryDelay between attempts
-// (honoring the response's Retry-After header when present) and aborting immediately if ctx is
-// done. newReq is invoked once per attempt so a request body can be rebuilt from scratch each
-// time (an *http.Request's body can only be read once).
-func doRequestWithRetry(ctx context.Context, newReq func(context.Context) (*http.Request, error)) (*Response, error) {
+// doRequestWithRetry retries doRequest up to maxRequestAttempts times, bounded overall by
+// maxRetryBudget, on transport errors and on the retryable status codes reported by
+// isRetryableStatus (both method-aware: see isRetryableError/isRetryableStatus), waiting
+// retryDelay between attempts (honoring the response's Retry-After header when present, capped at
+// maxRetryAfterBackoff) and aborting immediately if ctx is done. newReq is invoked once per
+// attempt so a request body can be rebuilt from scratch each time (an *http.Request's body can
+// only be read once).
+func doRequestWithRetry(ctx context.Context, method string, newReq func(context.Context) (*http.Request, error)) (*Response, error) {
+	budgetCtx, cancel := context.WithTimeout(ctx, maxRetryBudget)
+	defer cancel()
+
 	var lastErr error
 	for attempt := range maxRequestAttempts {
-		result, err := doRequest(ctx, newReq)
-		if err == nil && !isRetryableStatus(result.StatusCode) {
+		result, err := doRequest(budgetCtx, newReq)
+		if err == nil && !isRetryableStatus(method, result.StatusCode) {
 			return result, nil
+		}
+		if err != nil && !isRetryableError(method, err) {
+			return nil, err
 		}
 		lastErr = err
 		if attempt == maxRequestAttempts-1 {
@@ -504,8 +572,8 @@ func doRequestWithRetry(ctx context.Context, newReq func(context.Context) (*http
 			lgr.Printf("[WARN] request returned %s, retrying in %s (attempt %d/%d)", result.StatusText, delay, attempt+2, maxRequestAttempts)
 		}
 		select {
-		case <-ctx.Done():
-			return nil, fmt.Errorf("request canceled: %w", ctx.Err())
+		case <-budgetCtx.Done():
+			return nil, fmt.Errorf("request retry budget exceeded: %w", budgetCtx.Err())
 		case <-time.After(delay):
 		}
 	}
@@ -616,7 +684,7 @@ func (profile *Profile) send(ctx context.Context, options *requestOptions, uripa
 	}
 
 	lgr.Printf("[DEBUG] sending %s request to %s", options.Method, reqURL)
-	result, err = doRequestWithRetry(ctx, newReq)
+	result, err = doRequestWithRetry(ctx, options.Method, newReq)
 	if err != nil {
 		return nil, err
 	}

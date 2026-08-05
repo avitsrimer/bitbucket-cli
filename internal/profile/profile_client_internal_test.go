@@ -2,11 +2,15 @@ package profile
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -125,6 +129,54 @@ func TestNextPageURL(t *testing.T) {
 	})
 }
 
+// TestLoadAccessTokenReturnsErrNoAccessTokenWhenNothingCached pins loadAccessToken's contract: a
+// nil error must mean profile.token is now non-nil. When nothing can be found (no in-memory
+// token, no plain AccessToken, no cache file, no vault entry), it must return ErrNoAccessToken
+// rather than silently returning nil while leaving profile.token nil.
+func TestLoadAccessTokenReturnsErrNoAccessTokenWhenNothingCached(t *testing.T) {
+	target := &Profile{Name: "load-access-token-nothing-cached-test", VaultKey: "bitbucket-cli-test-nonexistent-vault-key"}
+
+	err := target.loadAccessToken(context.Background())
+	if !errors.Is(err, ErrNoAccessToken) {
+		t.Fatalf("loadAccessToken() error = %v, want ErrNoAccessToken", err)
+	}
+	if target.token != nil {
+		t.Errorf("token = %+v, want nil when loadAccessToken could not find one", target.token)
+	}
+}
+
+// TestAuthorizeDoesNotPanicWithNoCachedAccessToken is a regression test: authorize used to read
+// loadAccessToken's nil error as "we have a token" even when none was actually found (e.g. an
+// OAuth client-ID/secret profile before its first token exchange), then dereference the nil
+// profile.token via isTokenExpired/GetExpiresOn, panicking on the very first command run. It must
+// fall through to the OAuth2 client-credentials flow instead.
+func TestAuthorizeDoesNotPanicWithNoCachedAccessToken(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"fresh-token","token_type":"bearer","expires_in":3600}`))
+	}))
+	defer server.Close()
+
+	old := oauthTokenURL
+	oauthTokenURL = server.URL
+	defer func() { oauthTokenURL = old }()
+
+	target := &Profile{
+		Name:         "authorize-no-cached-token-test",
+		ClientID:     "client-id",
+		ClientSecret: "client-secret",
+		VaultKey:     "bitbucket-cli-test-nonexistent-vault-key",
+	}
+
+	authorization, err := target.authorize(context.Background())
+	if err != nil {
+		t.Fatalf("authorize() error = %v", err)
+	}
+	if authorization != "Bearer fresh-token" {
+		t.Errorf("authorize() = %q, want %q", authorization, "Bearer fresh-token")
+	}
+}
+
 func TestBasicAuthorization(t *testing.T) {
 	got := basicAuthorization("alice", "s3cr3t")
 	if got != "Basic YWxpY2U6czNjcjN0" {
@@ -201,5 +253,226 @@ func TestSendOAuthTokenRequestSendsFormEncodedBody(t *testing.T) {
 	}
 	if gotForm.Get("grant_type") != "refresh_token" || gotForm.Get("refresh_token") != "the-refresh-token" {
 		t.Errorf("posted form = %v, want grant_type=refresh_token and refresh_token=the-refresh-token", gotForm)
+	}
+}
+
+// TestRetryDelayCapsRetryAfterHeader is a regression test: a Retry-After header far beyond any
+// reasonable interactive wait (e.g. an hour-long rate-limit window) must be clamped to
+// maxRetryAfterBackoff rather than honored verbatim.
+func TestRetryDelayCapsRetryAfterHeader(t *testing.T) {
+	got := retryDelay(0, http.Header{"Retry-After": []string{"3600"}})
+	if got != maxRetryAfterBackoff {
+		t.Errorf("retryDelay() = %s, want capped at %s", got, maxRetryAfterBackoff)
+	}
+}
+
+// TestRetryDelayHonorsRetryAfterUnderCap proves a Retry-After value under the cap is used as-is.
+func TestRetryDelayHonorsRetryAfterUnderCap(t *testing.T) {
+	got := retryDelay(0, http.Header{"Retry-After": []string{"5"}})
+	if got != 5*time.Second {
+		t.Errorf("retryDelay() = %s, want %s", got, 5*time.Second)
+	}
+}
+
+// TestRetryDelayTreatsZeroRetryAfterAsUseComputedBackoff is a regression test: "Retry-After: 0"
+// used to be accepted as "retry with no delay" (seconds >= 0), which would hammer a server that
+// just told us it is rate-limiting us. It must fall back to the computed exponential backoff, the
+// same as when the header is absent entirely.
+func TestRetryDelayTreatsZeroRetryAfterAsUseComputedBackoff(t *testing.T) {
+	const attempt = 2
+	want := min(initialRetryBackoff*time.Duration(1<<attempt), maxRetryBackoff)
+
+	got := retryDelay(attempt, http.Header{"Retry-After": []string{"0"}})
+	if got != want {
+		t.Errorf("retryDelay() = %s, want computed backoff %s", got, want)
+	}
+
+	gotNoHeader := retryDelay(attempt, nil)
+	if gotNoHeader != want {
+		t.Errorf("retryDelay() with no header = %s, want the same computed backoff %s", gotNoHeader, want)
+	}
+}
+
+// TestRetryDelayTreatsNegativeRetryAfterAsUseComputedBackoff covers the other invalid value: a
+// negative Retry-After should not be honored either.
+func TestRetryDelayTreatsNegativeRetryAfterAsUseComputedBackoff(t *testing.T) {
+	want := min(initialRetryBackoff*time.Duration(1<<0), maxRetryBackoff)
+	got := retryDelay(0, http.Header{"Retry-After": []string{"-5"}})
+	if got != want {
+		t.Errorf("retryDelay() = %s, want computed backoff %s", got, want)
+	}
+}
+
+// TestIsRetryableStatusRestrictsGatewayErrorsToIdempotentMethods is a regression test: the retry
+// loop used to be method-agnostic, so a POST/PATCH whose response was lost to a gateway error
+// (502/503/504) was retried up to 5 times even though BitBucket may already have applied it -
+// risking duplicate pull requests, comments, tasks, or repeated merge/approve/decline. 429 (the
+// request was rejected outright, never processed) stays retryable for every method.
+func TestIsRetryableStatusRestrictsGatewayErrorsToIdempotentMethods(t *testing.T) {
+	gatewayStatuses := []int{http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout}
+
+	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodPut, http.MethodDelete} {
+		for _, status := range gatewayStatuses {
+			if !isRetryableStatus(method, status) {
+				t.Errorf("isRetryableStatus(%s, %d) = false, want true for an idempotent method", method, status)
+			}
+		}
+		if !isRetryableStatus(method, http.StatusTooManyRequests) {
+			t.Errorf("isRetryableStatus(%s, 429) = false, want true", method)
+		}
+	}
+
+	for _, method := range []string{http.MethodPost, http.MethodPatch} {
+		for _, status := range gatewayStatuses {
+			if isRetryableStatus(method, status) {
+				t.Errorf("isRetryableStatus(%s, %d) = true, want false for a non-idempotent method", method, status)
+			}
+		}
+		if !isRetryableStatus(method, http.StatusTooManyRequests) {
+			t.Errorf("isRetryableStatus(%s, 429) = false, want true even for a non-idempotent method", method)
+		}
+	}
+}
+
+// TestDoRequestWithRetryDoesNotRetryPostOnGatewayError is an end-to-end regression test for the
+// same restriction: a POST that gets a 502 must be reported to the caller after a single attempt,
+// not retried.
+func TestDoRequestWithRetryDoesNotRetryPostOnGatewayError(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer server.Close()
+
+	newReq := func(ctx context.Context) (*http.Request, error) {
+		return http.NewRequestWithContext(ctx, http.MethodPost, server.URL, http.NoBody)
+	}
+
+	result, err := doRequestWithRetry(context.Background(), http.MethodPost, newReq)
+	if err != nil {
+		t.Fatalf("doRequestWithRetry() error = %v, want the 502 response returned without error", err)
+	}
+	if result.StatusCode != http.StatusBadGateway {
+		t.Errorf("StatusCode = %d, want %d", result.StatusCode, http.StatusBadGateway)
+	}
+	if got := attempts.Load(); got != 1 {
+		t.Errorf("attempts = %d, want exactly 1 (no retry for a non-idempotent method on a gateway error)", got)
+	}
+}
+
+// TestDoRequestWithRetryRetriesGetOnGatewayError is the idempotent-method counterpart: a GET
+// facing the same 502 must still be retried.
+func TestDoRequestWithRetryRetriesGetOnGatewayError(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if attempts.Add(1) == 1 {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	newReq := func(ctx context.Context) (*http.Request, error) {
+		return http.NewRequestWithContext(ctx, http.MethodGet, server.URL, http.NoBody)
+	}
+
+	result, err := doRequestWithRetry(context.Background(), http.MethodGet, newReq)
+	if err != nil {
+		t.Fatalf("doRequestWithRetry() error = %v", err)
+	}
+	if result.StatusCode != http.StatusOK {
+		t.Errorf("StatusCode = %d, want %d", result.StatusCode, http.StatusOK)
+	}
+	if got := attempts.Load(); got != 2 {
+		t.Errorf("attempts = %d, want exactly 2 (the 502 should have been retried once)", got)
+	}
+}
+
+// TestDoRequestWithRetryDoesNotRetryPostOnTransportErrorAfterConnected proves a non-pre-send
+// transport error (the connection succeeded, then failed while writing/reading, e.g. the server
+// hung up mid-response) is not retried for a non-idempotent method, since the request may already
+// have reached and been applied by the server.
+func TestDoRequestWithRetryDoesNotRetryPostOnTransportErrorAfterConnected(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			t.Fatal("test server does not support hijacking")
+		}
+		conn, _, err := hijacker.Hijack()
+		if err != nil {
+			t.Fatalf("cannot hijack connection: %v", err)
+		}
+		_ = conn.Close() // close without writing a response: a post-connect transport failure
+	}))
+	defer server.Close()
+
+	newReq := func(ctx context.Context) (*http.Request, error) {
+		return http.NewRequestWithContext(ctx, http.MethodPost, server.URL, http.NoBody)
+	}
+
+	_, err := doRequestWithRetry(context.Background(), http.MethodPost, newReq)
+	if err == nil {
+		t.Fatal("doRequestWithRetry() expected an error, got nil")
+	}
+	if got := attempts.Load(); got != 1 {
+		t.Errorf("attempts = %d, want exactly 1 (no retry for a non-idempotent method on an ambiguous post-connect failure)", got)
+	}
+}
+
+// TestDoRequestWithRetryRetriesPostOnPreSendConnectionError proves the counterpart: a failure to
+// even establish the connection (nothing was ever sent) is safe to retry regardless of method.
+func TestDoRequestWithRetryRetriesPostOnPreSendConnectionError(t *testing.T) {
+	var attempts int
+	newReq := func(ctx context.Context) (*http.Request, error) {
+		attempts++
+		if attempts == 1 {
+			// Port 0 on an address with nothing listening reliably fails to dial.
+			return http.NewRequestWithContext(ctx, http.MethodPost, "http://127.0.0.1:0", http.NoBody)
+		}
+		return nil, fmt.Errorf("stop after the first retry: %w", errStopTest)
+	}
+
+	_, err := doRequestWithRetry(context.Background(), http.MethodPost, newReq)
+	if !errors.Is(err, errStopTest) {
+		t.Fatalf("doRequestWithRetry() error = %v, want it to have retried past the dial failure", err)
+	}
+	if attempts != 2 {
+		t.Errorf("attempts = %d, want exactly 2 (the pre-send dial failure should have been retried once)", attempts)
+	}
+}
+
+var errStopTest = errors.New("stop test")
+
+// TestDoRequestWithRetryStopsAtOverallBudget is a regression test: honoring an uncapped
+// Retry-After with no overall deadline could freeze a request for hours. This shrinks
+// maxRetryBudget to prove the retry loop gives up once the overall budget is exceeded, even though
+// individual per-attempt/backoff values would otherwise allow more attempts.
+func TestDoRequestWithRetryStopsAtOverallBudget(t *testing.T) {
+	oldBudget := maxRetryBudget
+	maxRetryBudget = 200 * time.Millisecond
+	defer func() { maxRetryBudget = oldBudget }()
+
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		w.Header().Set("Retry-After", "5")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	newReq := func(ctx context.Context) (*http.Request, error) {
+		return http.NewRequestWithContext(ctx, http.MethodGet, server.URL, http.NoBody)
+	}
+
+	_, err := doRequestWithRetry(context.Background(), http.MethodGet, newReq)
+	if err == nil {
+		t.Fatal("doRequestWithRetry() expected an error once the retry budget was exceeded, got nil")
+	}
+	if got := attempts.Load(); got >= int32(maxRequestAttempts) {
+		t.Errorf("attempts = %d, want fewer than maxRequestAttempts (%d): the budget should have cut the loop short", got, maxRequestAttempts)
 	}
 }

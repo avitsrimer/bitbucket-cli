@@ -1,0 +1,5 @@
+profiles:
+    - name: string-forms
+      user: user1
+      apiroot: https://api.bitbucket.org/lower
+      errorprocessing: WarnOnError

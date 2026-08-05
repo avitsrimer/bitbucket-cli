@@ -18,6 +18,21 @@ type ActivitySuite struct {
 	Name string
 }
 
+// TestActivitiesCmdRegistersLimitFlag proves --limit is registered on the real "pullrequest
+// activities" and "pullrequest commits" commands, not just plumbing exercised through a synthetic
+// flag on a bare cobra.Command in an internal package test.
+func TestActivitiesCmdRegistersLimitFlag(t *testing.T) {
+	for _, name := range []string{"activities", "commits"} {
+		cmd, _, err := pullrequest.Command.Find([]string{name})
+		if err != nil {
+			t.Fatalf("cannot find the %s command: %v", name, err)
+		}
+		if cmd.Flags().Lookup("limit") == nil {
+			t.Errorf(`"pullrequest %s" has no --limit flag registered`, name)
+		}
+	}
+}
+
 func TestActivitySuite(t *testing.T) {
 	suite.Run(t, new(ActivitySuite))
 }

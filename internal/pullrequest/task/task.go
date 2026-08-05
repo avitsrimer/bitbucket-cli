@@ -101,37 +101,44 @@ func (task Task) GetHeaders(cmd *cobra.Command) []string {
 // GetRow returns the row to display for this task
 //
 // implements common.Tableables
+//
+// headers is normalized (lowercased, spaces treated the same as underscores) before matching,
+// the same way every other GetRow in this codebase does: GetHeaders maps a user-supplied
+// --columns value like "resolved_by" through strings.ReplaceAll(column, "_", " ") into "resolved
+// by", so matching against the raw, case-sensitive, underscore spelling here would otherwise
+// leave every multi-word column blank.
 func (task Task) GetRow(headers []string) []string {
-	var row []string
+	simple := map[string]string{
+		"id":         strconv.Itoa(task.ID),
+		"content":    task.Content.Raw,
+		"creator":    task.Creator.String(),
+		"created_on": task.CreatedOn.Format(time.RFC3339),
+		"updated_on": task.UpdatedOn.Format(time.RFC3339),
+		"state":      task.State,
+		"pending":    strconv.FormatBool(task.IsPending),
+	}
 
+	row := make([]string, 0, len(headers))
 	for _, header := range headers {
-		switch header {
-		case "id":
-			row = append(row, strconv.Itoa(task.ID))
-		case "content":
-			row = append(row, task.Content.Raw)
-		case "creator":
-			row = append(row, task.Creator.String())
-		case "created_on":
-			row = append(row, task.CreatedOn.Format(time.RFC3339))
-		case "updated_on":
-			row = append(row, task.UpdatedOn.Format(time.RFC3339))
+		switch key := strings.ReplaceAll(strings.ToLower(header), " ", "_"); key {
 		case "resolved_on":
 			if task.ResolvedOn != nil {
 				row = append(row, task.ResolvedOn.Format(time.RFC3339))
 			} else {
 				row = append(row, "")
 			}
-		case "state":
-			row = append(row, task.State)
 		case "resolved_by":
 			if task.ResolvedBy != nil {
 				row = append(row, task.ResolvedBy.String())
 			} else {
 				row = append(row, "")
 			}
-		case "pending":
-			row = append(row, strconv.FormatBool(task.IsPending))
+		default:
+			if value, found := simple[key]; found {
+				row = append(row, value)
+			} else {
+				row = append(row, "")
+			}
 		}
 	}
 	return row

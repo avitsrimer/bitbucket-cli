@@ -8,3 +8,4 @@ profiles:
       callbackPort: 8080
       outputFormat: json
       errorProcessing: 1
+      apiRoot: https://api.bitbucket.org/camel

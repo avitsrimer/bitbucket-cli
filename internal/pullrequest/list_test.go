@@ -110,6 +110,55 @@ func TestListProcessAPIError(t *testing.T) {
 	}
 }
 
+// TestListCmdRegistersLimitFlag proves --limit is actually registered on the real "pullrequest
+// list" command users invoke, not just plumbing exercised through a synthetic flag on a bare
+// cobra.Command in an internal package test.
+func TestListCmdRegistersLimitFlag(t *testing.T) {
+	if listCmd.Flags().Lookup("limit") == nil {
+		t.Fatal(`"pullrequest list" has no --limit flag registered`)
+	}
+}
+
+// TestListProcessRespectsLimitFlag is a regression test for --limit being wired onto a real
+// command: it drives listProcess with a "limit" flag on its cmd (the same name and int type
+// listCmd itself now registers, read exactly the same way by profile.GetAll/
+// resolvePageLengthAndLimit), proving the value actually reaches GetAll and truncates the result
+// instead of being permanently unreachable dead plumbing.
+func TestListProcessRespectsLimitFlag(t *testing.T) {
+	withListOptions(t, func() {
+		listOptions.Commit = ""
+		listOptions.Query = ""
+	})
+
+	fixture, err := os.ReadFile("../../testdata/pullrequests.json")
+	if err != nil {
+		t.Fatalf("cannot read testdata: %v", err)
+	}
+
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(fixture)
+	}, false)
+	cmd.Flags().Int("limit", 0, "")
+	if err := cmd.Flags().Set("limit", "1"); err != nil {
+		t.Fatalf("cannot set limit flag: %v", err)
+	}
+
+	stdout := captureStdout(t, func() {
+		if err := listProcess(cmd, nil); err != nil {
+			t.Fatalf("listProcess() error = %v", err)
+		}
+	})
+
+	var pullrequests []PullRequest
+	if err := json.Unmarshal([]byte(stdout), &pullrequests); err != nil {
+		t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
+	}
+	if len(pullrequests) != 1 {
+		t.Fatalf("expected exactly 1 pullrequest with --limit 1, got %d", len(pullrequests))
+	}
+}
+
 func TestListProcessDryRun(t *testing.T) {
 	withListOptions(t, func() {
 		listOptions.Commit = ""

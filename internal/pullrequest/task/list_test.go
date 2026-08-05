@@ -127,6 +127,46 @@ func TestListProcessAPIError(t *testing.T) {
 	}
 }
 
+// TestListCmdRegistersLimitFlag proves --limit is registered on the real "pr task list" command.
+func TestListCmdRegistersLimitFlag(t *testing.T) {
+	if listCmd.Flags().Lookup("limit") == nil {
+		t.Fatal(`"pr task list" has no --limit flag registered`)
+	}
+}
+
+// TestListProcessRespectsLimitFlag is a regression test for --limit being wired onto a real
+// command: it drives listProcess with a "limit" flag on its cmd, proving the value actually
+// reaches GetAll and truncates the result instead of being permanently unreachable dead plumbing.
+func TestListProcessRespectsLimitFlag(t *testing.T) {
+	withListOptions(t, func() {
+		listOptions.PullRequestID.Value = "42"
+		listOptions.Query = ""
+	})
+
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[{"id":1,"content":{"raw":"do X"}},{"id":2,"content":{"raw":"do Y"}}]}`))
+	}, false)
+	cmd.Flags().Int("limit", 0, "")
+	if err := cmd.Flags().Set("limit", "1"); err != nil {
+		t.Fatalf("cannot set limit flag: %v", err)
+	}
+
+	stdout := captureStdout(t, func() {
+		if err := listProcess(cmd, nil); err != nil {
+			t.Fatalf("listProcess() error = %v", err)
+		}
+	})
+
+	var tasks []Task
+	if err := json.Unmarshal([]byte(stdout), &tasks); err != nil {
+		t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("expected exactly 1 task with --limit 1, got %d", len(tasks))
+	}
+}
+
 func TestListProcessDryRun(t *testing.T) {
 	withListOptions(t, func() {
 		listOptions.PullRequestID.Value = "42"

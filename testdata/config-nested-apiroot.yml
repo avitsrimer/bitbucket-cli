@@ -1,0 +1,6 @@
+profiles:
+    - name: nested-apiroot
+      apiRoot:
+        scheme: https
+        host: api.bitbucket.org
+        path: /nested-mapping

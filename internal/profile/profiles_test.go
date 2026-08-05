@@ -100,6 +100,53 @@ func (suite *ProfileSuite) TestLoadParsesCamelCaseConfigKeys() {
 	suite.Equal(uint16(8080), got.CallbackPort)
 	suite.Equal("json", got.OutputFormat)
 	suite.Equal(common.WarnOnError, got.ErrorProcessing)
+	suite.Require().NotNil(got.APIRoot, "a string-form apiRoot must decode into a *url.URL")
+	suite.Equal("https://api.bitbucket.org/camel", got.APIRoot.String())
+}
+
+// TestLoadParsesStringFormAPIRootAndErrorProcessing is a regression test: apiRoot written as a
+// plain URL string (e.g. "apiRoot: https://api.bitbucket.org", the form a user would reasonably
+// hand-write, and the spelling every other apiRoot-shaped value in this codebase accepts) used to
+// fail to decode into url.URL ("cannot unmarshal !!str into url.URL"), and errorProcessing written
+// as its documented string name (e.g. "WarnOnError", the spelling MarshalJSON emits) used to fail
+// the same way, aborting profiles.Load and every "bb" command with an opaque yaml error. Both must
+// now decode successfully, alongside the lowercase key spelling GetSection's key-lowercasing
+// produces.
+func (suite *ProfileSuite) TestLoadParsesStringFormAPIRootAndErrorProcessing() {
+	defer resetProfilesState()()
+
+	cmd := newTestRootCommand()
+	suite.Require().NoError(cmd.PersistentFlags().Set("config", "../../testdata/config-string-forms.yml"))
+	suite.Require().NoError(common.Initialize(cmd))
+
+	err := profile.Profiles.Load(suite.Context, cmd)
+	suite.Require().NoError(err)
+	suite.Require().Len(profile.Profiles, 1)
+
+	got := profile.Profiles[0]
+	suite.Equal("string-forms", got.Name)
+	suite.Require().NotNil(got.APIRoot)
+	suite.Equal("https://api.bitbucket.org/lower", got.APIRoot.String())
+	suite.Equal(common.WarnOnError, got.ErrorProcessing)
+}
+
+// TestLoadParsesNestedAPIRootMapping proves the nested field-by-field mapping form (what
+// url.URL's own default yaml decoding already handled, and what this fix must not regress) still
+// round-trips alongside the new string-form support.
+func (suite *ProfileSuite) TestLoadParsesNestedAPIRootMapping() {
+	defer resetProfilesState()()
+
+	cmd := newTestRootCommand()
+	suite.Require().NoError(cmd.PersistentFlags().Set("config", "../../testdata/config-nested-apiroot.yml"))
+	suite.Require().NoError(common.Initialize(cmd))
+
+	err := profile.Profiles.Load(suite.Context, cmd)
+	suite.Require().NoError(err)
+	suite.Require().Len(profile.Profiles, 1)
+
+	got := profile.Profiles[0]
+	suite.Require().NotNil(got.APIRoot)
+	suite.Equal("https://api.bitbucket.org/nested-mapping", got.APIRoot.String())
 }
 
 // TestValidProfileNamesListsConfiguredProfiles covers the completion provider backing the root
