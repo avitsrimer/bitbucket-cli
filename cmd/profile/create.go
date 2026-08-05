@@ -7,7 +7,6 @@ import (
 	"runtime"
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
-	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -25,16 +24,16 @@ var createOptions struct {
 	Profile
 	DefaultWorkspace string
 	DefaultProject   string
-	OutputFormat     *flags.EnumFlag
-	CloneProtocol    *flags.EnumFlag
+	OutputFormat     *common.EnumFlag
+	CloneProtocol    *common.EnumFlag
 	NoVault          bool
 }
 
 func init() {
 	Command.AddCommand(createCmd)
 
-	createOptions.OutputFormat = flags.NewEnumFlag("json", "yaml", "table")
-	createOptions.CloneProtocol = flags.NewEnumFlag("+git", "https", "ssh")
+	createOptions.OutputFormat = common.NewEnumFlag("json", "yaml", "table")
+	createOptions.CloneProtocol = common.NewEnumFlag("+git", "https", "ssh")
 	createCmd.Flags().StringVarP(&createOptions.Name, "name", "n", "", "Name of the profile")
 	createCmd.Flags().StringVar(&createOptions.Description, "description", "", "Description of the profile")
 	createCmd.Flags().BoolVar(&createOptions.Default, "default", false, "True if this is the default profile")

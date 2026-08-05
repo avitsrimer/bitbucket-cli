@@ -7,7 +7,6 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
-	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -23,14 +22,14 @@ var mergeCmd = &cobra.Command{
 var mergeOptions struct {
 	Async             bool
 	Message           string
-	MergeStrategy     *flags.EnumFlag
+	MergeStrategy     *common.EnumFlag
 	CloseSourceBranch bool
 }
 
 func init() {
 	Command.AddCommand(mergeCmd)
 
-	mergeOptions.MergeStrategy = flags.NewEnumFlag("+merge_commit", "squash", "fast_forward")
+	mergeOptions.MergeStrategy = common.NewEnumFlag("+merge_commit", "squash", "fast_forward")
 	mergeCmd.Flags().StringVar(&mergeOptions.Message, "message", "", "Message of the merge")
 	mergeCmd.Flags().BoolVar(&mergeOptions.CloseSourceBranch, "close-source-branch", false, "Close the source branch of the pullrequest")
 	mergeCmd.Flags().BoolVar(&mergeOptions.Async, "async", false, "Perform the merge asynchronously")

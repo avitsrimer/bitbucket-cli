@@ -9,7 +9,6 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/go-core"
-	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -23,19 +22,19 @@ var listCmd = &cobra.Command{
 
 var listOptions struct {
 	Commit     string
-	State      *flags.EnumFlag
+	State      *common.EnumFlag
 	Query      string
-	Columns    *flags.EnumSliceFlag
-	SortBy     *flags.EnumFlag
+	Columns    *common.EnumSliceFlag
+	SortBy     *common.EnumFlag
 	PageLength int
 }
 
 func init() {
 	Command.AddCommand(listCmd)
 
-	listOptions.State = flags.NewEnumFlag("all", "declined", "merged", "+open", "superseded")
-	listOptions.Columns = flags.NewEnumSliceFlagWithAllAllowed(columns.Columns()...)
-	listOptions.SortBy = flags.NewEnumFlag(columns.Sorters()...)
+	listOptions.State = common.NewEnumFlag("all", "declined", "merged", "+open", "superseded")
+	listOptions.Columns = common.NewEnumSliceFlagWithAllAllowed(columns.Columns()...)
+	listOptions.SortBy = common.NewEnumFlag(columns.Sorters()...)
 	listCmd.Flags().StringVar(&listOptions.Commit, "commit", "", "List pull requests by commit hash")
 	listCmd.Flags().Var(listOptions.State, "state", "Pull request state to fetch. Defaults to \"open\"")
 	listCmd.Flags().StringVar(&listOptions.Query, "query", "", "Query string to filter pull requests")

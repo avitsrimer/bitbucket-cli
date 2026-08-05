@@ -7,7 +7,6 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
-	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -21,13 +20,13 @@ var reopenCmd = &cobra.Command{
 }
 
 var reopenOptions struct {
-	PullRequestID *flags.EnumFlag
+	PullRequestID *common.EnumFlag
 }
 
 func init() {
 	Command.AddCommand(reopenCmd)
 
-	reopenOptions.PullRequestID = flags.NewEnumFlagWithFunc(reopenCmd, "", prcommon.GetPullRequestIDs)
+	reopenOptions.PullRequestID = common.NewEnumFlagWithFunc(reopenCmd, "", prcommon.GetPullRequestIDs)
 	reopenCmd.Flags().Var(reopenOptions.PullRequestID, "pullrequest", "Pullrequest to reopen comments from")
 	_ = reopenCmd.MarkFlagRequired("pullrequest")
 	_ = reopenCmd.RegisterFlagCompletionFunc(reopenOptions.PullRequestID.CompletionFunc("pullrequest"))

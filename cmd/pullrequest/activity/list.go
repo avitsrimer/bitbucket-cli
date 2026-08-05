@@ -9,7 +9,6 @@ import (
 	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/go-core"
-	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -23,19 +22,19 @@ var listCmd = &cobra.Command{
 }
 
 var listOptions struct {
-	PullRequestID *flags.EnumFlag
+	PullRequestID *common.EnumFlag
 	Query         string
-	Columns       *flags.EnumSliceFlag
-	SortBy        *flags.EnumFlag
+	Columns       *common.EnumSliceFlag
+	SortBy        *common.EnumFlag
 	PageLength    int
 }
 
 func init() {
 	Command.AddCommand(listCmd)
 
-	listOptions.PullRequestID = flags.NewEnumFlagWithFunc(listCmd, "", prcommon.GetPullRequestIDs)
-	listOptions.Columns = flags.NewEnumSliceFlagWithAllAllowed(columns.Columns()...)
-	listOptions.SortBy = flags.NewEnumFlag(columns.Sorters()...)
+	listOptions.PullRequestID = common.NewEnumFlagWithFunc(listCmd, "", prcommon.GetPullRequestIDs)
+	listOptions.Columns = common.NewEnumSliceFlagWithAllAllowed(columns.Columns()...)
+	listOptions.SortBy = common.NewEnumFlag(columns.Sorters()...)
 	listCmd.Flags().Var(listOptions.PullRequestID, "pullrequest", "pullrequest to list activities from")
 	listCmd.Flags().StringVar(&listOptions.Query, "query", "", "Query string to filter activities")
 	listCmd.Flags().Var(listOptions.Columns, "columns", "Comma-separated list of columns to display")

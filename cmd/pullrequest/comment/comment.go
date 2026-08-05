@@ -15,14 +15,13 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/bitbucket-cli/cmd/user"
 	"github.com/gildas/go-core"
-	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
 // commentEditOptions holds the flags shared by the create and update commands
 type commentEditOptions struct {
-	PullRequestID *flags.EnumFlag
+	PullRequestID *common.EnumFlag
 	Comment       string
 	File          string
 	From          int
@@ -33,7 +32,7 @@ type commentEditOptions struct {
 
 // registerCommentEditFlags registers the flags shared by the create and update commands
 func registerCommentEditFlags(cmd *cobra.Command, options *commentEditOptions, commentHelp, pullrequestHelp string) {
-	options.PullRequestID = flags.NewEnumFlagWithFunc(cmd, "", prcommon.GetPullRequestIDs)
+	options.PullRequestID = common.NewEnumFlagWithFunc(cmd, "", prcommon.GetPullRequestIDs)
 	cmd.Flags().Var(options.PullRequestID, "pullrequest", pullrequestHelp)
 	cmd.Flags().StringVar(&options.Comment, "comment", "", commentHelp)
 	cmd.Flags().StringVar(&options.File, "file", "", "File to comment on")

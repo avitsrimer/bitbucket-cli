@@ -9,7 +9,6 @@ import (
 	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/go-core"
-	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -51,16 +50,16 @@ var activitiesCmd = &cobra.Command{
 
 var activitiesOptions struct {
 	Query      string
-	Columns    *flags.EnumSliceFlag
-	SortBy     *flags.EnumFlag
+	Columns    *common.EnumSliceFlag
+	SortBy     *common.EnumFlag
 	PageLength int
 }
 
 func init() {
 	Command.AddCommand(activitiesCmd)
 
-	activitiesOptions.Columns = flags.NewEnumSliceFlagWithAllAllowed(activityColumns.Columns()...)
-	activitiesOptions.SortBy = flags.NewEnumFlag(activityColumns.Sorters()...)
+	activitiesOptions.Columns = common.NewEnumSliceFlagWithAllAllowed(activityColumns.Columns()...)
+	activitiesOptions.SortBy = common.NewEnumFlag(activityColumns.Sorters()...)
 	activitiesCmd.Flags().StringVar(&activitiesOptions.Query, "query", "", "Query string to filter activities")
 	activitiesCmd.Flags().Var(activitiesOptions.Columns, "columns", "Comma-separated list of columns to display")
 	activitiesCmd.Flags().Var(activitiesOptions.SortBy, "sort", "Column to sort by")

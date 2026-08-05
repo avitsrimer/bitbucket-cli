@@ -16,7 +16,6 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/user"
 	"github.com/gildas/bitbucket-cli/cmd/workspace"
 	"github.com/gildas/go-core"
-	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -33,18 +32,18 @@ var updateCmd = &cobra.Command{
 var updateOptions struct {
 	Title             string
 	Description       string
-	Destination       *flags.EnumFlag
-	AddReviewers      *flags.EnumSliceFlag
-	RemoveReviewers   *flags.EnumSliceFlag
+	Destination       *common.EnumFlag
+	AddReviewers      *common.EnumSliceFlag
+	RemoveReviewers   *common.EnumSliceFlag
 	CloseSourceBranch bool
 }
 
 func init() {
 	Command.AddCommand(updateCmd)
 
-	updateOptions.Destination = flags.NewEnumFlagWithFunc(updateCmd, "", branch.GetBranchNames)
-	updateOptions.AddReviewers = flags.NewEnumSliceFlagWithAllAllowedAndFunc(updateCmd, GetReviewerNicknames)
-	updateOptions.RemoveReviewers = flags.NewEnumSliceFlagWithAllAllowedAndFunc(updateCmd, GetReviewerNicknames)
+	updateOptions.Destination = common.NewEnumFlagWithFunc(updateCmd, "", branch.GetBranchNames)
+	updateOptions.AddReviewers = common.NewEnumSliceFlagWithAllAllowedAndFunc(updateCmd, GetReviewerNicknames)
+	updateOptions.RemoveReviewers = common.NewEnumSliceFlagWithAllAllowedAndFunc(updateCmd, GetReviewerNicknames)
 
 	updateCmd.Flags().StringVar(&updateOptions.Title, "title", "", "Title of the pullrequest")
 	updateCmd.Flags().StringVar(&updateOptions.Description, "description", "", "Description of the pullrequest")

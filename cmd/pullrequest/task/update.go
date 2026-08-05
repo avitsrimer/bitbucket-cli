@@ -7,7 +7,6 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
-	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -31,16 +30,16 @@ var updateCmd = &cobra.Command{
 }
 
 var updateOptions struct {
-	PullRequestID *flags.EnumFlag
+	PullRequestID *common.EnumFlag
 	Content       string
-	State         *flags.EnumFlag
+	State         *common.EnumFlag
 }
 
 func init() {
 	Command.AddCommand(updateCmd)
 
-	updateOptions.PullRequestID = flags.NewEnumFlagWithFunc(updateCmd, "", prcommon.GetPullRequestIDs)
-	updateOptions.State = flags.NewEnumFlag("RESOLVED", "UNRESOLVED")
+	updateOptions.PullRequestID = common.NewEnumFlagWithFunc(updateCmd, "", prcommon.GetPullRequestIDs)
+	updateOptions.State = common.NewEnumFlag("RESOLVED", "UNRESOLVED")
 	updateCmd.Flags().Var(updateOptions.PullRequestID, "pullrequest", "Pullrequest to update tasks to")
 	updateCmd.Flags().StringVar(&updateOptions.Content, "content", "", "Updated content of the task")
 	updateCmd.Flags().Var(updateOptions.State, "state", "Updated state of the task. Can be one of RESOLVED or UNRESOLVED")

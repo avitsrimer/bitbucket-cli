@@ -5,7 +5,6 @@ import (
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
-	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -19,13 +18,13 @@ var getCmd = &cobra.Command{
 }
 
 var getOptions struct {
-	Columns *flags.EnumSliceFlag
+	Columns *common.EnumSliceFlag
 }
 
 func init() {
 	Command.AddCommand(getCmd)
 
-	getOptions.Columns = flags.NewEnumSliceFlag(columns.Columns()...)
+	getOptions.Columns = common.NewEnumSliceFlag(columns.Columns()...)
 	getCmd.Flags().Var(getOptions.Columns, "columns", "Comma-separated list of columns to display")
 	_ = getCmd.RegisterFlagCompletionFunc(getOptions.Columns.CompletionFunc("columns"))
 }

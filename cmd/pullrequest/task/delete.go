@@ -9,7 +9,6 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
-	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -24,13 +23,13 @@ var deleteCmd = &cobra.Command{
 }
 
 var deleteOptions struct {
-	PullRequestID *flags.EnumFlag
+	PullRequestID *common.EnumFlag
 }
 
 func init() {
 	Command.AddCommand(deleteCmd)
 
-	deleteOptions.PullRequestID = flags.NewEnumFlagWithFunc(deleteCmd, "", prcommon.GetPullRequestIDs)
+	deleteOptions.PullRequestID = common.NewEnumFlagWithFunc(deleteCmd, "", prcommon.GetPullRequestIDs)
 	deleteCmd.Flags().Var(deleteOptions.PullRequestID, "pullrequest", "Pullrequest to delete comments from")
 	_ = deleteCmd.MarkFlagRequired("pullrequest")
 	_ = deleteCmd.RegisterFlagCompletionFunc(deleteOptions.PullRequestID.CompletionFunc("pullrequest"))

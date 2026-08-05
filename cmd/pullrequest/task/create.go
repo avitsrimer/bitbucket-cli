@@ -9,7 +9,6 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/pullrequest/comment"
 	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
-	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -33,17 +32,17 @@ var createCmd = &cobra.Command{
 }
 
 var createOptions struct {
-	PullRequestID *flags.EnumFlag
+	PullRequestID *common.EnumFlag
 	Content       string
-	CommentID     *flags.EnumFlag
+	CommentID     *common.EnumFlag
 	Pending       bool
 }
 
 func init() {
 	Command.AddCommand(createCmd)
 
-	createOptions.PullRequestID = flags.NewEnumFlagWithFunc(createCmd, "", prcommon.GetPullRequestIDs)
-	createOptions.CommentID = flags.NewEnumFlagWithFunc(createCmd, "", comment.GetPullRequestCommentIDs)
+	createOptions.PullRequestID = common.NewEnumFlagWithFunc(createCmd, "", prcommon.GetPullRequestIDs)
+	createOptions.CommentID = common.NewEnumFlagWithFunc(createCmd, "", comment.GetPullRequestCommentIDs)
 	createCmd.Flags().Var(createOptions.PullRequestID, "pullrequest", "Pullrequest to create tasks to")
 	createCmd.Flags().StringVar(&createOptions.Content, "content", "", "Content of the task")
 	createCmd.Flags().Var(createOptions.CommentID, "comment", "Comment ID to create task on")

@@ -15,7 +15,6 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/user"
 	"github.com/gildas/bitbucket-cli/cmd/workspace"
 	"github.com/gildas/go-core"
-	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -41,9 +40,9 @@ var createCmd = &cobra.Command{
 var createOptions struct {
 	Title             string
 	Description       string
-	Source            *flags.EnumFlag
-	Destination       *flags.EnumFlag
-	Reviewers         *flags.EnumSliceFlag
+	Source            *common.EnumFlag
+	Destination       *common.EnumFlag
+	Reviewers         *common.EnumSliceFlag
 	CloseSourceBranch bool
 	Draft             bool
 }
@@ -51,9 +50,9 @@ var createOptions struct {
 func init() {
 	Command.AddCommand(createCmd)
 
-	createOptions.Source = flags.NewEnumFlagWithFunc(createCmd, "", branch.GetBranchNames)
-	createOptions.Destination = flags.NewEnumFlagWithFunc(createCmd, "", branch.GetBranchNames)
-	createOptions.Reviewers = flags.NewEnumSliceFlagWithAllAllowedAndFunc(createCmd, GetReviewerNicknames)
+	createOptions.Source = common.NewEnumFlagWithFunc(createCmd, "", branch.GetBranchNames)
+	createOptions.Destination = common.NewEnumFlagWithFunc(createCmd, "", branch.GetBranchNames)
+	createOptions.Reviewers = common.NewEnumSliceFlagWithAllAllowedAndFunc(createCmd, GetReviewerNicknames)
 
 	createCmd.Flags().StringVar(&createOptions.Title, "title", "", "Title of the pullrequest")
 	createCmd.Flags().StringVar(&createOptions.Description, "description", "", "Description of the pullrequest")

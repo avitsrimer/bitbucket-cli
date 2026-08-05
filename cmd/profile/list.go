@@ -5,7 +5,6 @@ import (
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/go-core"
-	"github.com/gildas/go-flags"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -19,15 +18,15 @@ var listCmd = &cobra.Command{
 }
 
 var listOptions struct {
-	Columns *flags.EnumSliceFlag
-	SortBy  *flags.EnumFlag
+	Columns *common.EnumSliceFlag
+	SortBy  *common.EnumFlag
 }
 
 func init() {
 	Command.AddCommand(listCmd)
 
-	listOptions.Columns = flags.NewEnumSliceFlagWithAllAllowed(columns.Columns()...)
-	listOptions.SortBy = flags.NewEnumFlag(columns.Sorters()...)
+	listOptions.Columns = common.NewEnumSliceFlagWithAllAllowed(columns.Columns()...)
+	listOptions.SortBy = common.NewEnumFlag(columns.Sorters()...)
 	listCmd.Flags().Var(listOptions.Columns, "columns", "Comma-separated list of columns to display")
 	listCmd.Flags().Var(listOptions.SortBy, "sort", "Column to sort by")
 	_ = listCmd.RegisterFlagCompletionFunc(listOptions.Columns.CompletionFunc("columns"))
