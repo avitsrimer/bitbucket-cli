@@ -5,7 +5,6 @@ import (
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
-	prcommon "github.com/avitsrimer/bitbucket-cli/internal/pullrequest/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
@@ -38,16 +37,7 @@ func init() {
 }
 
 func mergeValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) != 0 {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-
-	ids, err := prcommon.GetPullRequestIDsWithState(cmd.Context(), cmd, "OPEN")
-	if err != nil {
-		cobra.CompErrorln(err.Error())
-		return []string{}, cobra.ShellCompDirectiveError
-	}
-	return common.FilterValidArgs(ids, args, toComplete), cobra.ShellCompDirectiveNoFileComp
+	return openPullRequestIDsCompletion(cmd, args, toComplete, false)
 }
 
 func mergeProcess(cmd *cobra.Command, args []string) (err error) {
