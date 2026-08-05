@@ -58,13 +58,35 @@ type Profile struct {
 	CallbackPort      uint16                 `json:"callbackPort,omitempty"                yaml:",omitempty"`
 	AccessToken       string                 `json:"accessToken,omitempty"       yaml:",omitempty"`
 	token             *Token                 `json:"-"                           yaml:"-"`
-	// accessTokenFromVault is true when AccessToken was populated at runtime by loadAccessToken's
-	// vault fallback rather than configured by the user (explicitly on the command line or
-	// already present in the config file). MarshalYAML omits AccessToken from the encoded output
-	// whenever this is set, so a secret fetched from the vault to authorize one command is never
-	// written back to the config file in plain text, regardless of which path serializes this
-	// Profile.
-	accessTokenFromVault bool `json:"-" yaml:"-"`
+	// vault tracks, per secret field, whether that value was populated at runtime by
+	// LoadSecrets/loadAccessToken's vault fallback rather than configured by the user (explicitly
+	// on the command line or already present in the config file). Profile.forSave blanks out
+	// exactly the fields this marks before a Profile is persisted, so a secret fetched from the
+	// vault to authorize one command is never written back to the config file in plain text --
+	// for any of the three secrets, on every path that saves a Profile. Display paths (profile
+	// get/list -o yaml/json) marshal the Profile directly and show the secret, since the user
+	// explicitly asked LoadSecrets to populate it for display.
+	vault vaultProvenance `json:"-" yaml:"-"`
+}
+
+// vaultProvenance records, for each of Profile's three secret fields, whether its current value
+// was loaded from the vault at runtime rather than configured directly.
+type vaultProvenance struct {
+	accessToken  bool
+	clientSecret bool
+	password     bool
+}
+
+// hasPlainTextSecret tells whether profile currently holds any of its three secrets in plain
+// text, as opposed to having it only because it was loaded from the vault at runtime (e.g. by
+// loadAccessToken authorizing the workspace/project lookups --default-workspace/--default-project
+// trigger during flag parsing): a vault-loaded value must never be mistaken for proof the profile
+// stores its credentials in plain text, or a profile that deliberately keeps them in the vault
+// would be forced back out of it by the mere act of using them.
+func (profile *Profile) hasPlainTextSecret() bool {
+	return (profile.AccessToken != "" && !profile.vault.accessToken) ||
+		(profile.ClientSecret != "" && !profile.vault.clientSecret) ||
+		(profile.Password != "" && !profile.vault.password)
 }
 
 // Current is the current profile
@@ -263,31 +285,50 @@ func (profile Profile) Redact() any {
 	if redacted.CloneUser != "" {
 		redacted.CloneUser = redactWithHash(redacted.CloneUser)
 	}
+	if redacted.APIRoot != nil {
+		// Clone before mutating: redacted.APIRoot still points at the same *url.URL as the
+		// original profile's (Profile is copied shallowly by value above), so writing through it
+		// directly would corrupt the live profile's APIRoot for whoever logs it.
+		cloned := *redacted.APIRoot
+		if _, hasPassword := cloned.User.Password(); hasPassword {
+			cloned.User = url.UserPassword(cloned.User.Username(), "xxxxx")
+			redacted.APIRoot = &cloned
+		}
+	}
 	return redactedProfile(redacted)
 }
 
 // GetClientSecret gets the client secret from the profile, either from the vault or from the profile
 func (profile *Profile) GetClientSecret(ctx context.Context) (string, error) {
-	return profile.getSecretOrFromVault(ctx, "client secret", profile.ClientSecret, profile.ClientID)
+	secret, fromVault, err := profile.getSecretOrFromVault(ctx, "client secret", profile.ClientSecret, profile.ClientID)
+	if fromVault {
+		profile.vault.clientSecret = true // must never be written back to the config file in plain text
+	}
+	return secret, err
 }
 
 // GetPassword gets the password from the profile, either from the vault or from the profile
 func (profile *Profile) GetPassword(ctx context.Context) (string, error) {
-	return profile.getSecretOrFromVault(ctx, "password", profile.Password, profile.User)
+	secret, fromVault, err := profile.getSecretOrFromVault(ctx, "password", profile.Password, profile.User)
+	if fromVault {
+		profile.vault.password = true // must never be written back to the config file in plain text
+	}
+	return secret, err
 }
 
-// getSecretOrFromVault returns secret when already set, otherwise loads it from the vault for username.
-func (profile *Profile) getSecretOrFromVault(_ context.Context, kind, secret, username string) (string, error) {
+// getSecretOrFromVault returns secret when already set, otherwise loads it from the vault for
+// username, reporting whether the returned value came from the vault.
+func (profile *Profile) getSecretOrFromVault(_ context.Context, kind, secret, username string) (value string, fromVault bool, err error) {
 	if secret != "" {
 		lgr.Printf("[DEBUG] the %s for profile %s is set in the profile", kind, profile.Name)
-		return secret, nil
+		return secret, false, nil
 	}
 	credential, err := profile.GetCredentialFromVault(profile.VaultKey, username)
 	if err == nil {
 		lgr.Printf("[DEBUG] loaded %s for %s from the vault", kind, username)
-		return credential.Password, nil
+		return credential.Password, true, nil
 	}
-	return "", fmt.Errorf("profile %s does not have a %s: %w", profile.Name, kind, err)
+	return "", false, fmt.Errorf("profile %s does not have a %s: %w", profile.Name, kind, err)
 }
 
 // LoadSecrets fills the profile with its secret from the Vault as needed
@@ -349,13 +390,14 @@ func (profile *Profile) updateSimpleFields(other Profile) {
 func (profile *Profile) updateCredentials(other Profile) {
 	if other.AccessToken != "" && other.AccessToken != profile.AccessToken {
 		profile.AccessToken = other.AccessToken
-		profile.accessTokenFromVault = false // explicitly user-provided, not a runtime vault copy
+		profile.vault.accessToken = false // explicitly user-provided, not a runtime vault copy
 	}
 	if other.User != "" && other.User != profile.User {
 		profile.User = other.User
 	}
 	if other.Password != "" && other.Password != profile.Password {
 		profile.Password = other.Password
+		profile.vault.password = false // explicitly user-provided, not a runtime vault copy
 	}
 	if other.ClientID != "" && other.ClientID != profile.ClientID {
 		profile.ClientID = other.ClientID
@@ -363,6 +405,7 @@ func (profile *Profile) updateCredentials(other Profile) {
 	}
 	if other.ClientSecret != "" && other.ClientSecret != profile.ClientSecret {
 		profile.ClientSecret = other.ClientSecret
+		profile.vault.clientSecret = false // explicitly user-provided, not a runtime vault copy
 		profile.token = nil
 	}
 }
@@ -531,6 +574,12 @@ func (profile *Profile) Validate() error {
 
 // MarshalJSON marshals this profile to JSON
 //
+// This is a display-only encoding, reached only from `profile get`/`profile list -o json` (see
+// Profile.printJSON): unlike MarshalYAML it has no persistence counterpart to worry about, since
+// nothing in this codebase persists a Profile as JSON -- config files are YAML (Config.Save), and
+// the only other json.Marshal call in this package serializes a Token, not a Profile. It always
+// shows every field, including any secret LoadSecrets populated from the vault for display.
+//
 // implements json.Marshaler
 func (profile Profile) MarshalJSON() ([]byte, error) {
 	type surrogate Profile
@@ -582,20 +631,21 @@ func (profile *Profile) UnmarshalJSON(data []byte) error {
 
 // MarshalYAML implements yaml.Marshaler.
 //
-// This rewrites two fields on top of the default struct encoding, working directly on the
-// resulting mapping node: yaml.v3 has no field-shadowing equivalent to encoding/json's anonymous
-// struct override (see MarshalJSON above), so declaring sibling fields with the same key as ones
-// inside an embedded, ,inline surrogate would collide and error at encode time instead of
-// overriding it.
+// This is the *display* encoding, reached whenever a Profile (or a slice of them) is marshaled
+// directly: `profile get`/`profile list -o yaml`, and any other code that calls yaml.Marshal on a
+// Profile it already holds. It shows exactly what the caller has in memory, including any secret
+// LoadSecrets populated from the vault for display -- callers that instead need the *persistence*
+// encoding (never writing a vault-loaded secret back to the config file) must marshal
+// Profile.forSave()'s result instead; see saveProfilesConfig.
 //
-//   - accessToken is dropped entirely whenever it was populated at runtime from the vault
-//     (accessTokenFromVault) rather than configured by the user, so a secret fetched from the
-//     vault to authorize one command is never written back to the config file in plain text --
-//     on every path that serializes a Profile, not just the one (saveProfilesConfig) that
-//     remembers to blank it first.
-//   - apiRoot is rewritten to its plain string form, matching the form UnmarshalYAML accepts back
-//     and preserving userinfo credentials, which url.URL's default field-by-field mapping form
-//     cannot represent (its User field's members are all unexported).
+// It rewrites one field on top of the default struct encoding, working directly on the resulting
+// mapping node: yaml.v3 has no field-shadowing equivalent to encoding/json's anonymous struct
+// override (see MarshalJSON above), so declaring a sibling field with the same key as one inside
+// an embedded, ,inline surrogate would collide and error at encode time instead of overriding it.
+//
+// apiRoot is rewritten to its plain string form, matching the form UnmarshalYAML accepts back and
+// preserving userinfo credentials, which url.URL's default field-by-field mapping form cannot
+// represent (its User field's members are all unexported).
 func (profile Profile) MarshalYAML() (any, error) {
 	type surrogate Profile
 	var node yaml.Node
@@ -609,21 +659,35 @@ func (profile Profile) MarshalYAML() (any, error) {
 			}
 		}
 	}
-	if profile.accessTokenFromVault {
-		node.Content = removeMappingNodeKey(node.Content, "accesstoken")
-	}
 	return &node, nil
 }
 
-// removeMappingNodeKey returns a mapping node's Content (alternating key/value pairs) with the
-// pair for the given key name removed, if present.
-func removeMappingNodeKey(content []*yaml.Node, key string) []*yaml.Node {
-	for i := 0; i+1 < len(content); i += 2 {
-		if content[i].Value == key {
-			return append(content[:i:i], content[i+2:]...)
-		}
+// profileForSave is the *persistence* view of a Profile: encoding it (via yaml.Marshal, and so
+// via Config.SetSection/Config.Save) blanks out any of the three secret fields that were loaded
+// from the vault at runtime rather than configured by the user, so a secret fetched from the
+// vault to authorize one command is never written back to the config file in plain text. It
+// embeds Profile so it inherits MarshalYAML's apiRoot rewrite unchanged; only the blanked fields
+// differ from a direct encoding of the Profile it was built from.
+type profileForSave struct {
+	Profile
+}
+
+// forSave returns the persistence view of profile: a copy with every vault-loaded secret
+// (AccessToken, ClientSecret, Password) blanked out, leaving profile itself untouched. Pass the
+// result to yaml.Marshal (directly, or via Config.SetSection) whenever a Profile is being
+// persisted, e.g. saveProfilesConfig.
+func (profile Profile) forSave() profileForSave {
+	saved := profile
+	if saved.vault.accessToken {
+		saved.AccessToken = ""
 	}
-	return content
+	if saved.vault.clientSecret {
+		saved.ClientSecret = ""
+	}
+	if saved.vault.password {
+		saved.Password = ""
+	}
+	return profileForSave{Profile: saved}
 }
 
 // UnmarshalYAML implements yaml.Unmarshaler.
@@ -636,26 +700,34 @@ func removeMappingNodeKey(content []*yaml.Node, key string) []*yaml.Node {
 // e.g. "apiRoot: https://user:pw@api.bitbucket.org"), which would otherwise fail to decode
 // ("cannot unmarshal !!str into url.URL") and abort loading every profile.
 //
-// This extracts a scalar apiroot key before the surrogate decode ever sees it, parses it directly
-// with url.Parse (preserving userinfo losslessly, unlike the mapping form), and nulls the node in
-// place so the surrogate decode -- which only understands the mapping form -- skips over it
-// cleanly instead of erroring on a bare string (or, for "", an empty one). The parsed URL is
-// assigned back onto profile.APIRoot afterward. An already-nested mapping (or a missing key) is
-// left for the surrogate decode to handle as before.
+// This extracts a scalar apiroot key before the surrogate decode ever sees it and parses it
+// directly with url.Parse (preserving userinfo losslessly, unlike the mapping form). The surrogate
+// decode -- which only understands the mapping form -- then runs against a shallow copy of node
+// with that one key's value replaced by a null scalar, so it skips over it cleanly instead of
+// erroring on a bare string (or, for "", an empty one), without mutating node itself or any node
+// reachable from it: decoding the same node twice (e.g. a config layer that retains a parsed
+// document tree) must yield the same profile both times. The parsed URL is assigned back onto
+// profile.APIRoot afterward. An already-nested mapping (or a missing key) is left for the
+// surrogate decode to handle as before.
 func (profile *Profile) UnmarshalYAML(node *yaml.Node) error {
+	decodeNode := node
 	var apiRoot *url.URL
 	if node.Kind == yaml.MappingNode {
-		parsed, found, err := extractAPIRootNode(node)
+		parsed, isScalar, err := extractAPIRootValue(node)
 		if err != nil {
 			return err
 		}
-		if found {
+		if isScalar {
+			// Even an empty string (parsed == nil) must still be nulled in the copy handed to the
+			// surrogate decode below: it is a plain string scalar just like a populated one, and
+			// url.URL's mapping-form decode rejects any string just as it would a populated one.
 			apiRoot = parsed
+			decodeNode = nodeWithNulledKey(node, "apiroot")
 		}
 	}
 	type surrogate Profile
 	var inner surrogate
-	if err := node.Decode(&inner); err != nil {
+	if err := decodeNode.Decode(&inner); err != nil {
 		return fmt.Errorf("cannot decode profile: %w", err)
 	}
 	*profile = Profile(inner)
@@ -665,13 +737,14 @@ func (profile *Profile) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
-// extractAPIRootNode locates a mapping node's "apiroot" key and, if it is currently a plain
-// string scalar, parses it and nulls the node in place so nothing later tries to decode that
-// string into url.URL's mapping form. found is true only when a scalar apiroot key holding a
-// non-empty string was actually parsed; the caller must leave profile.APIRoot as the surrogate
-// decode set it (nil, or the mapping form's own result) whenever found is false -- the key was
-// absent, null, empty, or already a nested mapping left for that normal decoding to handle.
-func extractAPIRootNode(node *yaml.Node) (apiRoot *url.URL, found bool, err error) {
+// extractAPIRootValue locates a mapping node's "apiroot" key and, if it is currently a plain
+// string scalar, parses and returns it, reading the node without modifying it. isScalar is true
+// whenever the key holds a plain string scalar, empty or not -- both shapes must still be nulled
+// out of the copy handed to the surrogate decode, since url.URL's mapping-form decode rejects any
+// bare string -- and false when the key was absent, already null, or already a nested mapping,
+// which the caller must leave for the surrogate decode to handle as before. apiRoot itself is
+// non-nil only for a non-empty string.
+func extractAPIRootValue(node *yaml.Node) (apiRoot *url.URL, isScalar bool, err error) {
 	for i := 0; i+1 < len(node.Content); i += 2 {
 		if node.Content[i].Value != "apiroot" {
 			continue
@@ -684,12 +757,8 @@ func extractAPIRootNode(node *yaml.Node) (apiRoot *url.URL, found bool, err erro
 		if decodeErr := value.Decode(&raw); decodeErr != nil {
 			return nil, false, fmt.Errorf("cannot decode apiRoot: %w", decodeErr)
 		}
-		value.Kind = yaml.ScalarNode
-		value.Tag = "!!null"
-		value.Value = "null"
-		value.Style = 0
 		if raw == "" {
-			return nil, false, nil
+			return nil, true, nil
 		}
 		parsed, parseErr := url.Parse(raw)
 		if parseErr != nil {
@@ -698,6 +767,22 @@ func extractAPIRootNode(node *yaml.Node) (apiRoot *url.URL, found bool, err erro
 		return parsed, true, nil
 	}
 	return nil, false, nil
+}
+
+// nodeWithNulledKey returns a shallow copy of node whose mapping value for key is replaced with a
+// fresh null scalar node, leaving node's own Content slice and every node reachable from it
+// completely untouched -- unlike mutating the value node in place, this lets the same node be
+// decoded again later with identical results.
+func nodeWithNulledKey(node *yaml.Node, key string) *yaml.Node {
+	copied := *node
+	copied.Content = append([]*yaml.Node(nil), node.Content...)
+	for i := 0; i+1 < len(copied.Content); i += 2 {
+		if copied.Content[i].Value == key {
+			copied.Content[i+1] = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!null", Value: "null"}
+			break
+		}
+	}
+	return &copied
 }
 
 // getWorkspaceSlugs gets the slugs of all workspaces

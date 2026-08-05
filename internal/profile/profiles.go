@@ -194,18 +194,22 @@ func ValidProfileNames(cmd *cobra.Command, args []string, toComplete string) ([]
 
 // saveProfilesConfig persists the in-memory Profiles collection to the active config file.
 //
-// Profile.MarshalYAML omits AccessToken for any profile whose value was loaded from the vault at
-// runtime (Profile.accessTokenFromVault) by construction, so there is nothing to blank or restore
-// here: a secret fetched from the vault to authorize one command can never be written back to the
-// config file in plain text, whether it is this function or any other caller of Config.Save /
-// Config.SetSection that ends up serializing Profiles.
+// It converts each profile to its forSave view before handing them to Config.SetSection, so any
+// of the three secrets (AccessToken, ClientSecret, Password) populated at runtime from the vault
+// is blanked out for this encoding without touching the in-memory Profiles the rest of the process
+// keeps using: a secret fetched from the vault to authorize one command can never be written back
+// to the config file in plain text.
 func saveProfilesConfig() error {
 	config := common.CurrentConfig()
 	if config == nil {
 		return errors.New("configuration not loaded")
 	}
 	lgr.Printf("[DEBUG] writing configuration to %s", config.Path)
-	if err := config.SetSection("profiles", Profiles); err != nil {
+	toSave := make([]profileForSave, len(Profiles))
+	for i, target := range Profiles {
+		toSave[i] = target.forSave()
+	}
+	if err := config.SetSection("profiles", toSave); err != nil {
 		return fmt.Errorf("cannot write config file: %w", err)
 	}
 	return nil

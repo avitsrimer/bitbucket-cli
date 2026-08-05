@@ -21,14 +21,14 @@ func withUpdateOptions(t *testing.T, mutate func()) {
 	t.Helper()
 	oldTitle, oldDescription := updateOptions.Title, updateOptions.Description
 	oldDestinationValue := updateOptions.Destination.Value
-	oldAddReviewers, oldRemoveReviewers := updateOptions.AddReviewers.Values, updateOptions.RemoveReviewers.Values
+	oldAddReviewers, oldRemoveReviewers := updateOptions.AddReviewers, updateOptions.RemoveReviewers
 	oldCloseSourceBranch := updateOptions.CloseSourceBranch
 	t.Cleanup(func() {
 		updateOptions.Title = oldTitle
 		updateOptions.Description = oldDescription
 		updateOptions.Destination.Value = oldDestinationValue
-		updateOptions.AddReviewers.Values = oldAddReviewers
-		updateOptions.RemoveReviewers.Values = oldRemoveReviewers
+		updateOptions.AddReviewers = oldAddReviewers
+		updateOptions.RemoveReviewers = oldRemoveReviewers
 		updateOptions.CloseSourceBranch = oldCloseSourceBranch
 	})
 	mutate()
@@ -37,13 +37,19 @@ func withUpdateOptions(t *testing.T, mutate func()) {
 // registerUpdateFlags adds the update-specific flags updateProcess/applySimpleFieldUpdates/
 // removeRequestedReviewers/addRequestedReviewers check via cmd.Flag(name).Changed; setupTestNamed's
 // cmd only carries the flags common to every action (profile/repository/output/dry-run).
+//
+// add-reviewer/remove-reviewer are registered as real string slices (their production type, since
+// the review-iter4 fix) with storage local to this test command, not bound to the package-level
+// updateOptions: tests that exercise removeRequestedReviewers/addRequestedReviewers still set
+// updateOptions.AddReviewers/RemoveReviewers directly and use these flags only to mark
+// cmd.Flag(name).Changed the way real flag parsing would.
 func registerUpdateFlags(cmd *cobra.Command) {
 	cmd.Flags().String("title", "", "")
 	cmd.Flags().String("description", "", "")
 	cmd.Flags().String("destination", "", "")
 	cmd.Flags().Bool("close-source-branch", false, "")
-	cmd.Flags().Bool("add-reviewer", false, "")
-	cmd.Flags().Bool("remove-reviewer", false, "")
+	cmd.Flags().StringSlice("add-reviewer", nil, "")
+	cmd.Flags().StringSlice("remove-reviewer", nil, "")
 }
 
 func TestUpdateValidArgsListsAllPullRequestIDs(t *testing.T) {
@@ -119,7 +125,7 @@ func TestApplySimpleFieldUpdatesNoFlagsChanged(t *testing.T) {
 
 func TestRemoveRequestedReviewersRemovesMatch(t *testing.T) {
 	withUpdateOptions(t, func() {
-		updateOptions.RemoveReviewers.Values = []string{"jdoe"}
+		updateOptions.RemoveReviewers = []string{"jdoe"}
 	})
 	cmd := &cobra.Command{}
 	registerUpdateFlags(cmd)
@@ -142,7 +148,7 @@ func TestRemoveRequestedReviewersRemovesMatch(t *testing.T) {
 
 func TestRemoveRequestedReviewersNoOpWhenFlagNotChanged(t *testing.T) {
 	withUpdateOptions(t, func() {
-		updateOptions.RemoveReviewers.Values = []string{"jdoe"}
+		updateOptions.RemoveReviewers = []string{"jdoe"}
 	})
 	cmd := &cobra.Command{}
 	registerUpdateFlags(cmd)
@@ -163,7 +169,7 @@ func TestRemoveRequestedReviewersNoOpWhenFlagNotChanged(t *testing.T) {
 // now return a clear error instead.
 func TestResolveDefaultReviewersNilSourceRepository(t *testing.T) {
 	withUpdateOptions(t, func() {
-		updateOptions.AddReviewers.Values = []string{"default"}
+		updateOptions.AddReviewers = []string{"default"}
 	})
 	cmd := &cobra.Command{}
 	pr := &PullRequest{}
@@ -178,12 +184,12 @@ func TestResolveDefaultReviewersNilSourceRepository(t *testing.T) {
 }
 
 // TestResolveDefaultReviewersDoesNotMutateSharedAddReviewersValues is a regression test: this
-// function used to write updateOptions.AddReviewers.Values = append(...) in place, mutating the
+// function used to write updateOptions.AddReviewers = append(...) in place, mutating the
 // package-level singleton every command invocation shares, so calling it twice (or reusing the
 // singleton across tests) produced different results the second time.
 func TestResolveDefaultReviewersDoesNotMutateSharedAddReviewersValues(t *testing.T) {
 	withUpdateOptions(t, func() {
-		updateOptions.AddReviewers.Values = []string{"default", "extra-reviewer"}
+		updateOptions.AddReviewers = []string{"default", "extra-reviewer"}
 	})
 
 	var requestCount int
@@ -207,14 +213,14 @@ func TestResolveDefaultReviewersDoesNotMutateSharedAddReviewersValues(t *testing
 		Workspace: &workspace.Workspace{Slug: fixtureWorkspaceSlug},
 	}}}
 
-	before := append([]string(nil), updateOptions.AddReviewers.Values...)
+	before := append([]string(nil), updateOptions.AddReviewers...)
 
 	resolved1, err := resolveDefaultReviewers(t.Context(), cmd, pr)
 	if err != nil {
 		t.Fatalf("resolveDefaultReviewers() error = %v", err)
 	}
-	if !slices.Equal(updateOptions.AddReviewers.Values, before) {
-		t.Errorf("updateOptions.AddReviewers.Values = %v after call, want unchanged %v", updateOptions.AddReviewers.Values, before)
+	if !slices.Equal(updateOptions.AddReviewers, before) {
+		t.Errorf("updateOptions.AddReviewers = %v after call, want unchanged %v", updateOptions.AddReviewers, before)
 	}
 
 	resolved2, err := resolveDefaultReviewers(t.Context(), cmd, pr)
@@ -237,7 +243,7 @@ func TestResolveDefaultReviewersDoesNotMutateSharedAddReviewersValues(t *testing
 // workspace through Repository.GetWorkspace's cached/FullName fallback chain instead.
 func TestResolveDefaultReviewersRealFixtureSourceRepositoryHasNoWorkspace(t *testing.T) {
 	withUpdateOptions(t, func() {
-		updateOptions.AddReviewers.Values = []string{"default"}
+		updateOptions.AddReviewers = []string{"default"}
 	})
 
 	data, err := os.ReadFile("../../testdata/pullrequest.json")
@@ -306,7 +312,7 @@ func TestResolveDefaultReviewersRealFixtureSourceRepositoryHasNoWorkspace(t *tes
 // "my-repo-slug".
 func TestResolveDefaultReviewersUsesFullNameWhenSlugWasBackfilledFromName(t *testing.T) {
 	withUpdateOptions(t, func() {
-		updateOptions.AddReviewers.Values = []string{"default"}
+		updateOptions.AddReviewers = []string{"default"}
 	})
 
 	id, err := common.ParseUUID("{33333333-3333-3333-3333-333333333333}")
@@ -477,6 +483,92 @@ func TestUpdateProcessPutAPIError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "pull request is not open") {
 		t.Errorf("error = %q, want it to contain the BitBucket error message", err.Error())
+	}
+}
+
+// TestAddReviewerFlagAcceptsDefaultSentinelThroughRealFlagParsing is a regression test for
+// review-iter4 finding 3: --add-reviewer used to be a common.EnumSliceFlag whose Set rejected any
+// value not already present in GetReviewerNicknames' workspace-member-nickname list (except the
+// literal "all"), so the documented `default` sentinel -- and any non-nickname identifier (UUID,
+// Account ID, display name) -- was rejected at flag-parse time with "flag value ... is invalid",
+// making resolveDefaultReviewers unreachable from a real command line. This drives
+// cmd.Flags().Set("add-reviewer", "default") through the exact flag wiring updateCmd's init()
+// uses (a StringSliceVar bound to updateOptions.AddReviewers), then runs addRequestedReviewers so
+// the resolved default reviewer must actually be added, proving the sentinel reaches
+// resolveDefaultReviewers end-to-end and not just that parsing no longer errors.
+func TestAddReviewerFlagAcceptsDefaultSentinelThroughRealFlagParsing(t *testing.T) {
+	withUpdateOptions(t, func() {})
+
+	const defaultReviewerUUID = "{11111111-1111-1111-1111-111111111111}"
+	cmd := setupTestNamed(t, "add-reviewer-default-sentinel", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/effective-default-reviewers"):
+			_, _ = w.Write([]byte(`{"values":[{"user":{"uuid":"` + defaultReviewerUUID + `","display_name":"Default Reviewer"}}]}`))
+		case strings.HasSuffix(r.URL.Path, "/user"):
+			w.WriteHeader(http.StatusForbidden) // simulate a RAT client without /user access
+		case strings.HasSuffix(r.URL.Path, "/members"):
+			_, _ = w.Write([]byte(`{"values":[{"user":{"uuid":"` + defaultReviewerUUID + `","display_name":"Default Reviewer","nickname":"defaultreviewer"}}]}`))
+		}
+	}, false)
+
+	// Register add-reviewer exactly as updateCmd's init() does: a real StringSlice flag bound
+	// directly to the package-level updateOptions.AddReviewers, not a stand-in Bool/unbound flag.
+	cmd.Flags().StringSliceVar(&updateOptions.AddReviewers, "add-reviewer", nil, "")
+
+	if err := cmd.Flags().Set("add-reviewer", "default"); err != nil {
+		t.Fatalf(`cmd.Flags().Set("add-reviewer", "default") error = %v, want nil: the "default" sentinel must be accepted by real flag parsing`, err)
+	}
+	if !slices.Equal(updateOptions.AddReviewers, []string{"default"}) {
+		t.Fatalf("updateOptions.AddReviewers = %v, want [default]", updateOptions.AddReviewers)
+	}
+
+	id, err := common.ParseUUID("{22222222-2222-2222-2222-222222222222}")
+	if err != nil {
+		t.Fatalf("cannot parse fixture uuid: %v", err)
+	}
+	pr := &PullRequest{Source: Endpoint{Repository: &repository.Repository{
+		ID: id, Name: "Widgets", FullName: fixtureRepositoryFlag, Slug: fixtureRepositorySlug,
+		Workspace: &workspace.Workspace{Slug: fixtureWorkspaceSlug},
+	}}}
+	pullrequestWorkspace := &workspace.Workspace{Slug: fixtureWorkspaceSlug}
+	isMember := func(member workspace.Member, id string) bool {
+		if parsedID, uuidErr := common.ParseUUID(id); uuidErr == nil {
+			return member.User.ID == parsedID
+		}
+		return member.User.AccountID == id || strings.EqualFold(member.User.Nickname, id) || strings.EqualFold(member.User.Name, id)
+	}
+
+	added, err := addRequestedReviewers(cmd.Context(), cmd, pr, pullrequestWorkspace, isMember)
+	if err != nil {
+		t.Fatalf("addRequestedReviewers() error = %v", err)
+	}
+	if !added {
+		t.Fatal("addRequestedReviewers() = false, want true: the resolved default reviewer must be added")
+	}
+	if len(pr.Reviewers) != 1 || pr.Reviewers[0].ID.String() != defaultReviewerUUID {
+		t.Errorf("Reviewers = %+v, want exactly the resolved default reviewer %s", pr.Reviewers, defaultReviewerUUID)
+	}
+}
+
+// TestAddReviewerFlagAcceptsNonNicknameIdentifierThroughRealFlagParsing is a regression test for
+// the other half of finding 3: EnumSliceFlag's allowed list was limited to workspace member
+// nicknames, so a UUID/Account ID/display name identifier -- all documented as valid --reviewer
+// values -- was rejected at flag-parse time exactly like "default" was.
+func TestAddReviewerFlagAcceptsNonNicknameIdentifierThroughRealFlagParsing(t *testing.T) {
+	withUpdateOptions(t, func() {})
+
+	cmd := setupTestNamed(t, "add-reviewer-non-nickname", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}, false)
+	cmd.Flags().StringSliceVar(&updateOptions.AddReviewers, "add-reviewer", nil, "")
+
+	const accountID = "5f8d3b2c1e9a4b0012345678"
+	if err := cmd.Flags().Set("add-reviewer", accountID); err != nil {
+		t.Fatalf(`cmd.Flags().Set("add-reviewer", %q) error = %v, want nil: a non-nickname identifier must be accepted by real flag parsing`, accountID, err)
+	}
+	if !slices.Equal(updateOptions.AddReviewers, []string{accountID}) {
+		t.Errorf("updateOptions.AddReviewers = %v, want [%s]", updateOptions.AddReviewers, accountID)
 	}
 }
 
