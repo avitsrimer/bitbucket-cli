@@ -155,7 +155,7 @@ linters:
       # six files onto one shared helper, eliminating the duplication).
       - linters:
           - dupl
-        path: cmd/pullrequest/(approve|unapprove|decline|merge|request-changes|remove-request-changes)\.go$
+        path: internal/pullrequest/(approve|unapprove|decline|merge|request-changes|remove-request-changes)\.go$
     paths:
       - vendor
       - third_party$

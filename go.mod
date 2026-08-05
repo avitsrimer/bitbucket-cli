@@ -1,4 +1,4 @@
-module github.com/gildas/bitbucket-cli
+module github.com/avitsrimer/bitbucket-cli
 
 go 1.26
 
