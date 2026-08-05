@@ -36,8 +36,9 @@ const (
 // userAgent is sent with every outgoing request.
 const userAgent = "bitbucket-cli"
 
-// oauthTokenURL is BitBucket's OAuth2 token endpoint.
-const oauthTokenURL = "https://bitbucket.org/site/oauth2/access_token" //nolint:gosec // endpoint URL, not a credential
+// oauthTokenURL is BitBucket's OAuth2 token endpoint. It is a var rather than a const solely so
+// internal tests can point it at an httptest server; production code never reassigns it.
+var oauthTokenURL = "https://bitbucket.org/site/oauth2/access_token" //nolint:gosec // endpoint URL, not a credential
 
 // httpClient is the shared HTTP client used for every request; per-request deadlines come
 // from the context passed to send/sendOAuthTokenRequest, so the client itself carries no
