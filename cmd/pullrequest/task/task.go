@@ -15,7 +15,7 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/user"
 	"github.com/gildas/go-core"
 	"github.com/gildas/go-errors"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -158,8 +158,6 @@ func (task Task) MarshalJSON() ([]byte, error) {
 
 // GetPullRequestTaskIDs gets the IDs of the tasks for a pullrequest
 func GetPullRequestTaskIDs(ctx context.Context, cmd *cobra.Command, pullRequestID string) (ids []string, err error) {
-	log := logger.Must(logger.FromContext(ctx)).Child("pullrequest", "getids")
-
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
 		return nil, err
@@ -167,7 +165,7 @@ func GetPullRequestTaskIDs(ctx context.Context, cmd *cobra.Command, pullRequestI
 
 	tasks, err := profile.GetAll[Task](ctx, cmd, repository.GetPath(fmt.Sprintf("pullrequests/%s/tasks", pullRequestID)))
 	if err != nil {
-		log.Errorf("Failed to get pullrequests", err)
+		lgr.Printf("[ERROR] failed to get pullrequests: %v", err)
 		return nil, err
 	}
 	return core.Map(tasks, func(task Task) string {

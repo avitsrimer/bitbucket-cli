@@ -8,7 +8,7 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -72,8 +72,7 @@ func init() {
 }
 
 func createProcess(cmd *cobra.Command, args []string) (err error) {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "create")
-	ctx := log.ToContext(cmd.Context())
+	ctx := cmd.Context()
 
 	_, err = GetProfileFromCommand(ctx, cmd)
 	if err != nil && !errors.Is(err, errors.Empty) {
@@ -82,7 +81,7 @@ func createProcess(cmd *cobra.Command, args []string) (err error) {
 
 	applyCreateOverrides()
 
-	log.Infof("Creating profile %s", createOptions.Name)
+	lgr.Printf("[DEBUG] creating profile %s", createOptions.Name)
 	err = createOptions.Validate()
 	if err != nil {
 		return err
@@ -91,23 +90,23 @@ func createProcess(cmd *cobra.Command, args []string) (err error) {
 		return errors.DuplicateFound.With("name", createOptions.Name)
 	}
 
-	if !common.WhatIf(ctx, cmd, "Creating profile %s", createOptions.Name) {
+	if !common.WhatIf(cmd, "Creating profile %s", createOptions.Name) {
 		return nil
 	}
 
 	if common.IsWSL() {
 		// For now, we do not support vaults in WSL.
-		log.Warnf("Vaults are not supported in WSL, the credentials will be stored in plain text in the configuration file")
+		lgr.Printf("[WARN] vaults are not supported in WSL, the credentials will be stored in plain text in the configuration file")
 		createOptions.NoVault = true
 	}
 
-	err = resolveCreateSecrets(log)
+	err = resolveCreateSecrets()
 	if err != nil {
 		return err
 	}
 
 	Profiles.Add(&createOptions.Profile)
-	return saveProfilesConfig(log)
+	return saveProfilesConfig()
 }
 
 // applyCreateOverrides copies the enum-flag-backed options onto the profile being created
@@ -128,7 +127,7 @@ func applyCreateOverrides() {
 
 // resolveCreateSecrets stores the client secret/password/access token in the vault if provided,
 // or validates that they are set in the profile when the vault is not used
-func resolveCreateSecrets(log *logger.Logger) error {
+func resolveCreateSecrets() error {
 	if createOptions.NoVault {
 		switch {
 		case createOptions.ClientID != "" && createOptions.ClientSecret == "":
@@ -143,19 +142,19 @@ func resolveCreateSecrets(log *logger.Logger) error {
 
 	switch {
 	case createOptions.ClientID != "":
-		secret, err := resolveVaultSecret(log, "client secret", createOptions.VaultKey, createOptions.ClientID, createOptions.ClientSecret, createOptions.SetCredentialInVault, createOptions.GetCredentialFromVault)
+		secret, err := resolveVaultSecret("client secret", createOptions.VaultKey, createOptions.ClientID, createOptions.ClientSecret, createOptions.SetCredentialInVault, createOptions.GetCredentialFromVault)
 		if err != nil {
 			return errors.New("A client secret is required when using a client ID since it is not stored in the vault. Please provide it with --client-secret or store it in the vault with the command")
 		}
 		createOptions.ClientSecret = secret
 	case createOptions.User != "":
-		secret, err := resolveVaultSecret(log, "user password", createOptions.VaultKey, createOptions.User, createOptions.Password, createOptions.SetCredentialInVault, createOptions.GetCredentialFromVault)
+		secret, err := resolveVaultSecret("user password", createOptions.VaultKey, createOptions.User, createOptions.Password, createOptions.SetCredentialInVault, createOptions.GetCredentialFromVault)
 		if err != nil {
 			return errors.New("A password is required when using a user since it is not stored in the vault. Please provide it with --password or store it in the vault with the command")
 		}
 		createOptions.Password = secret
 	case createOptions.AccessToken != "":
-		secret, err := resolveVaultSecret(log, "access token", createOptions.VaultKey, createOptions.Name, createOptions.AccessToken, createOptions.SetCredentialInVault, createOptions.GetCredentialFromVault)
+		secret, err := resolveVaultSecret("access token", createOptions.VaultKey, createOptions.Name, createOptions.AccessToken, createOptions.SetCredentialInVault, createOptions.GetCredentialFromVault)
 		if err != nil {
 			return err
 		}
@@ -169,14 +168,14 @@ func resolveCreateSecrets(log *logger.Logger) error {
 // It returns the secret to keep in the profile in memory: cleared when successfully stored in the
 // vault, unchanged when the store failed (so it falls back to being saved in plain text), or the
 // value loaded from the vault.
-func resolveVaultSecret(log *logger.Logger, kind, vaultKey, username, secret string, set func(vaultKey, username, secret string) error, get func(vaultKey, username string) (*Credential, error)) (string, error) {
+func resolveVaultSecret(kind, vaultKey, username, secret string, set func(vaultKey, username, secret string) error, get func(vaultKey, username string) (*Credential, error)) (string, error) {
 	if secret != "" {
 		if err := set(vaultKey, username, secret); err != nil {
-			log.Errorf("Failed to store %s in the %s vault, the secret will be stored in plain text in the configuration file", kind, vaultKey, err)
+			lgr.Printf("[ERROR] failed to store %s in the %s vault, the secret will be stored in plain text in the configuration file: %v", kind, vaultKey, err)
 			fmt.Fprintf(os.Stderr, "Failed to store %s in the %s vault, the secret will be stored in plain text in the configuration file: %s\n", kind, vaultKey, err)
 			return secret, nil
 		}
-		log.Infof("Stored %s in the %s vault for %s", kind, vaultKey, username)
+		lgr.Printf("[DEBUG] stored %s in the %s vault for %s", kind, vaultKey, username)
 		return "", nil
 	}
 	credential, err := get(vaultKey, username)

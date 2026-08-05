@@ -10,7 +10,7 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/go-core"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -34,8 +34,7 @@ func GetBranches(context context.Context, cmd *cobra.Command) (branches []Branch
 
 // GetBranchNames gets the branch names of a repository
 func GetBranchNames(context context.Context, cmd *cobra.Command, args []string, toComplete string) (names []string, err error) {
-	log := logger.Must(logger.FromContext(context)).Child(nil, "getbranches")
-	log.Infof("Getting branches for profile %v", profile.Current)
+	lgr.Printf("[DEBUG] getting branches for profile %v", profile.Current)
 	branches, err := GetBranches(context, cmd)
 	if err != nil {
 		cobra.CompErrorln(err.Error())

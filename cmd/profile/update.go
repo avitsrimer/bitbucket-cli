@@ -8,7 +8,7 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -81,8 +81,7 @@ func init() {
 }
 
 func updateProcess(cmd *cobra.Command, args []string) (err error) {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "update")
-	ctx := log.ToContext(cmd.Context())
+	ctx := cmd.Context()
 
 	if len(args) == 0 {
 		return errors.ArgumentMissing.With("profile")
@@ -97,18 +96,19 @@ func updateProcess(cmd *cobra.Command, args []string) (err error) {
 
 	applyUpdateOverrides()
 
-	log.Infof("Loading profile %s (Valid Names: %v)", args[0], Profiles.Names())
+	lgr.Printf("[DEBUG] loading profile %s (valid names: %v)", args[0], Profiles.Names())
 	profile, found := Profiles.Find(args[0])
 	if !found {
 		return errors.NotFound.With("profile", args[0])
 	}
 
-	log.Record("profile", profile).Debugf("Updating profile %s", profile.Name)
-	if !common.WhatIf(ctx, cmd, "Updating profile %s", profile.Name) {
+	// profile.Redact() masks secrets before they hit the debug log
+	lgr.Printf("[DEBUG] updating profile %s: %+v", profile.Name, profile.Redact())
+	if !common.WhatIf(cmd, "Updating profile %s", profile.Name) {
 		return nil
 	}
 
-	err = resolveProfileCredentials(log, cmd, profile)
+	err = resolveProfileCredentials(cmd, profile)
 	if err != nil {
 		return err
 	}
@@ -123,9 +123,10 @@ func updateProcess(cmd *cobra.Command, args []string) (err error) {
 	if updateOptions.Default {
 		Profiles.SetCurrent(profile.Name)
 	}
-	log.Record("profile", profile).Debugf("Updated profile %s", profile.Name)
+	// profile.Redact() masks secrets before they hit the debug log
+	lgr.Printf("[DEBUG] updated profile %s: %+v", profile.Name, profile.Redact())
 
-	if err := saveProfilesConfig(log); err != nil {
+	if err := saveProfilesConfig(); err != nil {
 		return err
 	}
 	return profile.Print(ctx, cmd, profile)
@@ -133,20 +134,20 @@ func updateProcess(cmd *cobra.Command, args []string) (err error) {
 
 // resolveProfileCredentials moves existing plain-text credentials into the vault when requested,
 // then stores any credential values changed on the command line into the vault when in use
-func resolveProfileCredentials(log *logger.Logger, cmd *cobra.Command, profile *Profile) error {
+func resolveProfileCredentials(cmd *cobra.Command, profile *Profile) error {
 	if updateOptions.ToVault {
 		updateOptions.NoVault = false
 		vaultKey := profile.VaultKey
 		if runtime.GOOS != "windows" && cmd.Flag("vault-key").Changed && updateOptions.VaultKey != "" {
 			vaultKey = updateOptions.VaultKey
 		}
-		if err := moveCredentialsToVault(log, profile, vaultKey); err != nil {
+		if err := moveCredentialsToVault(profile, vaultKey); err != nil {
 			return err
 		}
 	}
 
 	if profile.AccessToken != "" || profile.ClientSecret != "" || profile.Password != "" {
-		log.Infof("Profile %s stored its credentials in plain text, we should keep it that way", profile.Name)
+		lgr.Printf("[DEBUG] profile %s stored its credentials in plain text, we should keep it that way", profile.Name)
 		updateOptions.NoVault = true
 	}
 
@@ -162,19 +163,19 @@ func resolveProfileCredentials(log *logger.Logger, cmd *cobra.Command, profile *
 	if cmd.Flag("client-id").Changed && updateOptions.ClientID != "" {
 		clientID = updateOptions.ClientID
 	}
-	updateOptions.ClientSecret = storeCredentialIfChanged(log, cmd, "client-secret", "client secret", updateOptions.VaultKey, clientID, updateOptions.ClientSecret)
+	updateOptions.ClientSecret = storeCredentialIfChanged(cmd, "client-secret", "client secret", updateOptions.VaultKey, clientID, updateOptions.ClientSecret)
 
 	user := profile.User
 	if cmd.Flag("user").Changed && updateOptions.User != "" {
 		user = updateOptions.User
 	}
-	updateOptions.Password = storeCredentialIfChanged(log, cmd, "password", "user password", updateOptions.VaultKey, user, updateOptions.Password)
+	updateOptions.Password = storeCredentialIfChanged(cmd, "password", "user password", updateOptions.VaultKey, user, updateOptions.Password)
 
 	name := profile.Name
 	if cmd.Flag("name").Changed && updateOptions.Name != "" {
 		name = updateOptions.Name
 	}
-	updateOptions.AccessToken = storeCredentialIfChanged(log, cmd, "access-token", "access token", updateOptions.VaultKey, name, updateOptions.AccessToken)
+	updateOptions.AccessToken = storeCredentialIfChanged(cmd, "access-token", "access token", updateOptions.VaultKey, name, updateOptions.AccessToken)
 
 	return nil
 }
@@ -196,27 +197,27 @@ func applyUpdateOverrides() {
 }
 
 // moveCredentialsToVault moves any credential still stored in plain text on profile into the vault
-func moveCredentialsToVault(log *logger.Logger, profile *Profile, vaultKey string) error {
+func moveCredentialsToVault(profile *Profile, vaultKey string) error {
 	switch {
 	case profile.ClientSecret != "":
 		if err := profile.SetCredentialInVault(vaultKey, profile.ClientID, profile.ClientSecret); err != nil {
 			return errors.Join(errors.Errorf("Failed to store client secret in the vault"), err)
 		}
-		log.Infof("Stored client secret in the vault for %s", profile.ClientID)
+		lgr.Printf("[DEBUG] stored client secret in the vault for %s", profile.ClientID)
 		profile.ClientSecret = ""
 		updateOptions.ClientSecret = ""
 	case profile.Password != "":
 		if err := profile.SetCredentialInVault(vaultKey, profile.User, profile.Password); err != nil {
 			return errors.Join(errors.Errorf("Failed to store user password in the vault"), err)
 		}
-		log.Infof("Stored user password in the vault for %s", profile.User)
+		lgr.Printf("[DEBUG] stored user password in the vault for %s", profile.User)
 		profile.Password = ""
 		updateOptions.Password = ""
 	case profile.AccessToken != "":
 		if err := profile.SetCredentialInVault(vaultKey, profile.Name, profile.AccessToken); err != nil {
 			return errors.Join(errors.Errorf("Failed to store access token in the vault"), err)
 		}
-		log.Infof("Stored access token in the vault for %s", profile.Name)
+		lgr.Printf("[DEBUG] stored access token in the vault for %s", profile.Name)
 		profile.AccessToken = ""
 		updateOptions.AccessToken = ""
 	}
@@ -225,15 +226,15 @@ func moveCredentialsToVault(log *logger.Logger, profile *Profile, vaultKey strin
 
 // storeCredentialIfChanged stores secret in the vault when flagName changed on the command line and
 // the vault is in use; it returns the secret to keep in memory (cleared once stored successfully)
-func storeCredentialIfChanged(log *logger.Logger, cmd *cobra.Command, flagName, kind, vaultKey, username, secret string) string {
+func storeCredentialIfChanged(cmd *cobra.Command, flagName, kind, vaultKey, username, secret string) string {
 	if !cmd.Flag(flagName).Changed || secret == "" || updateOptions.NoVault {
 		return secret
 	}
 	if err := updateOptions.SetCredentialInVault(vaultKey, username, secret); err != nil {
-		log.Errorf("Failed to store %s in the vault, it will be stored in plain text in the configuration file", kind, err)
+		lgr.Printf("[ERROR] failed to store %s in the vault, it will be stored in plain text in the configuration file: %v", kind, err)
 		fmt.Fprintf(os.Stderr, "Failed to store %s in the vault, it will be stored in plain text in the configuration file: %s\n", kind, err)
 		return secret
 	}
-	log.Infof("Stored %s in the vault for %s", kind, username)
+	lgr.Printf("[DEBUG] stored %s in the vault for %s", kind, username)
 	return ""
 }

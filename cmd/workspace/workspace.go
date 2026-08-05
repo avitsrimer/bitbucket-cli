@@ -9,7 +9,7 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	"github.com/gildas/bitbucket-cli/cmd/remote"
 	"github.com/gildas/go-errors"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -47,20 +47,18 @@ func (workspace Workspace) String() string {
 //  2. The git config
 //  3. The default workspace in the profile
 func GetWorkspaceName(context context.Context, cmd *cobra.Command) (workspaceName string, err error) {
-	log := logger.Must(logger.FromContext(context)).Child("workspace", "get_name")
-
 	if cmd.Flag("workspace") != nil {
 		if workspaceName = cmd.Flag("workspace").Value.String(); workspaceName != "" {
-			log.Debugf("Workspace name found in command flag: %s", workspaceName)
+			lgr.Printf("[DEBUG] workspace name found in command flag: %s", workspaceName)
 			return
 		}
 	}
 	if remote, err := remote.GetRemote(context, cmd); err == nil {
-		log.Debugf("Workspace name found in git config: %s, from remote: %s", remote.WorkspaceName(), remote.URL)
+		lgr.Printf("[DEBUG] workspace name found in git config: %s, from remote: %s", remote.WorkspaceName(), remote.URL)
 		return remote.WorkspaceName(), nil
 	}
 	if profile.Current != nil && profile.Current.DefaultWorkspace != "" {
-		log.Debugf("Workspace name found in profile: %s", profile.Current.DefaultWorkspace)
+		lgr.Printf("[DEBUG] workspace name found in profile: %s", profile.Current.DefaultWorkspace)
 		return profile.Current.DefaultWorkspace, nil
 	}
 	return "", errors.ArgumentMissing.With("workspace")
@@ -82,14 +80,12 @@ func GetWorkspace(ctx context.Context, cmd *cobra.Command) (workspace *Workspace
 
 // GetWorkspaceBySlugOrID gets the workspace by its slug name or ID
 func GetWorkspaceBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID string) (workspace *Workspace, err error) {
-	log := logger.Must(logger.FromContext(ctx)).Child("workspace", "get_by_slug_or_id", "workspace", slugOrID)
-
 	if slugOrID == "" {
 		return nil, errors.ArgumentMissing.With("workspace slug or ID")
 	}
 
 	if workspace, err = WorkspaceCache.Get(slugOrID); err == nil {
-		log.Debugf("Workspace %s found in cache", slugOrID)
+		lgr.Printf("[DEBUG] workspace %s found in cache", slugOrID)
 		return workspace, nil
 	}
 
@@ -98,7 +94,7 @@ func GetWorkspaceBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID st
 		return nil, err
 	}
 
-	log.Infof("Retrieving workspace %s", slugOrID)
+	lgr.Printf("[DEBUG] retrieving workspace %s", slugOrID)
 
 	// In case we got a real UUID, get the Bitbucket UUID
 	if parsedID, uuidErr := common.ParseUUID(slugOrID); uuidErr == nil {
@@ -106,7 +102,7 @@ func GetWorkspaceBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID st
 	}
 
 	err = currentProfile.Get(
-		log.ToContext(ctx),
+		ctx,
 		cmd,
 		"/workspaces/"+slugOrID,
 		&workspace,

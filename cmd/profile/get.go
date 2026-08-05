@@ -7,7 +7,7 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -36,15 +36,14 @@ func init() {
 }
 
 func getProcess(cmd *cobra.Command, args []string) (err error) {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), cmd.Name())
-	ctx := log.ToContext(cmd.Context())
+	ctx := cmd.Context()
 
 	_, err = GetProfileFromCommand(ctx, cmd)
 	if errors.Is(err, errors.Empty) || len(Profiles) == 0 {
 		if cmd.Flag("stop-on-error").Value.String() == "true" {
 			return errors.Errorf("No profiles found")
 		}
-		common.Verbose(ctx, cmd, "No profile is currently configured")
+		common.Verbose(cmd, "No profile is currently configured")
 		return nil
 	}
 	if err != nil {
@@ -52,12 +51,12 @@ func getProcess(cmd *cobra.Command, args []string) (err error) {
 	}
 
 	if getOptions.Current {
-		log.Infof("Displaying current profile")
+		lgr.Printf("[DEBUG] displaying current profile")
 		if Current == nil {
 			if cmd.Flag("stop-on-error").Value.String() == "true" {
 				return errors.Errorf("There is no profile configured")
 			}
-			common.Verbose(ctx, cmd, "No profile is currently configured")
+			common.Verbose(cmd, "No profile is currently configured")
 			return nil
 		}
 		return Current.Print(ctx, cmd, Current)
@@ -67,8 +66,8 @@ func getProcess(cmd *cobra.Command, args []string) (err error) {
 		return errors.ArgumentMissing.With("profile")
 	}
 
-	log.Infof("Displaying profile %s (Valid names: %v)", args[0], Profiles.Names())
-	if !common.WhatIf(ctx, cmd, "Showing profile "+args[0]) {
+	lgr.Printf("[DEBUG] displaying profile %s (valid names: %v)", args[0], Profiles.Names())
+	if !common.WhatIf(cmd, "Showing profile "+args[0]) {
 		return nil
 	}
 
@@ -81,7 +80,7 @@ func getProcess(cmd *cobra.Command, args []string) (err error) {
 			return err
 		}
 		if cmd.Flag("warn-on-error").Value.String() == "true" {
-			log.Warnf("Profile %s is not valid: %v", profile.Name, err)
+			lgr.Printf("[WARN] profile %s is not valid: %v", profile.Name, err)
 			fmt.Fprintln(os.Stderr, "Profile", profile.Name, "is not valid:", err)
 		}
 	}

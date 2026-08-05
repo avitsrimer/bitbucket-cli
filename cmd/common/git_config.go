@@ -9,13 +9,12 @@ import (
 	"strings"
 
 	"github.com/gildas/go-errors"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"gopkg.in/ini.v1"
 )
 
 // OpenGitConfig opens the .git/config file in the current folder or one of its parents
-func OpenGitConfig(ctx context.Context) (io.ReadCloser, error) {
-	log := logger.Must(logger.FromContext(ctx)).Child("remote", "opengitconfig")
+func OpenGitConfig(_ context.Context) (io.ReadCloser, error) {
 	folder, err := filepath.Abs(".")
 	if err != nil {
 		folder = "."
@@ -24,12 +23,12 @@ func OpenGitConfig(ctx context.Context) (io.ReadCloser, error) {
 
 	for {
 		// If .git is a file (e.g. worktree), read the actual git dir from there (field gitdir)
-		folder = resolveWorktreeGitDir(log, folder, filepath.Join(folder, ".git"))
+		folder = resolveWorktreeGitDir(folder, filepath.Join(folder, ".git"))
 		filename := filepath.Join(folder, ".git", "config")
 		if folder == last {
 			return nil, errors.NotFound.With("file", filename)
 		}
-		log.Debugf("opening %s", filename)
+		lgr.Printf("[DEBUG] opening %s", filename)
 		file, err := os.Open(filename) //nolint:gosec // filename is built by walking up from the process's own working directory, not from external input
 		if err == nil {
 			return file, nil
@@ -48,12 +47,12 @@ func OpenGitConfig(ctx context.Context) (io.ReadCloser, error) {
 // resolveWorktreeGitDir returns the real git directory for folder: when gitPath is a plain file
 // (git worktrees do this) it contains a "gitdir: <path>" line pointing at the actual git directory;
 // otherwise folder is returned unchanged
-func resolveWorktreeGitDir(log *logger.Logger, folder, gitPath string) string {
+func resolveWorktreeGitDir(folder, gitPath string) string {
 	info, err := os.Stat(gitPath)
 	if err != nil || info.IsDir() {
 		return folder
 	}
-	log.Debugf(".git is a file, reading gitdir from there")
+	lgr.Printf("[DEBUG] .git is a file, reading gitdir from there")
 	content, err := os.ReadFile(gitPath) //nolint:gosec // gitPath is derived from the process's own working directory, not from external input
 	if err != nil {
 		return folder
@@ -62,7 +61,7 @@ func resolveWorktreeGitDir(log *logger.Logger, folder, gitPath string) string {
 	for line := range strings.SplitSeq(string(content), "\n") {
 		if len(line) > len(prefix) && line[:len(prefix)] == prefix {
 			gitDir := line[len(prefix):]
-			log.Debugf("found gitdir: %s", gitDir)
+			lgr.Printf("[DEBUG] found gitdir: %s", gitDir)
 			if !filepath.IsAbs(gitDir) {
 				return filepath.Join(folder, gitDir)
 			}

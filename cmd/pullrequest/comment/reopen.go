@@ -7,7 +7,7 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -45,8 +45,6 @@ func reopenValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]st
 }
 
 func reopenProcess(cmd *cobra.Command, args []string) (err error) {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "reopen")
-
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
 		return err
@@ -57,12 +55,12 @@ func reopenProcess(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 
-	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, "Reopening comment %s from pullrequest %s", args[0], reopenOptions.PullRequestID.Value) {
+	if !common.WhatIf(cmd, "Reopening comment %s from pullrequest %s", args[0], reopenOptions.PullRequestID.Value) {
 		return nil
 	}
 
 	err = profile.Delete(
-		log.ToContext(cmd.Context()),
+		cmd.Context(),
 		cmd,
 		repository.GetPath("pullrequests", reopenOptions.PullRequestID.Value, "comments", args[0], "resolve"),
 		nil,
@@ -70,6 +68,6 @@ func reopenProcess(cmd *cobra.Command, args []string) (err error) {
 	if err != nil {
 		return errors.Join(errors.Errorf("Failed to reopen pullrequest comment %s", args[0]), err)
 	}
-	log.Infof("Pullrequest comment %s reopened", args[0])
+	lgr.Printf("[DEBUG] pullrequest comment %s reopened", args[0])
 	return nil
 }

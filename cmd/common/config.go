@@ -1,45 +1,32 @@
 package common
 
 import (
-	"context"
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
-	"strings"
 
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
 // Initialize configure the logger and load the Viper Configuration
-func Initialize(ctx context.Context, cmd *cobra.Command) (err error) {
-	initializeLogger(ctx, cmd)
-	return initializeConfiguration(ctx, cmd)
+func Initialize(cmd *cobra.Command) (err error) {
+	initializeLogger(cmd)
+	return initializeConfiguration(cmd)
 }
 
 // initializeLogger configures the logger based on the command line flags and environment variables
-func initializeLogger(ctx context.Context, cmd *cobra.Command) {
-	log := logger.Must(logger.FromContext(ctx))
-
-	// Use persistent flags instead
-	if cmd.Root().PersistentFlags().Changed("log") {
-		log.ResetDestinations(cmd.Root().PersistentFlags().Lookup("log").Value.String())
-	}
+func initializeLogger(cmd *cobra.Command) {
+	options := []lgr.Option{lgr.Out(os.Stderr), lgr.Err(os.Stderr)}
 	if cmd.Root().PersistentFlags().Changed("debug") && cmd.Root().PersistentFlags().Lookup("debug").Value.String() == "true" {
-		log.SetFilterLevel(logger.DEBUG)
+		options = append(options, lgr.Debug, lgr.CallerFile, lgr.CallerFunc, lgr.Msec, lgr.LevelBraces)
 	}
-
-	log.Infof("%s", strings.Repeat("-", 80))
-	log.Infof("Starting %s v%s (%s)", cmd.Root().Name(), cmd.Root().Version, runtime.GOARCH)
-	log.Infof("Log Destination: %s", log)
+	lgr.Setup(options...)
 }
 
 // initializeConfiguration loads the configuration file and profiles
-func initializeConfiguration(ctx context.Context, cmd *cobra.Command) (err error) {
-	log := logger.Must(logger.FromContext(ctx))
-
+func initializeConfiguration(cmd *cobra.Command) (err error) {
 	viper.SetConfigType("yaml")
 	if cmd.Root().PersistentFlags().Changed("config") {
 		viper.SetConfigFile(cmd.Root().PersistentFlags().Lookup("config").Value.String())
@@ -55,11 +42,11 @@ func initializeConfiguration(ctx context.Context, cmd *cobra.Command) (err error
 
 	err = viper.ReadInConfig()
 	if verr, ok := errors.AsType[viper.ConfigFileNotFoundError](err); ok {
-		log.Warnf("Config file not found: %s", verr)
+		lgr.Printf("[WARN] config file not found: %s", verr)
 	} else if err != nil {
 		return errors.Join(errors.New("failed to read config file"), err)
 	} else {
-		log.Infof("Config File: %s", viper.ConfigFileUsed())
+		lgr.Printf("[DEBUG] config file: %s", viper.ConfigFileUsed())
 	}
 	return nil
 }

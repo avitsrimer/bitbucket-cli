@@ -10,7 +10,7 @@ import (
 
 	"github.com/gildas/go-core"
 	"github.com/gildas/go-errors"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 )
 
 type Token struct {
@@ -22,16 +22,14 @@ type Token struct {
 }
 
 // loadAccessToken loads the access token from the cache
-func (profile *Profile) loadAccessToken(ctx context.Context) (err error) {
-	log := logger.Must(logger.FromContext(ctx)).Child("profile", "loadAccessToken")
-
+func (profile *Profile) loadAccessToken(_ context.Context) (err error) {
 	if profile.token != nil {
-		log.Debugf("Access token already loaded in memory for profile %s", profile.Name)
+		lgr.Printf("[DEBUG] access token already loaded in memory for profile %s", profile.Name)
 		return nil
 	}
 
 	if profile.AccessToken != "" {
-		log.Debugf("Repository/Project/Workspace Access token for profile %s", profile.Name)
+		lgr.Printf("[DEBUG] repository/project/workspace access token for profile %s", profile.Name)
 		profile.token = &Token{
 			AccessToken: profile.AccessToken,
 			ExpiresOn:   core.Timestamp(time.Now().Add(100 * 365 * 24 * time.Hour)), // Loaded Access Tokens never expire
@@ -47,21 +45,22 @@ func (profile *Profile) loadAccessToken(ctx context.Context) (err error) {
 		if readErr == nil {
 			var token Token
 			if readErr = json.Unmarshal(data, &token); readErr == nil {
-				log.Infof("Loaded access token from cache for profile %s", profile.Name)
-				log.Record("token", token).Debugf("Access token details for profile %s", profile.Name)
+				lgr.Printf("[DEBUG] loaded access token from cache for profile %s", profile.Name)
+				// token.Redact() masks secrets before they hit the debug log
+				lgr.Printf("[DEBUG] access token details for profile %s: %+v", profile.Name, token.Redact())
 				profile.token = &token
 				return nil
 			}
 		}
 		// Load the access token from the vault in case this is an API Token
-		log.Debugf("Looking for access token in the vault for profile %s", profile.Name)
+		lgr.Printf("[DEBUG] looking for access token in the vault for profile %s", profile.Name)
 		credential, vaultErr := profile.GetCredentialFromVault(profile.VaultKey, profile.Name)
 		if vaultErr != nil {
-			log.Errorf("failed to get access token for profile %s: %v", profile.Name, vaultErr)
+			lgr.Printf("[ERROR] failed to get access token for profile %s: %v", profile.Name, vaultErr)
 			return nil // We don't return an error if the token is not found, so the authorization process can continue
 		}
 		profile.AccessToken = credential.Password
-		log.Infof("Loaded Repository/Project/Workspace Access Token for profile %s from the vault", profile.Name)
+		lgr.Printf("[DEBUG] loaded repository/project/workspace access token for profile %s from the vault", profile.Name)
 		profile.token = &Token{
 			AccessToken: profile.AccessToken,
 			ExpiresOn:   core.Timestamp(time.Now().Add(100 * 365 * 24 * time.Hour)), // Loaded Access Tokens never expire
@@ -77,12 +76,10 @@ func (profile *Profile) isTokenExpired() bool {
 }
 
 // saveAccessToken saves the access token to the cache
-func (profile *Profile) saveAccessToken(ctx context.Context, data []byte) (accessToken string, err error) {
-	log := logger.Must(logger.FromContext(ctx)).Child("profile", "saveAccessToken")
-
+func (profile *Profile) saveAccessToken(_ context.Context, data []byte) (accessToken string, err error) {
 	profile.token, err = UnmarshalTokenFromBitbucketData(data)
 	if err != nil {
-		log.Errorf("Failed to unmarshal access token data for profile %s: %v", profile.Name, err)
+		lgr.Printf("[ERROR] failed to unmarshal access token data for profile %s: %v", profile.Name, err)
 		return "", err
 	}
 
@@ -92,23 +89,21 @@ func (profile *Profile) saveAccessToken(ctx context.Context, data []byte) (acces
 			cacheFile := filepath.Join(cachePath, "access-token-"+profile.Name)
 			payload, _ := json.Marshal(profile.token) //nolint:gosec // G117: caching the access token locally (0600) is the intended behavior here, not a leak
 			if err = os.WriteFile(cacheFile, payload, 0o600); err != nil {
-				log.Errorf("Failed to save access token to cache for profile %s", profile.Name, err)
+				lgr.Printf("[ERROR] failed to save access token to cache for profile %s: %v", profile.Name, err)
 			}
 		}
 	}
 	return profile.token.AccessToken, nil
 }
 
-// Redact redacts sensitive information from the token
-//
-// implements logger.Redactable
+// Redact redacts sensitive information from the token, for logging purposes
 func (token Token) Redact() any {
 	redacted := token
 	if redacted.AccessToken != "" {
-		redacted.AccessToken = logger.RedactWithHash(redacted.AccessToken)
+		redacted.AccessToken = redactWithHash(redacted.AccessToken)
 	}
 	if redacted.RefreshToken != "" {
-		redacted.RefreshToken = logger.RedactWithHash(redacted.RefreshToken)
+		redacted.RefreshToken = redactWithHash(redacted.RefreshToken)
 	}
 	return redacted
 }

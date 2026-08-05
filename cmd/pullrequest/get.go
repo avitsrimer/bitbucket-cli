@@ -3,11 +3,11 @@ package pullrequest
 import (
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/bitbucket-cli/cmd/profile"
-	"github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
+	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -46,8 +46,6 @@ func getValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]strin
 }
 
 func getProcess(cmd *cobra.Command, args []string) error {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "get")
-
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
 		return err
@@ -58,14 +56,14 @@ func getProcess(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	log.Infof("Displaying pull request %s", args[0])
-	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, "Showing pull request "+args[0]) {
+	lgr.Printf("[DEBUG] displaying pull request %s", args[0])
+	if !common.WhatIf(cmd, "Showing pull request "+args[0]) {
 		return nil
 	}
 	var pullrequest PullRequest
 
 	err = profile.Get(
-		log.ToContext(cmd.Context()),
+		cmd.Context(),
 		cmd,
 		repository.GetPath("pullrequests", args[0]),
 		&pullrequest,

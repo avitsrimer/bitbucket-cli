@@ -9,7 +9,7 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -63,8 +63,6 @@ func updateValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]st
 }
 
 func updateProcess(cmd *cobra.Command, args []string) error {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "update")
-
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
 		return err
@@ -87,15 +85,15 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 		taskUpdator.State = updateOptions.State.Value
 	}
 
-	log.Infof("Updating pullrequest task %s on pullrequest %s", taskID, updateOptions.PullRequestID.Value)
-	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, fmt.Sprintf("Updating pullrequest task %s on pullrequest %s", taskID, updateOptions.PullRequestID.Value)) {
+	lgr.Printf("[DEBUG] updating pullrequest task %s on pullrequest %s", taskID, updateOptions.PullRequestID.Value)
+	if !common.WhatIf(cmd, fmt.Sprintf("Updating pullrequest task %s on pullrequest %s", taskID, updateOptions.PullRequestID.Value)) {
 		return nil
 	}
 
 	var updated Task
 
 	err = profile.Put(
-		log.ToContext(cmd.Context()),
+		cmd.Context(),
 		cmd,
 		repository.GetPath("pullrequests", updateOptions.PullRequestID.Value, "tasks", taskID),
 		taskUpdator,

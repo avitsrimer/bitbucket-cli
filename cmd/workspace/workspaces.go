@@ -7,7 +7,7 @@ import (
 
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	"github.com/gildas/go-core"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -18,19 +18,17 @@ func GetWorkspaces(ctx context.Context, cmd *cobra.Command) ([]Workspace, error)
 
 // GetWorkspacesWithQuery gets the workspaces for the current user with a query
 func GetWorkspacesWithQuery(ctx context.Context, cmd *cobra.Command, query url.Values) ([]Workspace, error) {
-	log := logger.Must(logger.FromContext(ctx)).Child("workspace", "slugs")
-
 	uripath := "/user/workspaces"
 	if len(query) > 0 {
 		uripath += "?" + query.Encode()
 	}
 
-	log.Debugf("Getting all workspaces with query %s", query)
+	lgr.Printf("[DEBUG] getting all workspaces with query %s", query)
 	workspaces, err := profile.GetAll[Workspace](ctx, cmd, uripath)
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("Found %d workspaces", len(workspaces))
+	lgr.Printf("[DEBUG] found %d workspaces", len(workspaces))
 	core.Sort(workspaces, func(a, b Workspace) bool {
 		return strings.ToLower(a.Slug) < strings.ToLower(b.Slug)
 	})

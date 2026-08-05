@@ -8,8 +8,8 @@ require (
 	github.com/gildas/go-core v0.6.4
 	github.com/gildas/go-errors v0.4.0
 	github.com/gildas/go-flags v0.5.0
-	github.com/gildas/go-logger v1.9.8
 	github.com/gildas/go-request v0.9.20
+	github.com/go-pkgz/lgr v0.12.3
 	github.com/google/uuid v1.6.0
 	github.com/joho/godotenv v1.5.1
 	github.com/kataras/tablewriter v0.0.0-20180708051242-e063d29b7c23
@@ -35,6 +35,7 @@ require (
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
+	github.com/gildas/go-logger v1.9.8 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect

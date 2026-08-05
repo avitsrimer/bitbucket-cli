@@ -5,7 +5,7 @@ import (
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/go-errors"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -39,8 +39,7 @@ func init() {
 }
 
 func deleteProcess(cmd *cobra.Command, args []string) (err error) {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "delete")
-	ctx := log.ToContext(cmd.Context())
+	ctx := cmd.Context()
 	var deleted int
 
 	_, err = GetProfileFromCommand(ctx, cmd)
@@ -48,7 +47,7 @@ func deleteProcess(cmd *cobra.Command, args []string) (err error) {
 		if cmd.Flag("stop-on-error").Value.String() == "true" {
 			return errors.Errorf("No profiles found")
 		}
-		common.Verbose(ctx, cmd, "Profiles list is empty, nothing to delete")
+		common.Verbose(cmd, "Profiles list is empty, nothing to delete")
 		return nil
 	}
 	if err != nil {
@@ -56,16 +55,16 @@ func deleteProcess(cmd *cobra.Command, args []string) (err error) {
 	}
 
 	if deleteOptions.All {
-		log.Infof("Deleting all profiles")
-		if common.WhatIf(ctx, cmd, "Deleting all profiles") {
-			deleteProfileCredentials(log, Profiles.Names())
+		lgr.Printf("[DEBUG] deleting all profiles")
+		if common.WhatIf(cmd, "Deleting all profiles") {
+			deleteProfileCredentials(Profiles.Names())
 			deleted = Profiles.Delete(Profiles.Names()...)
 		}
-	} else if common.WhatIf(ctx, cmd, "Deleting profiles %s", strings.Join(args, ", ")) {
-		deleteProfileCredentials(log, args)
+	} else if common.WhatIf(cmd, "Deleting profiles %s", strings.Join(args, ", ")) {
+		deleteProfileCredentials(args)
 		deleted = Profiles.Delete(args...)
 	}
-	log.Infof("Deleted %d profiles", deleted)
+	lgr.Printf("[DEBUG] deleted %d profiles", deleted)
 	if deleted == 0 || cmd.Flag("dry-run").Changed {
 		return nil
 	}
@@ -74,23 +73,23 @@ func deleteProcess(cmd *cobra.Command, args []string) (err error) {
 }
 
 // deleteProfileCredentials deletes the vault credential of each named profile, if any
-func deleteProfileCredentials(log *logger.Logger, names []string) {
+func deleteProfileCredentials(names []string) {
 	for _, profileName := range names {
 		profile, found := Profiles.Find(profileName)
 		if !found {
 			continue
 		}
-		log.Infof("Deleting credential for profile %s", profile.Name)
+		lgr.Printf("[DEBUG] deleting credential for profile %s", profile.Name)
 		switch {
 		case profile.ClientID != "":
 			_ = profile.DeleteCredentialFromVault(profile.VaultKey, profile.ClientID)
-			log.Debugf("Deleted client secret for clientID %s from the %s vault", profile.ClientID, profile.VaultKey)
+			lgr.Printf("[DEBUG] deleted client secret for clientID %s from the %s vault", profile.ClientID, profile.VaultKey)
 		case profile.User != "":
 			_ = profile.DeleteCredentialFromVault(profile.VaultKey, profile.User)
-			log.Debugf("Deleted user password for user %s from the %s vault", profile.User, profile.VaultKey)
+			lgr.Printf("[DEBUG] deleted user password for user %s from the %s vault", profile.User, profile.VaultKey)
 		case profile.Name != "":
 			_ = profile.DeleteCredentialFromVault(profile.VaultKey, profile.Name)
-			log.Debugf("Deleted name secret for profile %s from the %s vault", profile.Name, profile.VaultKey)
+			lgr.Printf("[DEBUG] deleted name secret for profile %s from the %s vault", profile.Name, profile.VaultKey)
 		}
 	}
 }

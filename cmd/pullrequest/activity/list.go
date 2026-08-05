@@ -10,7 +10,7 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/go-core"
 	"github.com/gildas/go-flags"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -48,8 +48,6 @@ func init() {
 }
 
 func listProcess(cmd *cobra.Command, args []string) (err error) {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "list")
-
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
 		return err
@@ -61,8 +59,8 @@ func listProcess(cmd *cobra.Command, args []string) (err error) {
 		uripath = fmt.Sprintf("%s?q=%s", uripath, url.QueryEscape(listOptions.Query))
 	}
 
-	log.Infof("Listing all activities from repository %s", repository)
-	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, fmt.Sprintf("Showing activities for pullrequest %s in repository %s with profile %s", listOptions.PullRequestID.Value, repository, profile.Current)) {
+	lgr.Printf("[DEBUG] listing all activities from repository %s", repository)
+	if !common.WhatIf(cmd, fmt.Sprintf("Showing activities for pullrequest %s in repository %s with profile %s", listOptions.PullRequestID.Value, repository, profile.Current)) {
 		return nil
 	}
 
@@ -71,7 +69,7 @@ func listProcess(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 	if len(activities) == 0 {
-		log.Infof("No activities found")
+		lgr.Printf("[DEBUG] no activities found")
 		return nil
 	}
 	core.Sort(activities, columns.SortBy(listOptions.SortBy.Value))

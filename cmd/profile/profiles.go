@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/gildas/bitbucket-cli/cmd/common"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -20,54 +20,52 @@ var Profiles profiles
 
 // Current gets the current profile
 func (profiles profiles) Current(context context.Context) *Profile {
-	log := logger.Must(logger.FromContext(context)).Child("profile", "current")
-
-	if profile := profiles.profileFromGitConfig(context, log); profile != nil {
+	if profile := profiles.profileFromGitConfig(context); profile != nil {
 		return profile
 	}
 
-	log.Debugf("No profile found in git config, looking for default profile in %d profiles", len(profiles))
+	lgr.Printf("[DEBUG] no profile found in git config, looking for default profile in %d profiles", len(profiles))
 	for _, profile := range profiles {
 		if profile.Default {
-			log.Infof("Using default profile %s", profile.Name)
+			lgr.Printf("[DEBUG] using default profile %s", profile.Name)
 			return profile
 		}
 	}
 	if len(profiles) > 0 {
-		log.Infof("Using first profile %s", profiles[0].Name)
+		lgr.Printf("[DEBUG] using first profile %s", profiles[0].Name)
 		return profiles[0]
 	}
-	log.Warnf("No profile found")
+	lgr.Printf("[WARN] no profile found")
 	return nil
 }
 
 // profileFromGitConfig looks up the profile named in the git config's bitbucket "cli" section,
 // returning nil when no git config, no such section, no profile name, or no matching profile is found
-func (profiles profiles) profileFromGitConfig(context context.Context, log *logger.Logger) *Profile {
+func (profiles profiles) profileFromGitConfig(context context.Context) *Profile {
 	gitConfig, err := common.OpenGitConfig(context)
 	if err != nil {
 		return nil
 	}
-	log.Debugf("Found a git config file")
+	lgr.Printf("[DEBUG] found a git config file")
 
 	section, err := common.GetGitSection(context, gitConfig, `bitbucket "cli"`)
 	if err != nil {
 		return nil
 	}
-	log.Debugf("Found a bitbucket \"cli\" section in git config: name=%s", section.Name())
+	lgr.Printf("[DEBUG] found a bitbucket \"cli\" section in git config: name=%s", section.Name())
 
 	profileName := section.Key("profile").String()
 	if profileName == "" {
 		return nil
 	}
-	log.Debugf("Found a profile in git config: %s", profileName)
+	lgr.Printf("[DEBUG] found a profile in git config: %s", profileName)
 
 	profile, found := profiles.Find(profileName)
 	if found {
-		log.Infof("Using profile %s from git config", profileName)
+		lgr.Printf("[DEBUG] using profile %s from git config", profileName)
 		return profile
 	}
-	log.Warnf("Profile %s not found in %s", profileName, viper.ConfigFileUsed())
+	lgr.Printf("[WARN] profile %s not found in %s", profileName, viper.ConfigFileUsed())
 	fmt.Fprintf(os.Stderr, "Profile %s from your git config was not found in %s, ignored.\n", profileName, viper.ConfigFileUsed())
 	return nil
 }
@@ -155,24 +153,22 @@ func (profiles profiles) SetCurrent(name string) {
 }
 
 // Load loads the profiles from a viper key
-func (profiles *profiles) Load(ctx context.Context, cmd *cobra.Command) error {
-	log := logger.Must(logger.FromContext(ctx)).Child("profiles", "load")
-
+func (profiles *profiles) Load(_ context.Context, cmd *cobra.Command) error {
 	if len(*profiles) > 0 {
 		return nil
 	}
 
 	if len(viper.AllKeys()) == 0 {
-		if err := common.Initialize(ctx, cmd); err != nil {
+		if err := common.Initialize(cmd); err != nil {
 			return err
 		}
 	}
 
-	log.Infof("Loading profiles from %s", viper.ConfigFileUsed())
+	lgr.Printf("[DEBUG] loading profiles from %s", viper.ConfigFileUsed())
 	if err := viper.UnmarshalKey("profiles", &profiles); err != nil {
 		return err
 	}
-	log.Debugf("Loaded %d profiles", len(*profiles))
+	lgr.Printf("[DEBUG] loaded %d profiles", len(*profiles))
 	return nil
 }
 
@@ -191,10 +187,10 @@ func ValidProfileNames(cmd *cobra.Command, args []string, toComplete string) ([]
 }
 
 // saveProfilesConfig persists the in-memory Profiles collection to the active config file
-func saveProfilesConfig(log *logger.Logger) error {
+func saveProfilesConfig() error {
 	viper.Set("profiles", Profiles)
 	if viper.ConfigFileUsed() != "" {
-		log.Infof("Writing configuration to %s", viper.ConfigFileUsed())
+		lgr.Printf("[DEBUG] writing configuration to %s", viper.ConfigFileUsed())
 		return viper.WriteConfig()
 	}
 	if configDir, _ := os.UserConfigDir(); configDir != "" {

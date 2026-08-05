@@ -14,7 +14,7 @@ import (
 	"github.com/briandowns/spinner"
 	"github.com/gildas/bitbucket-cli/cmd/common"
 	"github.com/gildas/go-errors"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 	"gopkg.in/ini.v1"
 )
@@ -33,8 +33,7 @@ func init() {
 }
 
 func authorizeProcess(cmd *cobra.Command, args []string) (err error) {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "authorize")
-	ctx := log.ToContext(cmd.Context())
+	ctx := cmd.Context()
 
 	if len(args) == 0 {
 		return errors.ArgumentMissing.With("profile")
@@ -48,7 +47,7 @@ func authorizeProcess(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 
-	log.Infof("Authorizing profile %s (Valid names: %v)", args[0], Profiles.Names())
+	lgr.Printf("[DEBUG] authorizing profile %s (valid names: %v)", args[0], Profiles.Names())
 	profile, found := Profiles.Find(args[0])
 	if !found {
 		return errors.NotFound.With("profile", args[0])
@@ -57,26 +56,26 @@ func authorizeProcess(cmd *cobra.Command, args []string) (err error) {
 		return errors.Join(errors.Errorf("Profile %s does not support Authorization Code Grant", profile.Name), errors.ArgumentInvalid.With("profile", profile.Name))
 	}
 
-	if !common.WhatIf(ctx, cmd, "Authorizing profile "+args[0]) {
+	if !common.WhatIf(cmd, "Authorizing profile "+args[0]) {
 		return nil
 	}
 	// Start a web server to listen for the Authorization Code Grant
 	resultchan := make(chan error)
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", profile.CallbackPort),
-		Handler:           log.HttpHandler()(profile.CodeGrantCallback(resultchan)),
+		Handler:           profile.CodeGrantCallback(resultchan),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	go func() {
 		if serveErr := server.ListenAndServe(); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-			log.Errorf("Failed to start server: %v", serveErr)
+			lgr.Printf("[ERROR] failed to start server: %v", serveErr)
 			resultchan <- serveErr
 		}
 	}()
 
 	// Open the browser to the Authorization Code Grant URL
-	common.Verbose(ctx, cmd, "Opening browser to authorize profile %s...", profile.Name)
+	common.Verbose(cmd, "Opening browser to authorize profile %s...", profile.Name)
 	spinner := spinner.New(spinner.CharSets[11], 100*time.Millisecond)
 	bitbucketAuthURL := url.URL{
 		Scheme: "https",
@@ -87,7 +86,7 @@ func authorizeProcess(cmd *cobra.Command, args []string) (err error) {
 			"client_id":     {profile.ClientID},
 		}.Encode(),
 	}
-	common.Verbose(ctx, cmd, "\nIf you are not redirected automatically, please open the following URL in your browser:\n%s\n", bitbucketAuthURL.String())
+	common.Verbose(cmd, "\nIf you are not redirected automatically, please open the following URL in your browser:\n%s\n", bitbucketAuthURL.String())
 
 	if cmd.Flag("verbose").Changed {
 		spinner.Reverse()
@@ -97,7 +96,7 @@ func authorizeProcess(cmd *cobra.Command, args []string) (err error) {
 
 	err = openBrowser(ctx, bitbucketAuthURL)
 	if err != nil {
-		log.Warnf("Failed to open browser: %s", err.Error())
+		lgr.Printf("[WARN] failed to open browser: %s", err.Error())
 		if cmd.Flag("stop-on-error").Value.String() == "true" {
 			spinner.Stop()
 			return err
@@ -109,16 +108,16 @@ func authorizeProcess(cmd *cobra.Command, args []string) (err error) {
 	results := <-resultchan
 
 	spinner.Stop()
-	log.Infof("Received results, shutting down server...")
+	lgr.Printf("[DEBUG] received results, shutting down server...")
 	if err := server.Shutdown(ctx); err != nil {
-		log.Errorf("Failed to shut down server: %v", err)
+		lgr.Printf("[ERROR] failed to shut down server: %v", err)
 	}
 
 	if results != nil {
-		log.Errorf("Authorization process failed: %v", results)
+		lgr.Printf("[ERROR] authorization process failed: %v", results)
 		return results
 	}
-	common.Verbose(ctx, cmd, "Authorization process completed successfully")
+	common.Verbose(cmd, "Authorization process completed successfully")
 	return nil
 }
 

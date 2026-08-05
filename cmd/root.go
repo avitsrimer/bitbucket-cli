@@ -18,18 +18,17 @@ import (
 
 // RootOptions describes the options for the application
 type RootOptions struct {
-	ConfigFile     string          `mapstructure:"-"`
-	LogDestination string          `mapstructure:"-"`
-	ProfileName    string          `mapstructure:"-"`
-	Repository     string          `mapstructure:"-"`
-	Workspace      *flags.EnumFlag `mapstructure:"-"`
-	OutputFormat   flags.EnumFlag  `mapstructure:"-"`
-	DryRun         bool            `mapstructure:"-"`
-	Verbose        bool            `mapstructure:"-"`
-	Debug          bool            `mapstructure:"-"`
-	StopOnError    bool            `mapstructure:"-"`
-	WarnOnError    bool            `mapstructure:"-"`
-	IgnoreErrors   bool            `mapstructure:"-"`
+	ConfigFile   string          `mapstructure:"-"`
+	ProfileName  string          `mapstructure:"-"`
+	Repository   string          `mapstructure:"-"`
+	Workspace    *flags.EnumFlag `mapstructure:"-"`
+	OutputFormat flags.EnumFlag  `mapstructure:"-"`
+	DryRun       bool            `mapstructure:"-"`
+	Verbose      bool            `mapstructure:"-"`
+	Debug        bool            `mapstructure:"-"`
+	StopOnError  bool            `mapstructure:"-"`
+	WarnOnError  bool            `mapstructure:"-"`
+	IgnoreErrors bool            `mapstructure:"-"`
 }
 
 // CmdOptions contains the options for the application
@@ -65,7 +64,6 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&CmdOptions.ProfileName, "profile", "p", core.GetEnvAsString("BB_PROFILE", ""), "Profile to use. Overrides the default profile")
 	RootCmd.PersistentFlags().Var(CmdOptions.Workspace, "workspace", "Workspace to use. Overrides the default workspace of the profile. \nBy default, the workspace is determined from the git or profile configuration")
 	RootCmd.PersistentFlags().StringVar(&CmdOptions.Repository, "repository", "", "Repository to use. Overrides the default repository of the profile. \nBy default, the repository is determined from the git configuration")
-	RootCmd.PersistentFlags().StringVarP(&CmdOptions.LogDestination, "log", "l", "", "Log destination (stdout, stderr, file, none), overrides LOG_DESTINATION environment variable")
 	RootCmd.PersistentFlags().BoolVar(&CmdOptions.DryRun, "dry-run", false, "Dry run, the command will not modify anything but tell what it would do. \nAlso known as --noop or --whatif")
 	RootCmd.PersistentFlags().BoolVar(&CmdOptions.DryRun, "noop", false, "Dry run, the command will not modify anything but tell what it would do. \nAlso known as --dry-run or --whatif")
 	RootCmd.PersistentFlags().BoolVar(&CmdOptions.DryRun, "whatif", false, "Dry run, the command will not modify anything but tell what it would do. \nAlso known as --dry-run or --noop")
@@ -77,7 +75,6 @@ func init() {
 	RootCmd.PersistentFlags().BoolVar(&CmdOptions.IgnoreErrors, "ignore-errors", false, "Ignore errors")
 	RootCmd.MarkFlagsMutuallyExclusive("stop-on-error", "warn-on-error", "ignore-errors")
 	_ = RootCmd.MarkFlagFilename("config")
-	_ = RootCmd.MarkFlagFilename("log")
 	_ = RootCmd.RegisterFlagCompletionFunc("profile", profile.ValidProfileNames)
 	_ = RootCmd.RegisterFlagCompletionFunc(CmdOptions.OutputFormat.CompletionFunc("output"))
 	_ = RootCmd.RegisterFlagCompletionFunc(CmdOptions.Workspace.CompletionFunc("workspace"))
@@ -88,7 +85,7 @@ func init() {
 
 	RootCmd.SilenceUsage = true // Do not show usage when an error occurs
 	cobra.OnInitialize(func() {
-		if err := common.Initialize(RootCmd.Context(), RootCmd); err != nil {
+		if err := common.Initialize(RootCmd); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to initialize: %s\n", err)
 			os.Exit(1)
 		}

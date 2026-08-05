@@ -9,7 +9,7 @@ import (
 	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/go-errors"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -39,8 +39,6 @@ func validPatchArgs(cmd *cobra.Command, args []string, toComplete string) ([]str
 }
 
 func patchProcess(cmd *cobra.Command, args []string) error {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "patch")
-
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
 		return err
@@ -56,12 +54,12 @@ func patchProcess(cmd *cobra.Command, args []string) error {
 		return errors.Join(errors.Errorf("Cannot show patch of Pull Request"), err)
 	}
 
-	log.Debugf("Displaying patch for Pull Request ID: %s", pullRequestID)
-	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, "Showing patch for Pull Request "+pullRequestID) {
+	lgr.Printf("[DEBUG] displaying patch for Pull Request ID: %s", pullRequestID)
+	if !common.WhatIf(cmd, "Showing patch for Pull Request "+pullRequestID) {
 		return nil
 	}
 
-	patch, err := profile.GetRaw(log.ToContext(cmd.Context()), cmd, repository.GetPath("pullrequests", pullRequestID, "patch"))
+	patch, err := profile.GetRaw(cmd.Context(), cmd, repository.GetPath("pullrequests", pullRequestID, "patch"))
 	if err != nil {
 		return err
 	}

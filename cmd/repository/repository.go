@@ -16,7 +16,7 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/user"
 	"github.com/gildas/bitbucket-cli/cmd/workspace"
 	"github.com/gildas/go-errors"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -100,15 +100,14 @@ func GetRepository(ctx context.Context, cmd *cobra.Command) (repository *Reposit
 //
 // Otherwise, the workspace is determined by the git config or the default workspace in the profile.
 func GetRepositoryBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID string) (repository *Repository, err error) {
-	log := logger.Must(logger.FromContext(ctx)).Child("repository", "get_by_slug_or_id", "repository", slugOrID)
 	var ws *workspace.Workspace
 
 	if components := strings.Split(slugOrID, "/"); len(components) == 2 {
-		log.Debugf("Repository slug %s contains a workspace, extracting workspace and repository name", slugOrID)
+		lgr.Printf("[DEBUG] repository slug %s contains a workspace, extracting workspace and repository name", slugOrID)
 		slugOrID = components[1]
 		ws, err = workspace.GetWorkspaceBySlugOrID(ctx, cmd, components[0])
 	} else {
-		log.Debugf("Repository slug %s does not contain a workspace, using git config or default workspace", slugOrID)
+		lgr.Printf("[DEBUG] repository slug %s does not contain a workspace, using git config or default workspace", slugOrID)
 		ws, err = workspace.GetWorkspace(ctx, cmd)
 	}
 	if err != nil {
@@ -121,11 +120,11 @@ func GetRepositoryBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID s
 	}
 
 	if repository, err = RepositoryCache.Get(fmt.Sprintf("%s/%s", ws.Slug, slugOrID)); err == nil {
-		log.Debugf("Repository %s/%s found in cache", ws.Slug, slugOrID)
+		lgr.Printf("[DEBUG] repository %s/%s found in cache", ws.Slug, slugOrID)
 		return repository, nil
 	}
 
-	log.Infof("Getting repository %s in workspace %s", slugOrID, ws.Slug)
+	lgr.Printf("[DEBUG] getting repository %s in workspace %s", slugOrID, ws.Slug)
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
 		return nil, err
@@ -145,23 +144,19 @@ func GetRepositoryBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID s
 
 // GetEffectiveDefaultReviewers gets the effective default reviewers for a repository
 func (repository Repository) GetEffectiveDefaultReviewers(ctx context.Context, cmd *cobra.Command) (reviewers []reviewer.Reviewer, err error) {
-	log := logger.Must(logger.FromContext(ctx)).Child("repository", "effective-default-reviewers")
-
-	log.Infof("Getting effective default reviewers of repository %s/%s", repository.Workspace.Slug, repository.Slug)
+	lgr.Printf("[DEBUG] getting effective default reviewers of repository %s/%s", repository.Workspace.Slug, repository.Slug)
 	return profile.GetAll[reviewer.Reviewer](ctx, cmd, repository.GetPath("effective-default-reviewers"))
 }
 
 // GetWorkspace gets the workspace of the repository
 func (repository Repository) GetWorkspace(ctx context.Context, cmd *cobra.Command) (*workspace.Workspace, error) {
-	log := logger.Must(logger.FromContext(ctx)).Child("repository", "get_workspace")
-
 	if repository.Workspace != nil && !repository.Workspace.ID.IsNil() && repository.Workspace.Slug != "" {
-		log.Debugf("Getting workspace of repository %s/%s from cache", repository.Workspace.Slug, repository.Slug)
+		lgr.Printf("[DEBUG] getting workspace of repository %s/%s from cache", repository.Workspace.Slug, repository.Slug)
 		return repository.Workspace, nil
 	}
 
 	if repository.FullName != "" {
-		log.Debugf("Getting workspace of repository %s/%s from full name", repository.FullName, repository.Slug)
+		lgr.Printf("[DEBUG] getting workspace of repository %s/%s from full name", repository.FullName, repository.Slug)
 		components := strings.Split(repository.FullName, "/")
 		if len(components) == 2 {
 			return workspace.GetWorkspaceBySlugOrID(ctx, cmd, components[0])

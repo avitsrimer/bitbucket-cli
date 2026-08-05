@@ -6,7 +6,7 @@ import (
 	prcommon "github.com/gildas/bitbucket-cli/cmd/pullrequest/common"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/go-errors"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -43,8 +43,6 @@ func mergeStatusValidArgs(cmd *cobra.Command, args []string, toComplete string) 
 }
 
 func mergeStatusProcess(cmd *cobra.Command, args []string) (err error) {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "merge-status")
-
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
 		return errors.Join(errors.Errorf("Failed to get the profile"), err)
@@ -60,15 +58,15 @@ func mergeStatusProcess(cmd *cobra.Command, args []string) (err error) {
 		return errors.Join(errors.Errorf("Cannot merge Pull Request"), err)
 	}
 
-	log.Infof("Getting the Pull Request merge status for %s", pullRequestID)
-	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, "Getting the merge status for pull request %s", pullRequestID) {
+	lgr.Printf("[DEBUG] getting the Pull Request merge status for %s", pullRequestID)
+	if !common.WhatIf(cmd, "Getting the merge status for pull request %s", pullRequestID) {
 		return nil
 	}
 
 	var status PullRequestMergeStatus
 
 	err = profile.Get(
-		log.ToContext(cmd.Context()),
+		cmd.Context(),
 		cmd,
 		repository.GetPath("pullrequests", pullRequestID, "merge", "task-status", mergeStatusOptions.TaskID),
 		&status,

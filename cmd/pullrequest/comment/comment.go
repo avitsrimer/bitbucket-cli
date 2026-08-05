@@ -16,7 +16,7 @@ import (
 	"github.com/gildas/go-core"
 	"github.com/gildas/go-errors"
 	"github.com/gildas/go-flags"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -255,8 +255,6 @@ func (comment Comment) MarshalJSON() (data []byte, err error) {
 
 // GetPullRequestCommentIDs gets the IDs of the comments for a pullrequest
 func GetPullRequestCommentIDs(context context.Context, cmd *cobra.Command, args []string, toComplete string) (ids []string, err error) {
-	log := logger.Must(logger.FromContext(context)).Child("comment", "getids")
-
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
 		return nil, err
@@ -269,7 +267,7 @@ func GetPullRequestCommentIDs(context context.Context, cmd *cobra.Command, args 
 
 	comments, err := profile.GetAll[Comment](context, cmd, repository.GetPath(fmt.Sprintf("pullrequests/%s/comments", pullRequestID)))
 	if err != nil {
-		log.Errorf("Failed to get pullrequests", err)
+		lgr.Printf("[ERROR] failed to get pullrequests: %v", err)
 		return nil, err
 	}
 	ids = core.Map(comments, func(comment Comment) string { return strconv.Itoa(comment.ID) })

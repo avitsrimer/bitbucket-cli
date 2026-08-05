@@ -5,7 +5,7 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/profile"
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/go-errors"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -50,8 +50,6 @@ func updateValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]st
 }
 
 func updateProcess(cmd *cobra.Command, args []string) (err error) {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "update")
-
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
 		return err
@@ -88,14 +86,14 @@ func updateProcess(cmd *cobra.Command, args []string) (err error) {
 		payload.Parent = &ParentReference{ID: updateOptions.ParentID}
 	}
 
-	log.Record("payload", payload).Infof("Updating pullrequest comment")
-	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, "Updating comment %s for pullrequest %s", args[0], updateOptions.PullRequestID.Value) {
+	lgr.Printf("[DEBUG] updating pullrequest comment")
+	if !common.WhatIf(cmd, "Updating comment %s for pullrequest %s", args[0], updateOptions.PullRequestID.Value) {
 		return nil
 	}
 	var comment Comment
 
 	err = profile.Put(
-		log.ToContext(cmd.Context()),
+		cmd.Context(),
 		cmd,
 		repository.GetPath("pullrequests", updateOptions.PullRequestID.Value, "comments", args[0]),
 		payload,

@@ -10,7 +10,7 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/repository"
 	"github.com/gildas/go-core"
 	"github.com/gildas/go-flags"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -50,8 +50,6 @@ func init() {
 }
 
 func listProcess(cmd *cobra.Command, args []string) (err error) {
-	log := logger.Must(logger.FromContext(cmd.Context())).Child(cmd.Parent().Name(), "list")
-
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
 		return err
@@ -68,17 +66,17 @@ func listProcess(cmd *cobra.Command, args []string) (err error) {
 		uripath = repository.GetPath("pullrequests?state=" + url.QueryEscape(strings.ToUpper(listOptions.State.String())))
 	}
 
-	log.Infof("Listing %s pull requests for repository: %s", listOptions.State, repository)
-	if !common.WhatIf(log.ToContext(cmd.Context()), cmd, fmt.Sprintf("Showing %s pull requests for repository: %s", listOptions.State, repository)) {
+	lgr.Printf("[DEBUG] listing %s pull requests for repository: %s", listOptions.State, repository)
+	if !common.WhatIf(cmd, fmt.Sprintf("Showing %s pull requests for repository: %s", listOptions.State, repository)) {
 		return nil
 	}
 
-	pullrequests, err := profile.GetAll[PullRequest](log.ToContext(cmd.Context()), cmd, uripath)
+	pullrequests, err := profile.GetAll[PullRequest](cmd.Context(), cmd, uripath)
 	if err != nil {
 		return err
 	}
 	if len(pullrequests) == 0 {
-		log.Infof("No pullrequest found")
+		lgr.Printf("[DEBUG] no pullrequest found")
 		return err
 	}
 	core.Sort(pullrequests, columns.SortBy(listOptions.SortBy.Value))

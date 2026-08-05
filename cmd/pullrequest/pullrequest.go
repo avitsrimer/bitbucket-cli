@@ -21,7 +21,7 @@ import (
 	"github.com/gildas/bitbucket-cli/cmd/workspace"
 	"github.com/gildas/go-core"
 	"github.com/gildas/go-errors"
-	"github.com/gildas/go-logger"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -227,20 +227,18 @@ func GetPullRequestIDFromArgs(ctx context.Context, cmd *cobra.Command, repositor
 
 // GetReviewerNicknames gets the reviewer nicknames for the current Workspace
 func GetReviewerNicknames(ctx context.Context, cmd *cobra.Command, args []string, toComplete string) (nicknames []string, err error) {
-	log := logger.Must(logger.FromContext(ctx)).Child(nil, "getreviewers")
-
 	if cmd == nil {
 		fmt.Fprintln(os.Stderr, "cmd is nil")
 		return []string{}, errors.ArgumentMissing.With("cmd")
 	}
 
-	log.Infof("Getting reviewer nicknames for profile %s", profile.Current)
+	lgr.Printf("[DEBUG] getting reviewer nicknames for profile %s", profile.Current)
 	pullrequestWorkspace, err := workspace.GetWorkspace(cmd.Context(), cmd)
 	if err != nil {
-		log.Errorf("Failed to get repository: %s", err)
+		lgr.Printf("[ERROR] failed to get repository: %v", err)
 		return []string{}, err
 	}
-	log.Infof("Getting members of workspace %s", pullrequestWorkspace)
+	lgr.Printf("[DEBUG] getting members of workspace %s", pullrequestWorkspace)
 	members, _ := pullrequestWorkspace.GetMembers(ctx, cmd)
 	nicknames = core.Map(members, func(member workspace.Member) string { return member.User.Nickname })
 	core.Sort(nicknames, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
