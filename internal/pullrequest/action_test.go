@@ -67,6 +67,14 @@ func removeCacheEntry(key string) {
 // command carrying the flags runAction/mergeProcess read (profile, repository, output, dry-run).
 func setupTest(t *testing.T, handler http.HandlerFunc, dryRun bool) *cobra.Command {
 	t.Helper()
+	return setupTestNamed(t, "test", handler, dryRun)
+}
+
+// setupTestNamed is setupTest with an explicit profile name; use it whenever a test's code path
+// caches something keyed by profile name (e.g. user.UserCache) and must not collide with entries
+// left behind by other tests sharing the "test" profile name.
+func setupTestNamed(t *testing.T, profileName string, handler http.HandlerFunc, dryRun bool) *cobra.Command {
+	t.Helper()
 
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
@@ -76,7 +84,7 @@ func setupTest(t *testing.T, handler http.HandlerFunc, dryRun bool) *cobra.Comma
 		t.Fatalf("cannot parse test server URL: %v", err)
 	}
 
-	testProfile := &profile.Profile{Name: "test", APIRoot: apiRoot, AccessToken: "dummy-token", OutputFormat: "json"}
+	testProfile := &profile.Profile{Name: profileName, APIRoot: apiRoot, AccessToken: "dummy-token", OutputFormat: "json"}
 
 	oldProfiles, oldCurrent := profile.Profiles, profile.Current
 	profile.Profiles = append(profile.Profiles, testProfile)

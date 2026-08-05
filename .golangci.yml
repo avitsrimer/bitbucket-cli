@@ -147,10 +147,6 @@ linters:
       - linters:
           - errcheck
         text: "Error return value of .*.Close.*is not checked"
-      # temporary: removed in Task 8 (testifylint/suite-style normalization of the test suites).
-      - linters:
-          - testifylint
-        path: _test\.go$
     paths:
       - vendor
       - third_party$

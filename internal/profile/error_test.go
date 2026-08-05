@@ -48,18 +48,18 @@ func (suite *ProfileSuite) TestCanUnmarshalErrorAboutBadRequest() {
 
 func (suite *ProfileSuite) TestErrNoProfilesMatchesWrappedError() {
 	wrapped := fmt.Errorf("context: %w", profile.ErrNoProfiles)
-	suite.True(errors.Is(wrapped, profile.ErrNoProfiles), "errors.Is should match a wrapped ErrNoProfiles")
+	suite.ErrorIs(wrapped, profile.ErrNoProfiles, "errors.Is should match a wrapped ErrNoProfiles")
 }
 
 func (suite *ProfileSuite) TestErrNoProfilesDoesNotMatchUnrelatedError() {
 	other := errors.New("some other error")
-	suite.False(errors.Is(other, profile.ErrNoProfiles), "errors.Is should not match an unrelated error")
+	suite.NotErrorIs(other, profile.ErrNoProfiles, "errors.Is should not match an unrelated error")
 }
 
 func (suite *ProfileSuite) TestErrUnmarshalJSONMatchesMalformedTokenData() {
 	_, err := profile.UnmarshalTokenFromBitbucketData([]byte("not json"))
 	suite.Require().Error(err)
-	suite.True(errors.Is(err, profile.ErrUnmarshalJSON), "errors.Is should match a wrapped ErrUnmarshalJSON")
+	suite.ErrorIs(err, profile.ErrUnmarshalJSON, "errors.Is should match a wrapped ErrUnmarshalJSON")
 }
 
 func (suite *ProfileSuite) TestErrUnmarshalJSONDoesNotMatchValidTokenData() {

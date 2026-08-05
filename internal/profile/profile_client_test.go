@@ -2,7 +2,6 @@ package profile_test
 
 import (
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -133,7 +132,7 @@ func (suite *ProfileSuite) TestPostSendsJSONPayloadAndUnmarshalsResponse() {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotContentType = r.Header.Get("Content-Type")
 		suite.Equal(http.MethodPost, r.Method)
-		suite.Require().NoError(json.NewDecoder(r.Body).Decode(&gotBody))
+		suite.NoError(json.NewDecoder(r.Body).Decode(&gotBody))
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(testItem{ID: "created-" + gotBody.ID})
 	}))
@@ -166,7 +165,7 @@ func (suite *ProfileSuite) TestGetMapsBitBucketErrorBody() {
 	err = target.Get(suite.Context, &cobra.Command{}, "/repo", &item)
 	suite.Require().Error(err)
 	var bberr *profile.BitBucketError
-	suite.Require().True(errors.As(err, &bberr), "a BitBucket-shaped error body should be mapped to a *BitBucketError")
+	suite.Require().ErrorAs(err, &bberr, "a BitBucket-shaped error body should be mapped to a *BitBucketError")
 	suite.Equal("Resource not found", bberr.Message)
 	suite.Equal("There is no API hosted at this URL", bberr.Detail)
 }
@@ -186,7 +185,7 @@ func (suite *ProfileSuite) TestGetNon2xxWithoutJSONBodyReturnsGenericError() {
 	err = target.Get(suite.Context, &cobra.Command{}, "/repo", &item)
 	suite.Require().Error(err)
 	var bberr *profile.BitBucketError
-	suite.Require().False(errors.As(err, &bberr), "a non-JSON error body should not be mapped to a BitBucketError")
+	suite.Require().NotErrorAs(err, &bberr, "a non-JSON error body should not be mapped to a BitBucketError")
 	suite.Contains(err.Error(), "500")
 }
 
