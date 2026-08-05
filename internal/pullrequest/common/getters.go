@@ -26,10 +26,18 @@ func GetPullRequestIDsWithState(context context.Context, cmd *cobra.Command, sta
 	return GetPullRequestIDsFromRepositoryWithState(context, cmd, repository, state)
 }
 
-// GetPullRequestIDsFromRepositoryWithState gets the pullrequest Ids for completion for a given state and repository
+// GetPullRequestIDsFromRepositoryWithState gets the pullrequest Ids for completion for a given
+// state and repository.
+//
+// This uses GetAllUnbounded, not GetAll: cmd here is frequently the very command whose own
+// --limit flag is meant to bound a *different*, later query (e.g. `pr commits`/`pr activities`
+// use this to resolve an omitted pullrequest-id argument before fetching commits/activities with
+// their own --limit). GetAll would apply that same --limit to this enumeration too, so e.g. `pr
+// commits --limit 1` with 4 open pull requests would silently return only 1 id instead of the 4
+// needed to trip the "too many pullrequests" ambiguity check below/in callers.
 func GetPullRequestIDsFromRepositoryWithState(context context.Context, cmd *cobra.Command, repository *repository.Repository, state string) (ids []string, err error) {
 	lgr.Printf("[DEBUG] getting %s pullrequests", state)
-	pullrequests, err := profile.GetAll[PullRequestID](
+	pullrequests, err := profile.GetAllUnbounded[PullRequestID](
 		context,
 		cmd,
 		repository.GetPath("pullrequests?state="+state),

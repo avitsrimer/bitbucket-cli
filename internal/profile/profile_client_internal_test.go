@@ -36,7 +36,7 @@ func TestResolvePageLengthAndLimit(t *testing.T) {
 
 	t.Run("uses the default page length when nothing is set", func(t *testing.T) {
 		cmd := newIntCmd(0, 0, false, false)
-		pageLength, limit := resolvePageLengthAndLimit(cmd, 50)
+		pageLength, limit := resolvePageLengthAndLimit(cmd, 50, true)
 		if pageLength != 50 || limit != 0 {
 			t.Errorf("pageLength, limit = %d, %d, want 50, 0", pageLength, limit)
 		}
@@ -44,7 +44,7 @@ func TestResolvePageLengthAndLimit(t *testing.T) {
 
 	t.Run("uses the page-length flag when set", func(t *testing.T) {
 		cmd := newIntCmd(10, 0, true, false)
-		pageLength, limit := resolvePageLengthAndLimit(cmd, 50)
+		pageLength, limit := resolvePageLengthAndLimit(cmd, 50, true)
 		if pageLength != 10 || limit != 0 {
 			t.Errorf("pageLength, limit = %d, %d, want 10, 0", pageLength, limit)
 		}
@@ -52,7 +52,7 @@ func TestResolvePageLengthAndLimit(t *testing.T) {
 
 	t.Run("shrinks page length to limit when limit is smaller", func(t *testing.T) {
 		cmd := newIntCmd(0, 3, false, true)
-		pageLength, limit := resolvePageLengthAndLimit(cmd, 50)
+		pageLength, limit := resolvePageLengthAndLimit(cmd, 50, true)
 		if pageLength != 3 || limit != 3 {
 			t.Errorf("pageLength, limit = %d, %d, want 3, 3", pageLength, limit)
 		}
@@ -60,14 +60,27 @@ func TestResolvePageLengthAndLimit(t *testing.T) {
 
 	t.Run("leaves page length alone when limit is larger", func(t *testing.T) {
 		cmd := newIntCmd(10, 100, true, true)
-		pageLength, limit := resolvePageLengthAndLimit(cmd, 50)
+		pageLength, limit := resolvePageLengthAndLimit(cmd, 50, true)
 		if pageLength != 10 || limit != 100 {
 			t.Errorf("pageLength, limit = %d, %d, want 10, 100", pageLength, limit)
 		}
 	})
 
 	t.Run("handles a nil command", func(t *testing.T) {
-		pageLength, limit := resolvePageLengthAndLimit(nil, 50)
+		pageLength, limit := resolvePageLengthAndLimit(nil, 50, true)
+		if pageLength != 50 || limit != 0 {
+			t.Errorf("pageLength, limit = %d, %d, want 50, 0", pageLength, limit)
+		}
+	})
+
+	// TestResolvePageLengthAndLimitIgnoresLimitWhenNotHonored is a regression test: GetAllUnbounded
+	// (used for internal id-resolution queries, e.g. counting open pull requests to detect
+	// ambiguity) must not have its page size shrunk by a --limit flag belonging to the command's
+	// own, unrelated output query -- honorLimit=false must behave as if --limit were never set,
+	// for both the returned limit and the page length derived from it.
+	t.Run("ignores the limit flag entirely when honorLimit is false", func(t *testing.T) {
+		cmd := newIntCmd(0, 1, false, true)
+		pageLength, limit := resolvePageLengthAndLimit(cmd, 50, false)
 		if pageLength != 50 || limit != 0 {
 			t.Errorf("pageLength, limit = %d, %d, want 50, 0", pageLength, limit)
 		}

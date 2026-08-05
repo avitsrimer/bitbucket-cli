@@ -146,17 +146,36 @@ func GetRepositoryBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID s
 
 // GetEffectiveDefaultReviewers gets the effective default reviewers for a repository
 //
-// A Repository decoded from a pullrequest's source/destination endpoint never carries its own
-// Workspace (BitBucket's API omits it there), so this resolves the workspace through the same
-// cached -> FullName -> git-config/default-workspace fallback chain GetWorkspace uses, instead of
-// dereferencing repository.Workspace.Slug directly, which would nil-panic for that shape.
+// The workspace and repository slug segments of the request path are taken from FullName
+// ("{workspace_slug}/{repo_slug}", the pairing BitBucket always sends and Validate requires)
+// whenever it splits cleanly. repository.Slug alone cannot be trusted here: BitBucket omits
+// "slug" on a pullrequest's source/destination repository, so Validate backfills Slug = Name,
+// which 404s building this path for any repository whose display name differs from its slug
+// ("My Repo" vs "my-repo"). Falling back to GetWorkspace -- a live GET /workspaces/{slug} that
+// RAT/repo-scoped tokens typically cannot reach -- is reserved for the rare case FullName isn't
+// in the "{workspace}/{repo}" shape (e.g. a Repository built by hand rather than decoded from the
+// API).
 func (repository Repository) GetEffectiveDefaultReviewers(ctx context.Context, cmd *cobra.Command) (reviewers []project.Reviewer, err error) {
-	ws, err := repository.GetWorkspace(ctx, cmd)
+	workspaceSlug, repositorySlug, err := repository.effectiveReviewersPathSegments(ctx, cmd)
 	if err != nil {
 		return nil, fmt.Errorf("cannot get workspace of repository %s: %w", repository.Slug, err)
 	}
-	lgr.Printf("[DEBUG] getting effective default reviewers of repository %s/%s", ws.Slug, repository.Slug)
-	return profile.GetAll[project.Reviewer](ctx, cmd, path.Join("/repositories", ws.Slug, repository.Slug, "effective-default-reviewers"))
+	lgr.Printf("[DEBUG] getting effective default reviewers of repository %s/%s", workspaceSlug, repositorySlug)
+	return profile.GetAll[project.Reviewer](ctx, cmd, path.Join("/repositories", workspaceSlug, repositorySlug, "effective-default-reviewers"))
+}
+
+// effectiveReviewersPathSegments resolves the workspace slug and repository slug used to build
+// GetEffectiveDefaultReviewers' request path. See that method's comment for why FullName is
+// preferred over repository.Slug/GetWorkspace.
+func (repository Repository) effectiveReviewersPathSegments(ctx context.Context, cmd *cobra.Command) (workspaceSlug, repositorySlug string, err error) {
+	if components := strings.SplitN(repository.FullName, "/", 2); len(components) == 2 && components[0] != "" && components[1] != "" {
+		return components[0], components[1], nil
+	}
+	ws, err := repository.GetWorkspace(ctx, cmd)
+	if err != nil {
+		return "", "", fmt.Errorf("cannot get workspace: %w", err)
+	}
+	return ws.Slug, repository.Slug, nil
 }
 
 // GetWorkspace gets the workspace of the repository

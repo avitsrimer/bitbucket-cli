@@ -192,42 +192,21 @@ func ValidProfileNames(cmd *cobra.Command, args []string, toComplete string) ([]
 	return common.FilterValidArgs(names, args, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
-// saveProfilesConfig persists the in-memory Profiles collection to the active config file
+// saveProfilesConfig persists the in-memory Profiles collection to the active config file.
+//
+// Profile.MarshalYAML omits AccessToken for any profile whose value was loaded from the vault at
+// runtime (Profile.accessTokenFromVault) by construction, so there is nothing to blank or restore
+// here: a secret fetched from the vault to authorize one command can never be written back to the
+// config file in plain text, whether it is this function or any other caller of Config.Save /
+// Config.SetSection that ends up serializing Profiles.
 func saveProfilesConfig() error {
 	config := common.CurrentConfig()
 	if config == nil {
 		return errors.New("configuration not loaded")
 	}
 	lgr.Printf("[DEBUG] writing configuration to %s", config.Path)
-	restore := Profiles.clearVaultLoadedAccessTokens()
-	defer restore()
 	if err := config.SetSection("profiles", Profiles); err != nil {
 		return fmt.Errorf("cannot write config file: %w", err)
 	}
 	return nil
-}
-
-// clearVaultLoadedAccessTokens blanks the AccessToken field of any profile whose value was loaded
-// from the vault at runtime (Profile.accessTokenFromVault), so that value is never serialized back
-// to the config file in plain text: e.g. authorizing a command's own workspace-completion request
-// against the current profile must not leave its vault-stored access token sitting in
-// config-cli.yml the next time any profile is saved. It returns a function that restores the
-// in-memory values afterward, so the rest of this process keeps working with them.
-func (profiles profiles) clearVaultLoadedAccessTokens() func() {
-	type saved struct {
-		profile *Profile
-		value   string
-	}
-	var cleared []saved
-	for _, p := range profiles {
-		if p.accessTokenFromVault {
-			cleared = append(cleared, saved{profile: p, value: p.AccessToken})
-			p.AccessToken = ""
-		}
-	}
-	return func() {
-		for _, entry := range cleared {
-			entry.profile.AccessToken = entry.value
-		}
-	}
 }

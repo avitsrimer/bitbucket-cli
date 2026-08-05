@@ -1,0 +1,3 @@
+profiles:
+    - name: userinfo-apiroot
+      apiroot: https://alice:s3cr3t@api.bitbucket.org/userinfo

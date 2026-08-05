@@ -293,6 +293,78 @@ func TestResolveDefaultReviewersRealFixtureSourceRepositoryHasNoWorkspace(t *tes
 	}
 }
 
+// TestResolveDefaultReviewersUsesFullNameWhenSlugWasBackfilledFromName is a regression test: the
+// two existing "resolve default reviewers" fixtures above both happen to have Name == Slug (the
+// literal fixture in the first, and testdata/pullrequest.json's "gitflow-pr-sandbox" repository
+// in the second), and the second also primes WorkspaceCache for "gildas_cherruel" -- so neither
+// would have caught building the effective-default-reviewers path from repository.Slug once
+// Validate backfills it from Name (BitBucket omits "slug" on a pullrequest's source/destination
+// repository). This fixture uses a Name that differs from the repository's real slug and leaves
+// WorkspaceCache empty for its workspace, so a regression that falls back to a live GetWorkspace
+// call would either 403 (this test's server rejects any /workspaces/ request, simulating a RAT
+// client) or build the wrong path from repository.Slug ("My Repo") instead of FullName's
+// "my-repo-slug".
+func TestResolveDefaultReviewersUsesFullNameWhenSlugWasBackfilledFromName(t *testing.T) {
+	withUpdateOptions(t, func() {
+		updateOptions.AddReviewers.Values = []string{"default"}
+	})
+
+	id, err := common.ParseUUID("{33333333-3333-3333-3333-333333333333}")
+	if err != nil {
+		t.Fatalf("cannot parse fixture uuid: %v", err)
+	}
+	repo := &repository.Repository{
+		ID:       id,
+		Name:     "My Repo",
+		FullName: "other-workspace/my-repo-slug",
+		// Slug is set the way Repository.Validate backfills it when BitBucket's response omits
+		// "slug" (as it does for a pullrequest's source/destination repository): equal to Name,
+		// not the real slug FullName carries.
+		Slug: "My Repo",
+	}
+
+	var requests []*http.Request
+	cmd := setupTestNamed(t, "resolve-default-reviewers-name-neq-slug", func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/effective-default-reviewers"):
+			_, _ = w.Write([]byte(`{"values":[{"user":{"uuid":"{11111111-1111-1111-1111-111111111111}","display_name":"Default Reviewer"}}]}`))
+		case strings.HasSuffix(r.URL.Path, "/user"):
+			w.WriteHeader(http.StatusForbidden) // simulate a RAT client without /user access
+		case strings.Contains(r.URL.Path, "/workspaces/"):
+			// A live workspace lookup here means the fix fell back to GetWorkspace instead of
+			// FullName; RAT/repo-scoped tokens typically cannot reach this endpoint.
+			w.WriteHeader(http.StatusForbidden)
+		}
+	}, false)
+
+	pr := &PullRequest{Source: Endpoint{Repository: repo}}
+
+	resolved, err := resolveDefaultReviewers(t.Context(), cmd, pr)
+	if err != nil {
+		t.Fatalf("resolveDefaultReviewers() error = %v", err)
+	}
+	want := []string{"{11111111-1111-1111-1111-111111111111}"}
+	if !slices.Equal(resolved, want) {
+		t.Errorf("resolved reviewers = %v, want %v", resolved, want)
+	}
+
+	wantPath := "/2.0/repositories/other-workspace/my-repo-slug/effective-default-reviewers"
+	var found bool
+	for _, req := range requests {
+		if req.URL.Path == wantPath {
+			found = true
+		}
+		if strings.Contains(req.URL.Path, "/workspaces/") {
+			t.Errorf("unexpected live workspace lookup: %s", req.URL.Path)
+		}
+	}
+	if !found {
+		t.Errorf("requests = %v, want one to %s", requests, wantPath)
+	}
+}
+
 func TestUpdateProcessSimpleFieldsSuccess(t *testing.T) {
 	withUpdateOptions(t, func() {
 		updateOptions.Title = "Updated title"
