@@ -218,6 +218,7 @@ func moveCredentialsToVault(profile *Profile, vaultKey string) error {
 		}
 		lgr.Printf("[DEBUG] stored access token in the vault for %s", profile.Name)
 		profile.AccessToken = ""
+		profile.accessTokenFromVault = false
 		updateOptions.AccessToken = ""
 	}
 	return nil

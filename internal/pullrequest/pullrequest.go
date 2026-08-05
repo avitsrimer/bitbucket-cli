@@ -165,7 +165,7 @@ func (pullrequest PullRequest) GetRow(headers []string) []string {
 			row = append(row, pullrequest.ClosedBy.Name)
 		case "commit":
 			if pullrequest.MergeCommit != nil {
-				row = append(row, pullrequest.MergeCommit.Hash[:7])
+				row = append(row, pullrequest.MergeCommit.GetShortHash())
 			} else {
 				row = append(row, " ")
 			}

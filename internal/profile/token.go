@@ -17,6 +17,12 @@ import (
 // access-token cache file, fails to unmarshal.
 var ErrUnmarshalJSON = errors.New("cannot unmarshal json")
 
+// ErrNoAccessToken is returned by loadAccessToken when no access token could be found (not set on
+// the profile, no cache file, no vault entry). It is not itself a failure: it tells authorize
+// there is nothing usable yet, so it can fall through to the OAuth2 flow, without authorize having
+// to infer that from a nil profile.token.
+var ErrNoAccessToken = errors.New("no access token available")
+
 type Token struct {
 	TokenType    string         `json:"token_type"`
 	AccessToken  string         `json:"access_token"`
@@ -25,7 +31,13 @@ type Token struct {
 	Scope        string         `json:"scope"`
 }
 
-// loadAccessToken loads the access token from the cache
+// loadAccessToken loads the access token from the cache.
+//
+// Its contract is explicit: a nil error return means profile.token is now non-nil (a usable token
+// was found in memory, on the profile itself, in the local file cache, or in the vault). Any other
+// outcome -- including simply not finding a cached token anywhere -- returns a non-nil error
+// (ErrNoAccessToken for the "not found" case), so callers like authorize never have to guess
+// whether profile.token is safe to dereference from a nil error alone.
 func (profile *Profile) loadAccessToken(_ context.Context) (err error) {
 	if profile.token != nil {
 		lgr.Printf("[DEBUG] access token already loaded in memory for profile %s", profile.Name)
@@ -43,35 +55,37 @@ func (profile *Profile) loadAccessToken(_ context.Context) (err error) {
 
 	// then load the access token from the file cache
 	cacheDir, err := os.UserCacheDir()
-	if err == nil {
-		accessTokenFile := filepath.Join(cacheDir, "bitbucket", "access-token-"+profile.Name)
-		data, readErr := os.ReadFile(accessTokenFile) //nolint:gosec // accessTokenFile is built from the OS-provided cache dir and the profile's own name, not external input
-		if readErr == nil {
-			var token Token
-			if readErr = json.Unmarshal(data, &token); readErr == nil {
-				lgr.Printf("[DEBUG] loaded access token from cache for profile %s", profile.Name)
-				// token.Redact() masks secrets before they hit the debug log
-				lgr.Printf("[DEBUG] access token details for profile %s: %+v", profile.Name, token.Redact())
-				profile.token = &token
-				return nil
-			}
-		}
-		// Load the access token from the vault in case this is an API Token
-		lgr.Printf("[DEBUG] looking for access token in the vault for profile %s", profile.Name)
-		credential, vaultErr := profile.GetCredentialFromVault(profile.VaultKey, profile.Name)
-		if vaultErr != nil {
-			lgr.Printf("[ERROR] failed to get access token for profile %s: %v", profile.Name, vaultErr)
-			return nil // We don't return an error if the token is not found, so the authorization process can continue
-		}
-		profile.AccessToken = credential.Password
-		lgr.Printf("[DEBUG] loaded repository/project/workspace access token for profile %s from the vault", profile.Name)
-		profile.token = &Token{
-			AccessToken: profile.AccessToken,
-			ExpiresOn:   core.Timestamp(time.Now().Add(100 * 365 * 24 * time.Hour)), // Loaded Access Tokens never expire
-		}
-		return nil
+	if err != nil {
+		return fmt.Errorf("cannot determine cache directory: %w", err)
 	}
-	return fmt.Errorf("cannot determine cache directory: %w", err)
+
+	accessTokenFile := filepath.Join(cacheDir, "bitbucket", "access-token-"+profile.Name)
+	data, readErr := os.ReadFile(accessTokenFile) //nolint:gosec // accessTokenFile is built from the OS-provided cache dir and the profile's own name, not external input
+	if readErr == nil {
+		var token Token
+		if readErr = json.Unmarshal(data, &token); readErr == nil {
+			lgr.Printf("[DEBUG] loaded access token from cache for profile %s", profile.Name)
+			// token.Redact() masks secrets before they hit the debug log
+			lgr.Printf("[DEBUG] access token details for profile %s: %+v", profile.Name, token.Redact())
+			profile.token = &token
+			return nil
+		}
+	}
+	// Load the access token from the vault in case this is an API Token
+	lgr.Printf("[DEBUG] looking for access token in the vault for profile %s", profile.Name)
+	credential, vaultErr := profile.GetCredentialFromVault(profile.VaultKey, profile.Name)
+	if vaultErr != nil {
+		lgr.Printf("[DEBUG] no cached access token found for profile %s: %v", profile.Name, vaultErr)
+		return ErrNoAccessToken // Not found is not a fatal error: the caller can fall through to the OAuth2 flow
+	}
+	profile.AccessToken = credential.Password
+	profile.accessTokenFromVault = true // must never be written back to the config file in plain text
+	lgr.Printf("[DEBUG] loaded repository/project/workspace access token for profile %s from the vault", profile.Name)
+	profile.token = &Token{
+		AccessToken: profile.AccessToken,
+		ExpiresOn:   core.Timestamp(time.Now().Add(100 * 365 * 24 * time.Hour)), // Loaded Access Tokens never expire
+	}
+	return nil
 }
 
 // isTokenExpired tells if the token is expired

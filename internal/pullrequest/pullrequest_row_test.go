@@ -66,6 +66,23 @@ func TestPullRequestGetRowWithMergeCommit(t *testing.T) {
 	assert.Equal(t, []string{"abcdef0"}, row)
 }
 
+// TestPullRequestGetRowWithShortMergeCommitHashDoesNotPanic is a regression test: GetRow used to
+// slice MergeCommit.Hash[:7] directly after only a nil check, so any merge_commit hash shorter
+// than 7 characters (e.g. from a non-standard SCM, or truncated test/mock data) panicked with a
+// slice bounds out of range error. It must fall back to CommitReference.GetShortHash's
+// length-guarded behavior instead.
+func TestPullRequestGetRowWithShortMergeCommitHashDoesNotPanic(t *testing.T) {
+	target := pullrequest.PullRequest{
+		MergeCommit: &commit.CommitReference{Hash: "abc"},
+	}
+
+	var row []string
+	assert.NotPanics(t, func() {
+		row = target.GetRow([]string{"commit"})
+	})
+	assert.Equal(t, []string{"abc"}, row)
+}
+
 func TestPullRequestString(t *testing.T) {
 	target := pullrequest.PullRequest{Title: "Add feature"}
 	assert.Equal(t, "Add feature", target.String())

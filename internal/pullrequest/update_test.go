@@ -3,6 +3,7 @@ package pullrequest
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -226,6 +227,69 @@ func TestResolveDefaultReviewersDoesNotMutateSharedAddReviewersValues(t *testing
 	want := []string{"{11111111-1111-1111-1111-111111111111}", "extra-reviewer"}
 	if !slices.Equal(resolved1, want) {
 		t.Errorf("resolved reviewers = %v, want %v", resolved1, want)
+	}
+}
+
+// TestResolveDefaultReviewersRealFixtureSourceRepositoryHasNoWorkspace is a regression test: a
+// pullrequest's source.repository, as BitBucket actually sends it (see testdata/pullrequest.json),
+// never carries a "workspace" field. GetEffectiveDefaultReviewers used to dereference
+// repository.Workspace.Slug directly and nil-panic for exactly this shape; it must now resolve the
+// workspace through Repository.GetWorkspace's cached/FullName fallback chain instead.
+func TestResolveDefaultReviewersRealFixtureSourceRepositoryHasNoWorkspace(t *testing.T) {
+	withUpdateOptions(t, func() {
+		updateOptions.AddReviewers.Values = []string{"default"}
+	})
+
+	data, err := os.ReadFile("../../testdata/pullrequest.json")
+	if err != nil {
+		t.Fatalf("cannot read testdata: %v", err)
+	}
+	var pr PullRequest
+	if unmarshalErr := json.Unmarshal(data, &pr); unmarshalErr != nil {
+		t.Fatalf("cannot unmarshal testdata: %v", unmarshalErr)
+	}
+	if pr.Source.Repository == nil {
+		t.Fatal("fixture source.repository is nil; fixture no longer matches this test's premise")
+	}
+	if pr.Source.Repository.Workspace != nil {
+		t.Fatal("fixture source.repository now carries a workspace; this test's premise (no workspace) no longer holds")
+	}
+
+	const workspaceSlug = "gildas_cherruel"
+	if cacheErr := workspace.WorkspaceCache.Set(workspaceSlug, workspace.Workspace{Slug: workspaceSlug}); cacheErr != nil {
+		t.Fatalf("cannot prime workspace cache: %v", cacheErr)
+	}
+
+	var requests []*http.Request
+	cmd := setupTestNamed(t, "resolve-default-reviewers-fixture", func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/effective-default-reviewers"):
+			_, _ = w.Write([]byte(`{"values":[{"user":{"uuid":"{11111111-1111-1111-1111-111111111111}","display_name":"Default Reviewer"}}]}`))
+		case strings.HasSuffix(r.URL.Path, "/user"):
+			w.WriteHeader(http.StatusForbidden) // simulate a RAT client without /user access
+		}
+	}, false)
+
+	resolved, err := resolveDefaultReviewers(t.Context(), cmd, &pr)
+	if err != nil {
+		t.Fatalf("resolveDefaultReviewers() error = %v", err)
+	}
+	want := []string{"{11111111-1111-1111-1111-111111111111}"}
+	if !slices.Equal(resolved, want) {
+		t.Errorf("resolved reviewers = %v, want %v", resolved, want)
+	}
+
+	wantPath := "/2.0/repositories/gildas_cherruel/gitflow-pr-sandbox/effective-default-reviewers"
+	var found bool
+	for _, req := range requests {
+		if req.URL.Path == wantPath {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("requests = %v, want one to %s", requests, wantPath)
 	}
 }
 

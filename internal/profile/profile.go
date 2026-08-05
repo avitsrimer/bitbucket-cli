@@ -58,6 +58,12 @@ type Profile struct {
 	CallbackPort      uint16                 `json:"callbackPort,omitempty"                yaml:",omitempty"`
 	AccessToken       string                 `json:"accessToken,omitempty"       yaml:",omitempty"`
 	token             *Token                 `json:"-"                           yaml:"-"`
+	// accessTokenFromVault is true when AccessToken was populated at runtime by loadAccessToken's
+	// vault fallback rather than configured by the user (explicitly on the command line or
+	// already present in the config file). It is never serialized: saveProfilesConfig blanks
+	// AccessToken for any profile with this set before writing the config file, so a secret
+	// fetched from the vault to authorize one command is never copied back to disk in plain text.
+	accessTokenFromVault bool `json:"-" yaml:"-"`
 }
 
 // Current is the current profile
@@ -342,6 +348,7 @@ func (profile *Profile) updateSimpleFields(other Profile) {
 func (profile *Profile) updateCredentials(other Profile) {
 	if other.AccessToken != "" && other.AccessToken != profile.AccessToken {
 		profile.AccessToken = other.AccessToken
+		profile.accessTokenFromVault = false // explicitly user-provided, not a runtime vault copy
 	}
 	if other.User != "" && other.User != profile.User {
 		profile.User = other.User
@@ -568,6 +575,61 @@ func (profile *Profile) UnmarshalJSON(data []byte) error {
 	profile.APIRoot = (*url.URL)(inner.APIRoot)
 	if err := profile.Validate(); err != nil {
 		return fmt.Errorf("cannot unmarshal profile: %w", err)
+	}
+	return nil
+}
+
+// UnmarshalYAML implements yaml.Unmarshaler.
+//
+// url.URL has no UnmarshalYAML of its own, so yaml.v3 only ever decodes APIRoot from the nested
+// mapping form its own exported fields produce (scheme/host/path/...). A config file's apiRoot is
+// just as likely to be the plain string form every other apiRoot-shaped value in this codebase
+// accepts (a URL literal, e.g. "apiRoot: https://api.bitbucket.org"), which would otherwise fail
+// to decode ("cannot unmarshal !!str into url.URL") and abort loading every profile. This rewrites
+// a scalar apiRoot into the equivalent mapping form before decoding, leaving an already-nested
+// mapping (or a missing key) untouched.
+func (profile *Profile) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.MappingNode {
+		if err := normalizeAPIRootNode(node); err != nil {
+			return err
+		}
+	}
+	type surrogate Profile
+	var inner surrogate
+	if err := node.Decode(&inner); err != nil {
+		return fmt.Errorf("cannot decode profile: %w", err)
+	}
+	*profile = Profile(inner)
+	return nil
+}
+
+// normalizeAPIRootNode rewrites a mapping node's "apiroot" key in place, from a plain URL string
+// into the field-by-field mapping url.URL's default decoding expects, if and only if it is
+// currently a scalar. A missing key, a null value, or an already-nested mapping are left alone.
+func normalizeAPIRootNode(node *yaml.Node) error {
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value != "apiroot" {
+			continue
+		}
+		value := node.Content[i+1]
+		if value.Kind != yaml.ScalarNode || value.Tag == "!!null" {
+			return nil
+		}
+		var raw string
+		if err := value.Decode(&raw); err != nil {
+			return fmt.Errorf("cannot decode apiRoot: %w", err)
+		}
+		if raw == "" {
+			return nil
+		}
+		parsed, err := url.Parse(raw)
+		if err != nil {
+			return fmt.Errorf("cannot parse apiRoot %q: %w", raw, err)
+		}
+		if err := value.Encode(*parsed); err != nil {
+			return fmt.Errorf("cannot normalize apiRoot: %w", err)
+		}
+		return nil
 	}
 	return nil
 }

@@ -19,6 +19,16 @@ func (reference CommitReference) String() string {
 	return reference.Hash
 }
 
+// GetShortHash gets the short hash of this commit reference, matching Commit.GetShortHash's
+// length-guarded semantics: any Hash shorter than 7 characters is returned as-is instead of
+// panicking on a slice bounds out of range.
+func (reference CommitReference) GetShortHash() string {
+	if len(reference.Hash) > 7 {
+		return reference.Hash[:7]
+	}
+	return reference.Hash
+}
+
 // MarshalJSON implements the json.Marshaler interface.
 func (reference CommitReference) MarshalJSON() (data []byte, err error) {
 	type surrogate CommitReference

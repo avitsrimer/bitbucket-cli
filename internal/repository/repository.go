@@ -145,9 +145,18 @@ func GetRepositoryBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID s
 }
 
 // GetEffectiveDefaultReviewers gets the effective default reviewers for a repository
+//
+// A Repository decoded from a pullrequest's source/destination endpoint never carries its own
+// Workspace (BitBucket's API omits it there), so this resolves the workspace through the same
+// cached -> FullName -> git-config/default-workspace fallback chain GetWorkspace uses, instead of
+// dereferencing repository.Workspace.Slug directly, which would nil-panic for that shape.
 func (repository Repository) GetEffectiveDefaultReviewers(ctx context.Context, cmd *cobra.Command) (reviewers []project.Reviewer, err error) {
-	lgr.Printf("[DEBUG] getting effective default reviewers of repository %s/%s", repository.Workspace.Slug, repository.Slug)
-	return profile.GetAll[project.Reviewer](ctx, cmd, repository.GetPath("effective-default-reviewers"))
+	ws, err := repository.GetWorkspace(ctx, cmd)
+	if err != nil {
+		return nil, fmt.Errorf("cannot get workspace of repository %s: %w", repository.Slug, err)
+	}
+	lgr.Printf("[DEBUG] getting effective default reviewers of repository %s/%s", ws.Slug, repository.Slug)
+	return profile.GetAll[project.Reviewer](ctx, cmd, path.Join("/repositories", ws.Slug, repository.Slug, "effective-default-reviewers"))
 }
 
 // GetWorkspace gets the workspace of the repository

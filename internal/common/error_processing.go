@@ -2,9 +2,11 @@ package common
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 type ErrorProcessing int
@@ -58,4 +60,25 @@ func (ep ErrorProcessing) CompletionFunc() func(*cobra.Command, []string, string
 // implements the fmt.Stringer interface
 func (ep ErrorProcessing) String() string {
 	return [...]string{"StopOnError", "WarnOnError", "IgnoreErrors"}[ep]
+}
+
+// UnmarshalYAML implements yaml.Unmarshaler, decoding a config file's errorProcessing either as
+// the same string spelling Set/CompletionFunc accept and MarshalJSON emits ("StopOnError",
+// "WarnOnError", "IgnoreErrors" - what a user hand-editing the file would reasonably write), or as
+// the plain integer ErrorProcessing already round-trips as by default (yaml.v3's decoding of an
+// untagged int-based type), for configs saved before this string form was supported.
+func (ep *ErrorProcessing) UnmarshalYAML(node *yaml.Node) error {
+	var value string
+	if err := node.Decode(&value); err != nil {
+		return fmt.Errorf("cannot decode errorProcessing: %w", err)
+	}
+	if err := ep.Set(value); err == nil {
+		return nil
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n < int(StopOnError) || n > int(IgnoreErrors) {
+		return fmt.Errorf("argument errorProcessing is invalid (value: %s, expected one of: %s)", value, strings.Join(ep.Values(), ", "))
+	}
+	*ep = ErrorProcessing(n)
+	return nil
 }

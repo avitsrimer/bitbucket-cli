@@ -241,13 +241,15 @@ func (suite *ProfileSuite) TestGetRawUsesWildcardAcceptAndReturnsRawBody() {
 // TestGetRetriesAfter429ThenSucceeds is a regression test for the request layer sending exactly
 // one attempt with no retry/backoff: BitBucket rate-limits aggressively, and GetAll issues one
 // request per page, so the first 429 used to hard-fail the whole command. This asserts a 429
-// (with a short Retry-After) is retried and the eventual 200 is returned.
+// (with a short Retry-After) is retried and the eventual 200 is returned. Retry-After is "1", not
+// "0": a zero value is treated as "no header" (use the computed backoff) rather than "retry
+// instantly", so this exercises the header actually being honored.
 func (suite *ProfileSuite) TestGetRetriesAfter429ThenSucceeds() {
 	var attempts int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts++
 		if attempts == 1 {
-			w.Header().Set("Retry-After", "0")
+			w.Header().Set("Retry-After", "1")
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}
@@ -274,7 +276,7 @@ func (suite *ProfileSuite) TestGetGivesUpAfterExhaustingRetriesOn429() {
 	var attempts int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts++
-		w.Header().Set("Retry-After", "0")
+		w.Header().Set("Retry-After", "1")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusTooManyRequests)
 		_, _ = w.Write([]byte(`{"error":{"message":"rate limited"}}`))

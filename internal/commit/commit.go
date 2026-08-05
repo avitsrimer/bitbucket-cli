@@ -34,7 +34,7 @@ var columns = common.Columns[Commit]{
 		return strings.ToLower(a.Hash) < strings.ToLower(b.Hash)
 	}},
 	{Name: "longhash", DefaultSorter: false, Compare: func(a, b Commit) bool {
-		return strings.ToLower(a.Message) < strings.ToLower(b.Message)
+		return strings.ToLower(a.Hash) < strings.ToLower(b.Hash)
 	}},
 	{Name: "author", DefaultSorter: false, Compare: func(a, b Commit) bool {
 		return strings.ToLower(a.Author.User.Name) < strings.ToLower(b.Author.User.Name)
