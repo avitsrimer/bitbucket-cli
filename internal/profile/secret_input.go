@@ -13,26 +13,28 @@ import (
 // `profile update` need in order to decide whether to read a secret from stdin, prompt for it
 // interactively, or reject the command line outright.
 type secretFlagState struct {
-	user             bool
-	password         bool
-	passwordStdin    bool
-	clientID         bool
-	clientSecret     bool
-	accessToken      bool
-	accessTokenStdin bool
+	user              bool
+	password          bool
+	passwordStdin     bool
+	clientID          bool
+	clientSecret      bool
+	clientSecretStdin bool
+	accessToken       bool
+	accessTokenStdin  bool
 }
 
 // readSecretFlagState reads secretFlagState off cmd's own flags.
 func readSecretFlagState(cmd *cobra.Command) secretFlagState {
 	changed := cmd.Flags().Changed
 	return secretFlagState{
-		user:             changed("user"),
-		password:         changed("password"),
-		passwordStdin:    changed("password-stdin"),
-		clientID:         changed("client-id"),
-		clientSecret:     changed("client-secret"),
-		accessToken:      changed("access-token"),
-		accessTokenStdin: changed("access-token-stdin"),
+		user:              changed("user"),
+		password:          changed("password"),
+		passwordStdin:     changed("password-stdin"),
+		clientID:          changed("client-id"),
+		clientSecret:      changed("client-secret"),
+		clientSecretStdin: changed("client-secret-stdin"),
+		accessToken:       changed("access-token"),
+		accessTokenStdin:  changed("access-token-stdin"),
 	}
 }
 
@@ -46,29 +48,48 @@ func (state secretFlagState) accessTokenSourceGiven() bool {
 	return state.accessToken || state.accessTokenStdin
 }
 
-// anyCredentialGiven reports whether any credential-related flag -- of any of the three
-// authentication styles this package supports -- was given on the command line.
-func (state secretFlagState) anyCredentialGiven() bool {
-	return state.user || state.clientID || state.clientSecret ||
-		state.passwordSourceGiven() || state.accessTokenSourceGiven()
+// clientSecretSourceGiven reports whether a client secret was given either directly or via stdin.
+func (state secretFlagState) clientSecretSourceGiven() bool {
+	return state.clientSecret || state.clientSecretStdin
 }
 
-// requireUserForPasswordSource rejects --password/--password-stdin given without --user: a
-// password with no user to attach it to is meaningless. --user given without a password source is
-// deliberately allowed through here -- the caller prompts for it interactively instead.
-func requireUserForPasswordSource(state secretFlagState) error {
-	if state.passwordSourceGiven() && !state.user {
+// requireUserForPasswordSource rejects --password/--password-stdin given without --user, unless
+// hasExistingUser is true: a password with no user to attach it to is meaningless, but `profile
+// update` already knows the profile's current user when one is not being changed in the same
+// call, so rotating a password there (e.g. `op read ... | bb profile update work
+// --password-stdin`) must not force the caller to retype --user just to satisfy this check.
+// `profile create` has no existing profile to fall back to, so it always passes hasExistingUser
+// as false. --user given without a password source is deliberately allowed through here in
+// either case -- the caller prompts for it interactively instead.
+func requireUserForPasswordSource(state secretFlagState, hasExistingUser bool) error {
+	if state.passwordSourceGiven() && !state.user && !hasExistingUser {
 		return errors.New("argument user is missing: --password/--password-stdin requires --user")
 	}
 	return nil
 }
 
-// applyStdinSecrets reads whichever of --password-stdin/--access-token-stdin was given into
-// *password/*accessToken, leaving them untouched otherwise. Cobra's MarkFlagsMutuallyExclusive
-// (registered by createCmd/updateCmd's init) already guarantees at most one of {password,
-// password-stdin} and at most one of {access-token, access-token-stdin} was given, so at most one
-// read happens per secret.
-func applyStdinSecrets(cmd *cobra.Command, state secretFlagState, password, accessToken *string) error {
+// requireClientIDForSecretSource rejects --client-secret/--client-secret-stdin given without
+// --client-id, and --client-id given without any client-secret source, since a client ID needs
+// its secret from exactly one place. This replaces a plain cobra.MarkFlagsRequiredTogether("client-
+// id", "client-secret"): that helper only ever recognizes one fixed pair of flags as "given", so it
+// cannot express "--client-id needs --client-secret *or* --client-secret-stdin" -- pairing it with
+// --client-secret alone would force the OAuth2 client secret onto the command line even though
+// --client-secret-stdin exists specifically so it need not be.
+func requireClientIDForSecretSource(state secretFlagState) error {
+	switch {
+	case state.clientSecretSourceGiven() && !state.clientID:
+		return errors.New("argument clientId is missing: --client-secret/--client-secret-stdin requires --client-id")
+	case state.clientID && !state.clientSecretSourceGiven():
+		return errors.New("argument clientSecret is missing: --client-id requires --client-secret or --client-secret-stdin")
+	}
+	return nil
+}
+
+// applyStdinSecrets reads whichever of --password-stdin/--access-token-stdin/--client-secret-stdin
+// was given into *password/*accessToken/*clientSecret, leaving them untouched otherwise. Cobra's
+// MarkFlagsMutuallyExclusive (registered by createCmd/updateCmd's init) already guarantees at most
+// one secret source flag was given, so at most one read happens.
+func applyStdinSecrets(cmd *cobra.Command, state secretFlagState, password, accessToken, clientSecret *string) error {
 	if state.passwordStdin {
 		secret, err := common.ReadSecretFromStdin(cmd)
 		if err != nil {
@@ -82,6 +103,13 @@ func applyStdinSecrets(cmd *cobra.Command, state secretFlagState, password, acce
 			return fmt.Errorf("cannot read access token from stdin: %w", err)
 		}
 		*accessToken = secret
+	}
+	if state.clientSecretStdin {
+		secret, err := common.ReadSecretFromStdin(cmd)
+		if err != nil {
+			return fmt.Errorf("cannot read client secret from stdin: %w", err)
+		}
+		*clientSecret = secret
 	}
 	return nil
 }

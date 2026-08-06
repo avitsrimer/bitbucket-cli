@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/avitsrimer/bitbucket-cli/internal/profile"
+	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 )
 
@@ -467,5 +469,40 @@ func TestCreateProcessDryRun(t *testing.T) {
 	}
 	if pullrequestRequests != 0 {
 		t.Errorf("expected no pullrequest creation request in dry-run mode, got %d", pullrequestRequests)
+	}
+}
+
+// TestResolveExplicitReviewersNeverPanicsOnNilWorkspace proves resolveExplicitReviewers does not
+// dereference repository.Workspace directly: BitBucket omits "workspace" on a trimmed nested
+// Repository payload, and update.go's addRequestedReviewers already resolves the workspace slug
+// through repository.GetWorkspaceSlug (which falls back to FullName) instead of reading
+// Workspace.Slug directly for exactly this reason -- this proves create.go's own reviewer
+// resolution follows the same safe pattern.
+func TestResolveExplicitReviewersNeverPanicsOnNilWorkspace(t *testing.T) {
+	repo := &repository.Repository{Slug: testutil.FixtureRepositorySlug, FullName: testutil.FixtureWorkspaceSlug + "/" + testutil.FixtureRepositorySlug}
+
+	var requests []*http.Request
+	mux := http.NewServeMux()
+	mux.HandleFunc("/2.0/workspaces/"+testutil.FixtureWorkspaceSlug+"/members", func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[{"user":{"uuid":"{33333333-3333-3333-3333-333333333333}","nickname":"alice"}}]}`))
+	})
+
+	cmd := setupTestNamed(t, "create-nil-workspace-reviewer", mux.ServeHTTP, false)
+	currentProfile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
+	if err != nil {
+		t.Fatalf("cannot get profile: %v", err)
+	}
+
+	reviewers, err := resolveExplicitReviewers(cmd.Context(), cmd, currentProfile, repo, []string{"alice"})
+	if err != nil {
+		t.Fatalf("resolveExplicitReviewers() error = %v, want it to resolve the workspace from FullName without panicking", err)
+	}
+	if len(reviewers) != 1 || reviewers[0].Nickname != "alice" {
+		t.Errorf("reviewers = %+v, want exactly one reviewer named %q", reviewers, "alice")
+	}
+	if len(requests) != 1 {
+		t.Fatalf("expected exactly 1 request to the members endpoint, got %d", len(requests))
 	}
 }

@@ -147,7 +147,11 @@ func resolveCreateDefaultReviewers(ctx context.Context, cmd *cobra.Command, repo
 // with --warn-on-error/WarnOnError or --ignore-errors/IgnoreErrors it is tolerated (warned or
 // silently skipped) and the pullrequest is created with only the resolved reviewers.
 func resolveExplicitReviewers(ctx context.Context, cmd *cobra.Command, currentProfile *profile.Profile, repository *repository.Repository, values []string) ([]user.User, error) {
-	members, membersErr := workspace.GetMembers(ctx, cmd, repository.Workspace.Slug)
+	workspaceSlug, wsErr := repository.GetWorkspaceSlug(ctx, cmd)
+	if wsErr != nil {
+		return nil, fmt.Errorf("cannot get workspace: %w", wsErr)
+	}
+	members, membersErr := workspace.GetMembers(ctx, cmd, workspaceSlug)
 	values, err := expandAllReviewers(values, members, membersErr)
 	if err != nil {
 		return nil, err

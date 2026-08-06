@@ -169,7 +169,7 @@ func TestRequireUserForPasswordSourceRejectsPasswordWithoutUser(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := requireUserForPasswordSource(tc.state)
+			err := requireUserForPasswordSource(tc.state, false)
 			if err == nil {
 				t.Fatal("requireUserForPasswordSource() error = nil, want an error")
 			}
@@ -178,11 +178,27 @@ func TestRequireUserForPasswordSourceRejectsPasswordWithoutUser(t *testing.T) {
 			}
 		})
 	}
-	if err := requireUserForPasswordSource(secretFlagState{user: true, password: true}); err != nil {
+	if err := requireUserForPasswordSource(secretFlagState{user: true, password: true}, false); err != nil {
 		t.Errorf("requireUserForPasswordSource() error = %v, want nil when --user is given alongside --password", err)
 	}
-	if err := requireUserForPasswordSource(secretFlagState{}); err != nil {
+	if err := requireUserForPasswordSource(secretFlagState{}, false); err != nil {
 		t.Errorf("requireUserForPasswordSource() error = %v, want nil when neither --password nor --user is given", err)
+	}
+}
+
+// TestRequireUserForPasswordSourceAllowsExistingUserOnUpdate proves `profile update`'s relaxed
+// check: a password source given without --user is allowed when hasExistingUser is true (the
+// profile being updated already has a User of its own), so rotating a secret
+// (`op read ... | bb profile update work --password-stdin`) does not force --user to be retyped.
+func TestRequireUserForPasswordSourceAllowsExistingUserOnUpdate(t *testing.T) {
+	if err := requireUserForPasswordSource(secretFlagState{passwordStdin: true}, true); err != nil {
+		t.Errorf("requireUserForPasswordSource() error = %v, want nil when the profile already has a user", err)
+	}
+	if err := requireUserForPasswordSource(secretFlagState{password: true}, true); err != nil {
+		t.Errorf("requireUserForPasswordSource() error = %v, want nil when the profile already has a user", err)
+	}
+	if err := requireUserForPasswordSource(secretFlagState{password: true}, false); err == nil {
+		t.Error("requireUserForPasswordSource() error = nil, want an error when the profile has no existing user either")
 	}
 }
 
@@ -207,11 +223,16 @@ func TestPromptForSecretNonInteractiveErrorsNamingStdinFlags(t *testing.T) {
 	}
 }
 
-// TestCreateProcessNonInteractiveWithNoCredentialErrorsNamingPasswordStdin proves `bb profile
-// create -n foo` run non-interactively (no --user/--client-id/--access-token and no secret piped
-// in) fails fast with a clear error naming --password-stdin, rather than silently creating a
-// credential-less profile or hanging waiting for a terminal that will never answer.
-func TestCreateProcessNonInteractiveWithNoCredentialErrorsNamingPasswordStdin(t *testing.T) {
+// TestCreateProcessNonInteractiveWithNoCredentialSucceedsDeferringToTheVault reproduces the FINAL
+// CRITICAL GATE's priority-5 finding: `bb profile create -n foo` run non-interactively, with no
+// --user/--client-id/--access-token and no secret piped in, used to fail fast demanding a secret
+// -- a regression that broke vault-preseeded/CI provisioning, where a profile is created with no
+// secret at all and its token is resolved from the vault (already populated by another tool) the
+// first time the profile is actually used, or filled in later by a `profile update`. Since the
+// vault is in use by default (no --no-vault), the profile must be created successfully with all
+// three credential fields empty; --no-vault is covered separately by
+// TestCreateProcessNonInteractiveNoVaultWithNoCredentialStillErrors.
+func TestCreateProcessNonInteractiveWithNoCredentialSucceedsDeferringToTheVault(t *testing.T) {
 	withCreateOptions(t)
 	oldProfiles, oldCurrent := Profiles, Current
 	oldConfig := common.CurrentConfig()
@@ -229,14 +250,45 @@ func TestCreateProcessNonInteractiveWithNoCredentialErrorsNamingPasswordStdin(t 
 	cmd.SetArgs([]string{"--name", "no-credential-test"})
 	cmd.SetContext(context.Background())
 
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("cmd.Execute() error = %v, want a credential-less profile to be created successfully", err)
+	}
+
+	created, found := Profiles.Find("no-credential-test")
+	if !found {
+		t.Fatal("profile was not created")
+	}
+	if created.User != "" || created.ClientID != "" || created.AccessToken != "" {
+		t.Errorf("created profile = %+v, want all three credential fields empty", created)
+	}
+}
+
+// TestCreateProcessNonInteractiveNoVaultWithNoCredentialStillErrors proves --no-vault (which
+// cannot defer credential resolution to the vault, by definition) still demands a secret at
+// create time: only the vault-backed, credential-less flow above is the exception.
+func TestCreateProcessNonInteractiveNoVaultWithNoCredentialStillErrors(t *testing.T) {
+	withCreateOptions(t)
+	oldProfiles, oldCurrent := Profiles, Current
+	oldConfig := common.CurrentConfig()
+	t.Cleanup(func() {
+		Profiles = oldProfiles
+		Current = oldCurrent
+		common.SetCurrentConfig(oldConfig)
+	})
+	Profiles = nil
+	Current = nil
+	common.SetCurrentConfig(&common.Config{Path: filepath.Join(t.TempDir(), "config-cli.yml"), Data: map[string]any{}})
+
+	cmd := newIsolatedCreateCmd()
+	cmd.SetIn(strings.NewReader(""))
+	cmd.SetArgs([]string{"--name", "no-credential-no-vault-test", "--no-vault"})
+	cmd.SetContext(context.Background())
+
 	err := cmd.Execute()
 	if err == nil {
-		t.Fatal("cmd.Execute() error = nil, want an error when no credential is given non-interactively")
+		t.Fatal("cmd.Execute() error = nil, want an error: --no-vault cannot defer credential resolution")
 	}
-	if !strings.Contains(err.Error(), "--password-stdin") {
-		t.Errorf("cmd.Execute() error = %q, want it to name --password-stdin", err)
-	}
-	if _, found := Profiles.Find("no-credential-test"); found {
+	if _, found := Profiles.Find("no-credential-no-vault-test"); found {
 		t.Error("profile was created despite the missing-credential error")
 	}
 }

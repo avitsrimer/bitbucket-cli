@@ -54,6 +54,7 @@ func newIsolatedUpdateCmd() *cobra.Command {
 	cmd.Flags().Bool("password-stdin", false, "")
 	cmd.Flags().StringVar(&updateOptions.ClientID, "client-id", "", "")
 	cmd.Flags().StringVar(&updateOptions.ClientSecret, "client-secret", "", "")
+	cmd.Flags().Bool("client-secret-stdin", false, "")
 	cmd.Flags().StringVar(&updateOptions.AccessToken, "access-token", "", "")
 	cmd.Flags().Bool("access-token-stdin", false, "")
 	cmd.Flags().BoolVar(&updateOptions.ToVault, "to-vault", false, "")
@@ -68,7 +69,10 @@ func newIsolatedUpdateCmd() *cobra.Command {
 	cmd.MarkFlagsMutuallyExclusive("user", "client-id", "access-token", "access-token-stdin")
 	cmd.MarkFlagsMutuallyExclusive("password", "password-stdin")
 	cmd.MarkFlagsMutuallyExclusive("access-token", "access-token-stdin")
+	cmd.MarkFlagsMutuallyExclusive("client-secret", "client-secret-stdin")
 	cmd.MarkFlagsMutuallyExclusive("password-stdin", "access-token-stdin")
+	cmd.MarkFlagsMutuallyExclusive("password-stdin", "client-secret-stdin")
+	cmd.MarkFlagsMutuallyExclusive("access-token-stdin", "client-secret-stdin")
 	return cmd
 }
 
@@ -162,6 +166,53 @@ func TestUpdateProcessNeverEchoesVaultLoadedAccessToken(t *testing.T) {
 	}
 }
 
+// TestUpdateProcessNeverEchoesFreshlyPipedSecretOnPlainTextProfile reproduces the FINAL CRITICAL
+// GATE's priority-2 finding: forSave() only blanks vault-provenance secrets, so on a profile that
+// already stores its credentials in plain text (NoVault forced true by hasPlainTextSecret), a
+// freshly piped --access-token-stdin value landed unchanged in profile.AccessToken and was echoed
+// straight to stdout by the old forSave()-based confirmation print -- defeating the entire point
+// of piping the secret in instead of typing it on the command line. updateProcess must print
+// profile.forDisplay() instead, which masks every secret unconditionally, regardless of
+// provenance.
+func TestUpdateProcessNeverEchoesFreshlyPipedSecretOnPlainTextProfile(t *testing.T) {
+	withUpdateOptions(t)
+	withIsolatedProfilesConfig(t)
+
+	const (
+		profileName = "plaintext-echo-test"
+		oldToken    = "old-plaintext-token"
+		newToken    = "s3cr3t-piped-token-must-not-be-echoed"
+	)
+
+	// A plain-text profile: AccessToken is already set and vault.accessToken is (the zero value)
+	// false, so hasPlainTextSecret() is true and resolveProfileCredentials forces NoVault, the
+	// exact precondition that made forSave() a no-op for this secret.
+	target := &Profile{Name: profileName, AccessToken: oldToken}
+	Profiles = append(Profiles, target)
+
+	cmd := newIsolatedUpdateCmd()
+	// -o json (rather than the default table, which no longer even lists AccessToken among its
+	// default columns -- see GetHeaders) forces the confirmation output through MarshalJSON,
+	// proving forDisplay masks the secret unconditionally rather than merely being absent from the
+	// default column set.
+	cmd.SetArgs([]string{profileName, "--access-token-stdin", "--output", "json"})
+	cmd.SetContext(context.Background())
+	cmd.SetIn(strings.NewReader(newToken + "\n"))
+
+	stdout := captureStdout(t, func() {
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("profile update error = %v", err)
+		}
+	})
+
+	if strings.Contains(stdout, newToken) {
+		t.Fatalf("stdout = %q, must NOT contain the freshly piped access token", stdout)
+	}
+	if !strings.Contains(stdout, secretMask) {
+		t.Errorf("stdout = %q, want it to contain the masked secret marker %q", stdout, secretMask)
+	}
+}
+
 // TestUpdateProcessMigratesAccessTokenVaultEntryOnRename reproduces critical finding #5: an access
 // token is keyed in the vault by the profile's name, so `profile update <name> --name <new>`
 // without also setting a new --access-token used to leave the vault entry stranded under the old
@@ -239,5 +290,175 @@ func TestMoveCredentialsToVaultMovesEveryPlainTextSecretIndependently(t *testing
 	}
 	if _, err := target.GetCredentialFromVault("bitbucket-cli-test-move-all", target.User); err != nil {
 		t.Errorf("user password was not stored in the vault: %v", err)
+	}
+}
+
+// TestUpdateProcessSwitchingShapeClearsTheOldOne reproduces the FINAL CRITICAL GATE's priority-3
+// finding: switching a profile's credential shape via `profile update` used to be a silent no-op
+// for the shape being replaced -- updateCredentials only ever set non-empty fields, never cleared
+// the others -- so `profile update work --access-token-stdin` on a user/password profile stored
+// the token but left User/Password intact, and resolveAuthorization prefers Basic auth whenever
+// User != "", meaning the profile kept authenticating with the old password until it was revoked,
+// while the user believed they had moved to a token. After the fix, switching to a new shape must
+// clear the other two: User/Password gone, AccessToken set.
+func TestUpdateProcessSwitchingShapeClearsTheOldOne(t *testing.T) {
+	keyring.MockInit()
+	withUpdateOptions(t)
+	withIsolatedProfilesConfig(t)
+
+	const (
+		profileName = "shape-switch-test"
+		vaultKey    = "bitbucket-cli-test-shape-switch"
+		oldUser     = "alice"
+		oldPassword = "old-plaintext-password"
+		newToken    = "new-access-token-must-win"
+	)
+
+	// A plain-text user/password profile (vault.password stays false -- the zero value).
+	target := &Profile{Name: profileName, VaultKey: vaultKey, User: oldUser, Password: oldPassword}
+	Profiles = append(Profiles, target)
+
+	cmd := newIsolatedUpdateCmd()
+	cmd.SetArgs([]string{profileName, "--access-token", newToken})
+	cmd.SetContext(context.Background())
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("profile update error = %v", err)
+	}
+
+	updated, found := Profiles.Find(profileName)
+	if !found {
+		t.Fatal("profile not found after update")
+	}
+	if updated.User != "" {
+		t.Errorf("User = %q, want it cleared after switching to the access-token shape", updated.User)
+	}
+	if updated.Password != "" {
+		t.Errorf("Password = %q, want it cleared after switching to the access-token shape", updated.Password)
+	}
+	// The new access token is stored in the vault (the default, since no plain-text secret is
+	// left on the profile once the old shape is cleared), leaving AccessToken itself blank in
+	// memory/on disk -- exactly like any other freshly given --access-token on a vault-backed
+	// profile; see storeCredentialIfChanged.
+	credential, err := (Profile{}).GetCredentialFromVault(vaultKey, profileName)
+	if err != nil {
+		t.Fatalf("cannot get the new access token from the vault: %v", err)
+	}
+	if credential.Password != newToken {
+		t.Errorf("vault access token = %q, want %q", credential.Password, newToken)
+	}
+}
+
+// TestUpdateProcessSwitchingShapeDeletesTheOldVaultEntry is
+// TestUpdateProcessSwitchingShapeClearsTheOldOne's vault-provenance sibling: when the shape being
+// replaced held a secret in the vault (not just in-memory plain text), switching shapes must
+// delete that stranded vault entry too, not just clear the in-memory field.
+func TestUpdateProcessSwitchingShapeDeletesTheOldVaultEntry(t *testing.T) {
+	keyring.MockInit()
+	withUpdateOptions(t)
+	withIsolatedProfilesConfig(t)
+
+	const (
+		profileName = "shape-switch-vault-test"
+		vaultKey    = "bitbucket-cli-test-shape-switch-vault"
+		oldUser     = "bob"
+		oldPassword = "old-vaulted-password"
+		newToken    = "new-access-token-must-win"
+	)
+
+	if err := (Profile{}).SetCredentialInVault(vaultKey, oldUser, oldPassword); err != nil {
+		t.Fatalf("cannot seed the fake vault: %v", err)
+	}
+
+	target := &Profile{Name: profileName, VaultKey: vaultKey, User: oldUser}
+	target.vault.password = true // simulates the password having been loaded from the vault at runtime
+	Profiles = append(Profiles, target)
+
+	cmd := newIsolatedUpdateCmd()
+	cmd.SetArgs([]string{profileName, "--access-token", newToken})
+	cmd.SetContext(context.Background())
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("profile update error = %v", err)
+	}
+
+	if _, err := (Profile{}).GetCredentialFromVault(vaultKey, oldUser); err == nil {
+		t.Error("old password is still reachable in the vault after switching to the access-token shape, want it deleted")
+	}
+}
+
+// TestUpdateProcessRotatesPasswordWithoutRetypingUser reproduces the FINAL CRITICAL GATE's
+// priority-3 finding: rotating a secret required re-typing --user even when the profile already
+// has one on record, because requireUserForPasswordSource/storeCredentialIfChanged were keyed on
+// whether --user itself changed on this command line, not on whether the profile already has a
+// user. `op read ... | bb profile update work --password-stdin` (no --user) must succeed and
+// store the new password under the profile's existing user.
+func TestUpdateProcessRotatesPasswordWithoutRetypingUser(t *testing.T) {
+	keyring.MockInit()
+	withUpdateOptions(t)
+	withIsolatedProfilesConfig(t)
+
+	const (
+		profileName = "rotate-password-test"
+		vaultKey    = "bitbucket-cli-test-rotate-password"
+		user        = "carol"
+		newPassword = "s3cr3t-rotated-password"
+	)
+
+	target := &Profile{Name: profileName, VaultKey: vaultKey, User: user}
+	Profiles = append(Profiles, target)
+
+	cmd := newIsolatedUpdateCmd()
+	cmd.SetIn(strings.NewReader(newPassword + "\n"))
+	cmd.SetArgs([]string{profileName, "--password-stdin"})
+	cmd.SetContext(context.Background())
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("profile update error = %v, want --password-stdin to be accepted without --user when the profile already has one", err)
+	}
+
+	credential, err := (Profile{}).GetCredentialFromVault(vaultKey, user)
+	if err != nil {
+		t.Fatalf("cannot get credential from vault: %v", err)
+	}
+	if credential.Password != newPassword {
+		t.Errorf("vault password = %q, want %q", credential.Password, newPassword)
+	}
+}
+
+// TestUpdateClientSecretStdinReadsAndTrims proves `bb profile update foo --client-id abc
+// --client-secret-stdin` reads the OAuth2 client secret piped on stdin instead of requiring
+// --client-secret on the command line (which would land in shell history), and stores it exactly
+// like --client-secret would.
+func TestUpdateClientSecretStdinReadsAndTrims(t *testing.T) {
+	keyring.MockInit()
+	withUpdateOptions(t)
+	withIsolatedProfilesConfig(t)
+
+	const (
+		profileName = "client-secret-stdin-test"
+		vaultKey    = "bitbucket-cli-test-client-secret-stdin"
+		clientID    = "client-id-stdin-test"
+		piped       = "s3cr3t-piped-client-secret\n"
+	)
+
+	target := &Profile{Name: profileName, VaultKey: vaultKey}
+	Profiles = append(Profiles, target)
+
+	cmd := newIsolatedUpdateCmd()
+	cmd.SetIn(strings.NewReader(piped))
+	cmd.SetArgs([]string{profileName, "--client-id", clientID, "--client-secret-stdin"})
+	cmd.SetContext(context.Background())
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("profile update error = %v", err)
+	}
+
+	credential, err := (Profile{}).GetCredentialFromVault(vaultKey, clientID)
+	if err != nil {
+		t.Fatalf("cannot get credential from vault: %v", err)
+	}
+	if credential.Password != "s3cr3t-piped-client-secret" {
+		t.Errorf("vault client secret = %q, want the piped secret trimmed of its trailing newline", credential.Password)
 	}
 }

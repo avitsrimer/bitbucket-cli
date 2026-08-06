@@ -27,7 +27,9 @@ func newIsolatedCreateCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&createOptions.Name, "name", "n", "", "")
 	cmd.Flags().StringVar(&createOptions.ClientID, "client-id", "", "")
 	cmd.Flags().StringVar(&createOptions.ClientSecret, "client-secret", "", "")
+	cmd.Flags().Bool("client-secret-stdin", false, "")
 	cmd.Flags().StringVar(&createOptions.VaultKey, "vault-key", "bitbucket-cli", "")
+	cmd.Flags().BoolVar(&createOptions.NoVault, "no-vault", false, "")
 	cmd.Flags().StringVar(&createOptions.User, "user", "", "")
 	cmd.Flags().StringVar(&createOptions.Password, "password", "", "")
 	cmd.Flags().Bool("password-stdin", false, "")
@@ -36,11 +38,17 @@ func newIsolatedCreateCmd() *cobra.Command {
 	cmd.Flags().String("profile", "", "")
 	cmd.Flags().String("config", "", "")
 	cmd.Flags().Bool("dry-run", false, "")
-	cmd.MarkFlagsRequiredTogether("client-id", "client-secret")
+	// "client-id" is deliberately not required-together with "client-secret" here, mirroring the
+	// real createCmd's init: requireClientIDForSecretSource (a plain function, not a cobra flag
+	// registration) enforces the pairing instead, so it applies here identically without needing
+	// to be re-registered on this throwaway FlagSet.
 	cmd.MarkFlagsMutuallyExclusive("user", "client-id", "access-token", "access-token-stdin")
 	cmd.MarkFlagsMutuallyExclusive("password", "password-stdin")
 	cmd.MarkFlagsMutuallyExclusive("access-token", "access-token-stdin")
+	cmd.MarkFlagsMutuallyExclusive("client-secret", "client-secret-stdin")
 	cmd.MarkFlagsMutuallyExclusive("password-stdin", "access-token-stdin")
+	cmd.MarkFlagsMutuallyExclusive("password-stdin", "client-secret-stdin")
+	cmd.MarkFlagsMutuallyExclusive("access-token-stdin", "client-secret-stdin")
 	return cmd
 }
 

@@ -8,7 +8,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 )
@@ -58,6 +60,14 @@ func StdinIsInteractive(cmd *cobra.Command) bool {
 // non-interactive alternative (e.g. "use --password-stdin or --access-token-stdin instead"),
 // rather than left to hang. common is the lower layer here (profile imports it, not the other way
 // around), so it names no flag of its own callers'.
+//
+// A SIGINT/SIGTERM received while echo is disabled is caught and handled the same way as a normal
+// return: echo is restored, then the process exits with status 130 (the conventional 128+SIGINT),
+// via exitProcess. Without this, Ctrl-C at the prompt would kill the process before ReadSecret's
+// own defer-based restore ever runs -- a signal terminates immediately, deferred calls never get
+// a chance -- leaving the user's shell with local echo permanently disabled until they run `stty
+// sane`/`reset` themselves. Aborting a password prompt is routine, not exceptional, so this must
+// not be able to break the terminal.
 func ReadSecret(prompt, nonInteractiveHint string) (secret string, err error) {
 	tty, err := openControllingTTY()
 	if err != nil {
@@ -66,12 +76,15 @@ func ReadSecret(prompt, nonInteractiveHint string) (secret string, err error) {
 	defer func() { _ = tty.Close() }()
 
 	// Only a real terminal device can have its echo setting toggled; a fake reader substituted in
-	// tests (see openControllingTTY's doc comment) is read from as-is, echo untouched.
+	// tests (see openControllingTTY's doc comment) is read from as-is, echo untouched, and no
+	// interrupt guard is armed for it either -- there is no echo state a test's fake tty needs
+	// protected.
 	if file, ok := tty.(*os.File); ok {
 		if echoErr := setTTYEcho(file, false); echoErr != nil {
 			return "", fmt.Errorf("cannot disable terminal echo: %w", echoErr)
 		}
 		defer func() { _ = setTTYEcho(file, true) }()
+		defer armInterruptGuard(file)()
 	}
 
 	fmt.Fprintf(os.Stderr, "%s ", prompt)
@@ -85,6 +98,38 @@ func ReadSecret(prompt, nonInteractiveHint string) (secret string, err error) {
 		return "", errors.New("no secret entered")
 	}
 	return secret, nil
+}
+
+// exitProcess is a package-level variable (not a direct call to os.Exit) purely so tests can
+// observe armInterruptGuard's signal path firing without actually terminating the test binary.
+var exitProcess = os.Exit
+
+// armInterruptGuard arms a SIGINT/SIGTERM handler for as long as tty's echo is disabled,
+// restoring echo and exiting with status 130 the instant either signal arrives, and returns a
+// disarm function the caller must defer immediately (before the echo-restore defer below it runs
+// normally, so the two never race to restore echo twice). A signal received after disarm runs
+// takes its usual default action instead -- by the time ReadSecret's own defers are unwinding,
+// echo is either already restored or about to be, so there is nothing left for this guard to
+// protect.
+func armInterruptGuard(tty *os.File) (disarm func()) {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	done := make(chan struct{})
+
+	go func() {
+		select {
+		case <-signals:
+			_ = setTTYEcho(tty, true)
+			fmt.Fprintln(os.Stderr)
+			exitProcess(130)
+		case <-done:
+		}
+	}()
+
+	return func() {
+		signal.Stop(signals)
+		close(done)
+	}
 }
 
 // setTTYEcho enables or disables local echo on tty by shelling out to stty, wiring its stdin
@@ -107,12 +152,28 @@ func setTTYEcho(tty *os.File, echo bool) error {
 	return nil
 }
 
+// stdinIsInteractive is a package-level variable (not a direct call to StdinIsInteractive)
+// purely so tests can force ReadSecretFromStdin's interactive-input guard down its rejecting
+// path without a real controlling terminal, the same seam openControllingTTY provides for
+// ReadSecret's own tty dependency: there is no way to make os.Stdin a character device in CI.
+var stdinIsInteractive = StdinIsInteractive
+
 // ReadSecretFromStdin reads the entirety of cmd.InOrStdin() -- not just its first line -- and
-// trims trailing whitespace/newline, for --password-stdin/--access-token-stdin: gh- and
-// docker-style flags that let a secret be piped in (e.g. `op read op://vault/item/token | bb
-// profile create -n work -u me@corp.com --password-stdin`) instead of typed on the command line,
-// where it would land in shell history.
+// trims trailing whitespace/newline, for --password-stdin/--access-token-stdin/
+// --client-secret-stdin: gh- and docker-style flags that let a secret be piped in (e.g. `op read
+// op://vault/item/token | bb profile create -n work -u me@corp.com --password-stdin`) instead of
+// typed on the command line, where it would land in shell history.
+//
+// It refuses outright, instead of blocking forever, when cmd's input is a real, interactive
+// terminal: io.ReadAll only returns once it sees EOF, which an interactive terminal never sends on
+// a bare Enter (only Ctrl-D does) -- so `bb profile create -u me --password-stdin` typed without a
+// redirect would otherwise hang with the secret echoed in clear text on the terminal, exactly what
+// this flag exists to avoid. docker/gh's own -stdin flags reject the same way; ReadSecret (the
+// no-echo interactive prompt) is the documented alternative for a real terminal.
 func ReadSecretFromStdin(cmd *cobra.Command) (string, error) {
+	if stdinIsInteractive(cmd) {
+		return "", errors.New("refusing to read a secret from an interactive terminal: redirect or pipe the value in instead (e.g. `... | bb ...`), or omit the -stdin flag to be prompted with echo disabled")
+	}
 	data, err := io.ReadAll(cmd.InOrStdin())
 	if err != nil {
 		return "", fmt.Errorf("cannot read secret from stdin: %w", err)

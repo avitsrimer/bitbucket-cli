@@ -207,8 +207,17 @@ func (repository Repository) parentFullName() string {
 }
 
 // GetPath gets the API path of the repository
+//
+// The workspace segment comes from workspaceSlugFromFields, never from repository.Workspace.Slug
+// directly: BitBucket omits "workspace" on a trimmed nested Repository payload (a pull request's
+// source/destination repository, a commit's repository, ...), and GetPath has no *cobra.Command
+// to fall back to the --workspace flag/git-remote/profile-default resolution GetWorkspaceSlug
+// uses for that case, nor does it return an error existing callers could check. Falling back to
+// FullName's workspace segment (itself no API call) instead of dereferencing a possibly-nil
+// Workspace keeps this from panicking; when neither source has it, the workspace segment is
+// simply empty, which 404s cleanly against the server instead of crashing the CLI.
 func (repository Repository) GetPath(paths ...string) string {
-	return path.Join(append([]string{"/repositories", repository.Workspace.Slug, repository.Slug}, paths...)...)
+	return path.Join(append([]string{"/repositories", repository.workspaceSlugFromFields(), repository.Slug}, paths...)...)
 }
 
 // String returns the string representation of the repository
@@ -267,8 +276,24 @@ func GetRepositoryBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID s
 			return nil, fmt.Errorf("cannot get workspace: %w", err)
 		}
 	}
+	// An empty component here (a "workspace/repository" argument shaped like "/foo" or "foo/")
+	// must be rejected explicitly: resolveRequestURL's JoinPath collapses "/repositories//foo"'s
+	// double slash into "/repositories/foo", silently retargeting the request onto the *list
+	// repositories in workspace "foo"* endpoint instead of erroring.
+	if workspaceSlug == "" {
+		return nil, errors.New("argument workspace is missing")
+	}
+	if slugOrID == "" {
+		return nil, errors.New("argument repository is missing")
+	}
 
-	// In case we got a real UUID, get the Bitbucket UUID
+	// In case we got a real UUID for either segment, get its canonical Bitbucket form (adds
+	// braces): both segments are equally likely to be a bare UUID (a "workspace/repository"
+	// argument can name either one that way), so both are normalized the same way a direct
+	// object fetch (ParseUUID -> UUID.String()) always did.
+	if parsedWorkspace, uuidErr := common.ParseUUID(workspaceSlug); uuidErr == nil {
+		workspaceSlug = parsedWorkspace.String()
+	}
 	if parsedID, uuidErr := common.ParseUUID(slugOrID); uuidErr == nil {
 		slugOrID = parsedID.String()
 	}
@@ -348,19 +373,32 @@ func splitFullName(fullName string) (workspaceSlug, repositorySlug string, ok bo
 	return components[0], components[1], true
 }
 
-// GetWorkspaceSlug gets the workspace slug of the repository without ever fetching a Workspace
-// object: repository.Workspace.Slug when it is already populated (the API's own response for this
-// repository already carried it -- no extra request), the workspace segment of FullName when it
-// splits cleanly into "{workspace}/{repo}", or otherwise the --workspace flag/git-remote/
-// profile-default workspace slug (see workspace.GetWorkspaceName). None of these read paths call
-// the BitBucket API, so none of them need the read:workspace scope.
-func (repository Repository) GetWorkspaceSlug(ctx context.Context, cmd *cobra.Command) (string, error) {
+// workspaceSlugFromFields resolves the workspace slug using only data already present on
+// repository -- repository.Workspace.Slug when populated (the API's own response for this
+// repository already carried it -- no extra request), or the workspace segment of FullName when
+// it splits cleanly into "{workspace}/{repo}" -- touching the network never. Returns "" when
+// neither source has it, leaving the network fallback (the --workspace flag/git-remote/
+// profile-default workspace, see workspace.GetWorkspaceName) to callers that have a context and
+// command to resolve it with; GetPath does not, so it stops here.
+func (repository Repository) workspaceSlugFromFields() string {
 	if repository.Workspace != nil && repository.Workspace.Slug != "" {
-		return repository.Workspace.Slug, nil
+		return repository.Workspace.Slug
 	}
-
 	if workspaceSlug, _, ok := splitFullName(repository.FullName); ok {
-		lgr.Printf("[DEBUG] getting workspace of repository %s/%s from full name", repository.FullName, repository.Slug)
+		return workspaceSlug
+	}
+	return ""
+}
+
+// GetWorkspaceSlug gets the workspace slug of the repository without ever fetching a Workspace
+// object: repository.Workspace.Slug when it is already populated, the workspace segment of
+// FullName when it splits cleanly into "{workspace}/{repo}" (see workspaceSlugFromFields for
+// both), or otherwise the --workspace flag/git-remote/profile-default workspace slug (see
+// workspace.GetWorkspaceName). None of these read paths call the BitBucket API, so none of them
+// need the read:workspace scope.
+func (repository Repository) GetWorkspaceSlug(ctx context.Context, cmd *cobra.Command) (string, error) {
+	if workspaceSlug := repository.workspaceSlugFromFields(); workspaceSlug != "" {
+		lgr.Printf("[DEBUG] getting workspace of repository %s/%s from known fields", repository.FullName, repository.Slug)
 		return workspaceSlug, nil
 	}
 
