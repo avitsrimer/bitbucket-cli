@@ -8,15 +8,37 @@
 `bb` is the missing command line interface for Bitbucket. It brings the power of the Bitbucket platform to your command line. Creating and merging Pull Requests and more are now just a few keystrokes away.
 
 > [!IMPORTANT]
-> **This is an opinionated fork that exists to do one thing: work with Bitbucket pull requests from the terminal.**
+> **This is an opinionated fork, deliberately narrower than upstream.**
 >
-> Only the `bb pullrequest` command tree, `bb user`, and the `bb profile` authentication plumbing they depend on are supported, tested, and maintained here. Every other command group inherited from upstream (`repository`, `project`, `workspace`, `issue`, `pipeline`, `branch`, `commit`, `tag`, `artifact`, `gpg-key`, `ssh-key`, `cache`, `remote`, `component`) has been **removed** from this fork.
+> The supported surface is `bb pullrequest` (full command tree), `bb user`, `bb profile`
+> (authentication plumbing), `bb pipeline` (`get`, `list`, `trigger`, `stop`, plus the `step`
+> subgroup: `get`, `list`, `logs`, `report`, `cases`), `bb repo`/`bb repository` (`get`, `list`,
+> `clone` — read-only, no create/delete/fork/update), `bb workspace` (`get`, `list`, `members` —
+> no permission administration), `bb commit`/`bb branch` (read-only: `commit get/list/diff/patch`,
+> `branch list`), and `bb artifact` (`list`, `download` — no upload/delete). Every other command
+> group inherited from upstream — `issue`, `tag`, `project`, `gpg-key`, `ssh-key`, `cache`,
+> `remote`, `component` — remains **removed** from this fork, as does every admin/destructive verb
+> of the groups above (repository create/delete/fork/update, `repo get --forks`, workspace
+> permission management, pipeline `--tag` targets) and the deprecated `pullrequest activity` alias
+> (use `pullrequest activities`).
+>
+> `bb pipeline trigger` and `bb pipeline stop` are, deliberately, the only commands in this fork
+> that ask for a `y`/`N` confirmation before running (or accept `--force` to skip it) — every
+> other state-changing command, including `pullrequest merge`/`decline`, runs immediately. Use
+> `--dry-run` to preview any of them first.
 
 The supported surface is:
 
+- **Workspaces** — `bb workspace` → `get`, `list`, `members`
+- **Repositories** — `bb repo` (alias `repository`) → `get`, `list`, `clone`
+- **Branches** — `bb branch` → `list`
+- **Commits** — `bb commit` → `get`, `list`, `diff`, `patch`
 - **Pull requests** — `bb pullrequest` → `list`, `get`, `create`, `update`, `decline`, `merge`, `merge-status`, `approve`, `unapprove`, `request-changes`, `remove-request-changes`, `diff`, `patch`, `commits`, `activities`
 - **Comments** — `bb pullrequest comment` → `list`, `get`, `create`, `update`, `delete`, `resolve`, `reopen`
 - **Tasks** — `bb pullrequest task` → `list`, `get`, `create`, `update`, `delete`
+- **Pipelines** — `bb pipeline` (aliases `pipelines`, `pipe`, `pp`) → `get`, `list`, `trigger`, `stop`
+- **Pipeline steps** — `bb pipeline step` (alias `steps`) → `get`, `list`, `logs`, `report`, `cases`
+- **Artifacts** — `bb artifact` → `list`, `download`
 - **Users** — `bb user` → `get`, `me`
 - **Authentication** — `bb profile` (including API tokens stored in the macOS Keychain, see [Profiles](#profiles)) and `bb completion`
 
@@ -396,6 +418,111 @@ Or,
 bb user get UUID
 ```
 
+### Workspaces
+
+You can list the workspaces you have access to with the `bb workspace list` command:
+
+```bash
+bb workspace list
+```
+
+You can get the details of a workspace with the `bb workspace get` command. If you don't provide a slug or ID, the current workspace (resolved the same way as `--workspace`) is used:
+
+```bash
+bb workspace get myworkspace
+bb workspace get
+```
+
+You can list the members of a workspace with the `bb workspace members` command, which resolves the current workspace the same way when no slug is given:
+
+```bash
+bb workspace members myworkspace
+bb workspace members
+```
+
+> [!NOTE]
+> Workspace permission administration (`bb workspace permission get/list` upstream) is not part of this fork.
+
+### Repositories
+
+You can list the repositories of a workspace with the `bb repo list` command (aliased `bb repository list`):
+
+```bash
+bb repo list --workspace myworkspace
+```
+
+If you do not provide a workspace, the one resolved from `--workspace`/git config/profile default is used. You can narrow the list down to repositories you have a given role in with `--role` (`all`, `owner`, `admin`, `contributor`, `member`; default `owner`):
+
+```bash
+bb repo list --role contributor
+```
+
+You can get the details of a repository with the `bb repo get` command. If you don't provide a slug or UUID, the current repository is used:
+
+```bash
+bb repo get myrepository
+bb repo get
+```
+
+You can clone a repository with the `bb repo clone` command:
+
+```bash
+bb repo clone myrepository
+bb repo clone myrepository myfolder
+```
+
+The destination is an optional second positional argument (it defaults to the repository's slug), not a `--destination` flag. The protocol is resolved from `--protocol` (`git`, `https`, or `ssh`), then the profile's clone-protocol setting, then `git`:
+
+```bash
+bb repo clone --protocol https myrepository
+```
+
+For the `git`/`ssh` protocols, an SSH private key file can be set with `--ssh-key-file` (or the profile's SSH key file setting); it is passed to the underlying `git clone` through `GIT_SSH_COMMAND`. For `https`, the profile's clone-user setting, if any, is used as the username embedded in the clone URL.
+
+> [!NOTE]
+> `bb repo` does not support `create`, `delete`, `fork`, `update`, or `get --forks`; `list` filters
+> only by `--role` — upstream's `--project`, `--project-key`, `--has-issues`, `--has-wiki`,
+> `--is-private`, `--language`, and `--main-branch` filters are not implemented.
+
+### Branches and Commits
+
+You can list the branches of the current repository with the `bb branch list` command:
+
+```bash
+bb branch list
+```
+
+You can list the commits of the current repository with the `bb commit list` command, optionally filtered with `--query`, or narrowed with `--include`/`--exclude` (commit hashes or branch names):
+
+```bash
+bb commit list
+bb commit list --include develop --exclude master
+```
+
+You can get the details of a commit with the `bb commit get` command. If you don't provide a hash, the latest commit is used:
+
+```bash
+bb commit get 123456
+bb commit get
+```
+
+You can get the diff between two commits with the `bb commit diff` command (or between one commit and its parent, if only one hash is given), and the diffstat alone with `--stat`:
+
+```bash
+bb commit diff 123456 654321
+bb commit diff 123456
+bb commit diff --stat 123456
+```
+
+You can get the patch between two commits with the `bb commit patch` command:
+
+```bash
+bb commit patch 123456 654321
+```
+
+> [!NOTE]
+> There is no commit or branch mutation of any kind in this fork (no `commit ancestor`, no branch create/delete/merge).
+
 ### Pull Requests
 
 You can list pull requests with the `bb pullrequest list` command:
@@ -636,6 +763,90 @@ You can delete a task with the `bb pullrequest task delete` command:
 bb pullrequest task delete --pullrequest 1 7643545
 ```
 
+### Pipelines
+
+You can list the pipelines of the current repository with the `bb pipeline list` command (aliases `pipelines`, `pipe`, `pp`):
+
+```bash
+bb pipeline list
+```
+
+You can get the details of a pipeline by its UUID or build number with the `bb pipeline get` command:
+
+```bash
+bb pipeline get 123456
+```
+
+You can trigger a new pipeline with the `bb pipeline trigger` command (aliases `run`, `start`, `create`):
+
+```bash
+bb pipeline trigger --branch master --variable KEY1=VALUE1 --variable KEY2=VALUE2
+```
+
+By default, the pipeline is triggered on the current git branch (`--branch` overrides it). You can pin the target to a specific `--commit`, or trigger it for a pull request instead with `--pullrequest` (Bitbucket then resolves the source/destination/commit server-side):
+
+```bash
+bb pipeline trigger --pullrequest 42
+```
+
+`trigger` asks for a `y`/`N` confirmation before sending the request. Pass `--force` to skip the prompt, or `--dry-run` to preview what would be sent without ever showing the prompt:
+
+```bash
+bb pipeline trigger --branch master --force
+```
+
+> [!NOTE]
+> There is no `--tag` target (the upstream `tag` package stays removed) and no
+> `--show-logs-command`/`logs-command` output.
+
+You can stop a running pipeline with the `bb pipeline stop` command (aliases `cancel`, `abort`), which asks for the same `y`/`N` confirmation (or accepts `--force`):
+
+```bash
+bb pipeline stop 123456
+```
+
+#### Pipeline Steps
+
+You can list the steps of a pipeline with the `bb pipeline step list` command:
+
+```bash
+bb pipeline step list --pipeline 123456
+```
+
+You can get the details of a step with the `bb pipeline step get` command:
+
+```bash
+bb pipeline step get --pipeline 123456 {stepUUID}
+```
+
+You can get the logs, test report, and test cases of a step with the `bb pipeline step logs`, `bb pipeline step report`, and `bb pipeline step cases` commands:
+
+```bash
+bb pipeline step logs   --pipeline 123456 {stepUUID}
+bb pipeline step report --pipeline 123456 {stepUUID}
+bb pipeline step cases  --pipeline 123456 {stepUUID}
+```
+
+### Artifacts
+
+You can list the artifacts of the current repository with the `bb artifact list` command:
+
+```bash
+bb artifact list
+```
+
+You can download one or more artifacts by name with the `bb artifact download` command (aliases `get`, `fetch`):
+
+```bash
+bb artifact download myartifact.zip
+bb artifact download myartifact.zip other.zip --destination ./downloads
+```
+
+`--destination` defaults to the current directory and must already exist. Each artifact is written under the base name of its `<name>` (any directory components are stripped, so a name cannot write outside the destination directory), overwriting a file already there; a download only replaces the destination file once it has completed successfully, so a failed attempt never leaves a stray empty or partial file behind.
+
+> [!NOTE]
+> There is no `bb artifact upload`/`delete`, and no `--progress` flag.
+
 ### Completion
 
 `bb` supports completion for Bash, fish, Powershell, and zsh.
@@ -727,10 +938,16 @@ ways that break existing scripts and installs:
   && brew install --cask bb`), not `gildas/tap/bitbucket-cli`; the snap/chocolatey/scoop packages
   are gone. `go install` now targets
   `github.com/avitsrimer/bitbucket-cli/cmd/bb@latest` — the module path changed along with it.
-- **Ten command groups removed**: `repository`, `project`, `workspace`, `issue`, `pipeline`,
-  `branch`, `commit`, `tag`, `artifact`, `gpg-key`, `ssh-key`, `cache`, `remote`, `component`, and
-  the deprecated `pullrequest activity` alias (use `pullrequest activities`) are all gone. Only
-  `pullrequest`, `user`, and `profile` remain.
+- **Six command groups restored, narrower than upstream**: `repository`/`repo` (`get`, `list`,
+  `clone` only — no create/delete/fork/update, no `get --forks`), `workspace` (`get`, `list`,
+  `members` only — no permission administration), `branch` (`list` only), `commit` (`get`,
+  `list`, `diff`, `patch`), `pipeline` (`get`, `list`, `trigger`, `stop`, plus the `step`
+  subgroup — no `--tag` target, no `--show-logs-command`), and `artifact` (`list`, `download`
+  only — no upload/delete, no `--progress`). `pipeline trigger`/`stop` are the only commands in
+  this fork with a `y`/`N` confirmation prompt (`--force` to skip it).
+- **Eight command groups remain removed**: `project`, `issue`, `tag`, `gpg-key`, `ssh-key`,
+  `cache`, `remote`, `component`, and the deprecated `pullrequest activity` alias (use
+  `pullrequest activities`).
 - **`--log <file>` / `-l` and the `LOG_DESTINATION`/`LOG_LEVEL`/`DEBUG` environment variables are
   gone.** Logs always go to stderr; use `--debug 2> bb.log` instead — see
   [Obtaining logs for debugging](#obtaining-logs-for-debugging).
@@ -745,4 +962,4 @@ ways that break existing scripts and installs:
 > **This fork is under active development and maintained independently, on a best-effort basis.**
 > There are no on-call support or SLAs. Bugs and issues are tracked and addressed as time allows.
 
-This project should be considered a personal, opinionated fork, not an officially supported release of `bitbucket-cli`. Pull request, user, and profile management features are the only ones kept working; every other command group from upstream has been removed from this fork.
+This project should be considered a personal, opinionated fork, not an officially supported release of `bitbucket-cli`. Pull request, user, profile, pipeline, repository (read-only + clone), workspace (read-only), commit/branch (read-only), and artifact (list/download) management are the only features kept working; every other command group from upstream, and every admin/destructive verb of the ones above, has been removed from this fork.

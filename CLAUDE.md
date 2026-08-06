@@ -4,14 +4,24 @@ Guidance for Claude Code when working in this repository.
 
 ## What this is
 
-`bb` — an opinionated, macOS-first fork of [gildas/bitbucket-cli](https://github.com/gildas/bitbucket-cli)
-that does one thing: work with Bitbucket pull requests from the terminal. Only the
-`bb pullrequest` command tree, `bb user`, and the `bb profile` authentication plumbing
-they depend on are supported — every other command group inherited from upstream
-(`repository`, `project`, `workspace`, `issue`, `pipeline`, `branch`, `commit`, `tag`,
-`artifact`, `gpg-key`, `ssh-key`, `cache`, `remote`, `component`) has been removed from
-the CLI surface (a few of the underlying packages remain as internal libraries other
-commands depend on — see Layout).
+`bb` — an opinionated, macOS-first fork of [gildas/bitbucket-cli](https://github.com/gildas/bitbucket-cli),
+deliberately narrower than upstream. The supported CLI surface is `bb pullrequest` (full
+command tree), `bb user`, `bb profile` (authentication plumbing), `bb pipeline` (`get`,
+`list`, `trigger`, `stop`, plus the `step` subgroup: `get`, `list`, `logs`, `report`,
+`cases`), `bb repository`/`bb repo` (`get`, `list`, `clone` — read-only, no
+create/delete/fork/update, no `get --forks`), `bb workspace` (`get`, `list`, `members` —
+no permission administration), `bb commit`/`bb branch` (read-only: `commit
+get/list/diff/patch`, `branch list`), and `bb artifact` (`list`, `download` — no
+upload/delete, no `--progress`). `pipeline trigger`/`stop` are deliberately the only
+commands with a `y`/`N` confirmation prompt (`--force` skips it); every other
+state-changing command runs immediately.
+
+Every other command group inherited from upstream (`project`, `issue`, `tag`, `gpg-key`,
+`ssh-key`, `cache`, `remote`, `component`) has been removed from the CLI surface, along
+with every admin/destructive verb of the groups above (`repository`
+create/delete/fork/update, workspace permission management, pipeline `--tag` targets). A
+few packages for groups with no restored surface (`project`, `remote`) remain as internal
+libraries other commands depend on — see Layout.
 
 Config lives in `~/Library/Application Support/bitbucket/config-cli.yml` (or
 `os.UserConfigDir()`'s platform equivalent, falling back to `~/.bitbucket-cli`),
@@ -44,14 +54,27 @@ history intent) — do not try to keep it merge-compatible.
 ```
 cmd/bb/main.go            # entry point: load .env, set up lgr, cmd.Execute
 internal/cmd/             # cobra RootCmd, global flags, version
-internal/common/          # config load/save, EnumFlag, local TTL cache, error helpers
+internal/common/          # config load/save, EnumFlag, local TTL cache, error helpers,
+                           # Confirm (y/N prompt), exported flag-hiding helpers
 internal/profile/         # profile CRUD, OAuth2 authorize flow, HTTP client (net/http)
 internal/pullrequest/     # pullrequest command tree + shared action helper
   /comment, /task, /common # subcommand packages + shared getters
 internal/user/            # bb user get/me
-internal/branch/, /commit/, /project/, /repository/, /workspace/, /remote/
+internal/workspace/       # bb workspace get/list/members
+internal/repository/      # bb repo(sitory) get/list/clone
+internal/branch/          # bb branch list (+ dep-free GetCurrentBranch)
+internal/commit/          # bb commit get/list/diff/patch
+internal/pipeline/        # bb pipeline get/list/trigger/stop
+  /common                 # plcommon: getters shared with pipeline/step (breaks the
+                           # pipeline->step->pipeline import cycle)
+  /step                   # bb pipeline step get/list/logs/report/cases
+internal/artifact/        # bb artifact list/download
+internal/testutil/        # shared test harness (profile/fixture setup) for packages
+                           # that can import it without a cycle
+internal/project/, /remote/
                            # library packages consumed by profile/pullrequest/user;
-                           # no longer exposed as their own cobra command trees
+                           # no cobra command tree of their own (no restore task covers
+                           # them)
 ```
 
 Implementation plans live in `docs/plans/`, but `.gitignore` tracks only
