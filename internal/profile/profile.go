@@ -212,8 +212,14 @@ func GetProfileFromCommand(context context.Context, cmd *cobra.Command) (profile
 // name who a profile authenticates as, not a secret), a profile's access token is one of its
 // three secret fields, and printing it in a plain `bb profile list`/`bb profile get` table -- with
 // no --dry-run, no piping, no obvious reason to expect a secret onscreen -- is exactly the kind of
-// leak forDisplay's masking exists to prevent. It remains available on demand via --columns
-// accesstoken, still masked (see GetRow's "accesstoken" case).
+// leak that would happen if GetRow ever rendered it in cleartext. It remains available on demand
+// via --columns accesstoken, but GetRow renders it through redactWithHash rather than in
+// cleartext (see GetRow's "accesstoken" case), and the same masking applies to csv/tsv output,
+// which shares GetRow. This is a separate mechanism from forDisplay's secretMask, which only
+// covers confirmation output after a mutation (`profile create`/`profile update`); `profile
+// get`/`profile list -o json/yaml` intentionally still show the real secret (see MarshalJSON's
+// doc comment). ClientSecret and Password carry the same table-leak risk in principle but have no
+// column defined at all -- there is no --columns value that reaches either field.
 func (profile Profile) GetHeaders(cmd *cobra.Command) []string {
 	return common.HeadersFromFlag(cmd, "Name", "Description", "Default", "User", "ClientID")
 }
@@ -253,7 +259,7 @@ func (profile Profile) GetRow(headers []string) []string {
 			}
 		case "accesstoken":
 			if profile.AccessToken != "" {
-				row = append(row, profile.AccessToken)
+				row = append(row, redactWithHash(profile.AccessToken))
 			} else {
 				row = append(row, " ")
 			}
@@ -715,7 +721,10 @@ func (profile *Profile) Validate() error {
 // Profile.printJSON): unlike MarshalYAML it has no persistence counterpart to worry about, since
 // nothing in this codebase persists a Profile as JSON -- config files are YAML (Config.Save), and
 // the only other json.Marshal call in this package serializes a Token, not a Profile. It always
-// shows every field, including any secret LoadSecrets populated from the vault for display.
+// shows every field, including any secret LoadSecrets populated from the vault for display. This
+// is a deliberate exception to GetRow's table/csv/tsv masking (see GetHeaders' doc comment):
+// -o json/yaml is the documented scripting path for retrieving a stored secret on request, and
+// masking here would defeat that purpose.
 //
 // implements json.Marshaler
 func (profile Profile) MarshalJSON() ([]byte, error) {
@@ -838,7 +847,9 @@ const secretMask = "********"
 // the mutation happened, not echoing a secret the caller went out of their way to keep out of
 // shell history/scrollback via --password-stdin/--access-token-stdin. `profile get`/`profile list
 // -o json/yaml` intentionally still show the real secret on request (see MarshalJSON's doc
-// comment); forDisplay is deliberately not used there.
+// comment); forDisplay is deliberately not used there. Table/csv/tsv output masks AccessToken
+// through a separate mechanism instead (GetRow's redactWithHash case, see GetHeaders' doc
+// comment), not through forDisplay/secretMask.
 func (profile Profile) forDisplay() Profile {
 	displayed := profile
 	if displayed.Password != "" {

@@ -2,6 +2,7 @@ package profile_test
 
 import (
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
@@ -9,6 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestProfileGetRow proves GetRow renders every plain column verbatim, but masks AccessToken (see
+// GetHeaders' doc comment: it goes through redactWithHash rather than cleartext) -- this is the
+// mechanism table/csv/tsv output (both share GetRow) relies on to never leak a live token.
 func TestProfileGetRow(t *testing.T) {
 	apiRoot, err := url.Parse("https://api.bitbucket.org")
 	require.NoError(t, err)
@@ -28,7 +32,11 @@ func TestProfileGetRow(t *testing.T) {
 	headers := []string{"name", "description", "default", "apiroot", "accesstoken", "defaultpagelength", "defaultrepository", "unknownheader"}
 	row := target.GetRow(headers)
 
-	assert.Equal(t, []string{"myprofile", "my description", "true", "https://api.bitbucket.org", "mytoken", "25", "acme/myrepo", " "}, row)
+	require.Len(t, row, len(headers))
+	assert.Equal(t, []string{"myprofile", "my description", "true", "https://api.bitbucket.org"}, row[:4])
+	assert.True(t, strings.HasPrefix(row[4], "REDACTED-"), "accesstoken column must be masked via redactWithHash, got %q", row[4])
+	assert.NotContains(t, row[4], "mytoken", "accesstoken column must never render the raw token")
+	assert.Equal(t, []string{"25", "acme/myrepo", " "}, row[5:])
 }
 
 func TestProfileGetRowBlanksEmptyAPIRootAndAccessToken(t *testing.T) {
