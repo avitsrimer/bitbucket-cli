@@ -103,9 +103,11 @@ func (workspace Workspace) String() string {
 // calls), so profile.Current is still nil at this point more often than not. cmd lacking a
 // "profile" flag (a bare *cobra.Command built by a test, never the real command tree) skips this
 // resolution rather than panicking, matching the nil-check the first rung already does for
-// "workspace". A profile-loading error here is not surfaced as this function's own error -- it
-// just means the third rung has nothing to offer, and the final "argument workspace is missing"
-// error below still applies.
+// "workspace". A profile-loading error here is logged as a [WARN] rather than surfaced as this
+// function's own error -- it just means the third rung has nothing to offer, and the final
+// "argument workspace is missing" error below still applies -- but the warning line still tells
+// the user the real cause (e.g. an invalid --profile value) instead of leaving them with only the
+// generic missing-argument message.
 //
 // The workspace is determined by the following order:
 //  1. The workspace flag in the command
@@ -124,13 +126,16 @@ func GetWorkspaceName(context context.Context, cmd *cobra.Command) (workspaceNam
 	}
 	currentProfile := profile.Current
 	if currentProfile == nil && cmd.Flag("profile") != nil {
-		currentProfile, _ = profile.GetProfileFromCommand(context, cmd)
+		var profileErr error
+		if currentProfile, profileErr = profile.GetProfileFromCommand(context, cmd); profileErr != nil {
+			lgr.Printf("[WARN] cannot load profile to resolve a default workspace: %s", profileErr.Error())
+		}
 	}
 	if currentProfile != nil && currentProfile.DefaultWorkspace != "" {
 		lgr.Printf("[DEBUG] workspace name found in profile: %s", currentProfile.DefaultWorkspace)
 		return currentProfile.DefaultWorkspace, nil
 	}
-	return "", errors.New("argument workspace is missing")
+	return "", errors.New("argument workspace is missing: pass --workspace, run from a Bitbucket git checkout, or set a default workspace with `bb profile update --default-workspace`")
 }
 
 // GetWorkspace gets the current workspace as a full Workspace object, fetching it via

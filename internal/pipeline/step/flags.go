@@ -2,6 +2,7 @@ package step
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -89,16 +90,27 @@ func getStepNamesAndIDs(ctx context.Context, cmd *cobra.Command, pipelineID stri
 
 // resolveStepID resolves stepArg to a step UUID within the pipeline identified by pipelineID of
 // repo. A value that parses as common.ParseUUID passes through as-is, with NO list request
-// issued. Otherwise the pipeline's steps are listed (getSteps) and matched on NAME,
-// case-insensitively and trimmed: exactly one match resolves to its UUID; zero matches error,
-// naming stepArg and listing the available step names (or saying none of the pipeline's steps
-// have a name at all, when every step.Name is empty); two or more matches (BitBucket allows
-// duplicate step names within one pipeline) error listing the ambiguous candidates with their
-// UUIDs and tell the caller to pass a UUID instead. Shared by get/logs/report/cases via
-// rawStepOutput and getProcess, both of which already hold repo and pass it straight through.
+// issued. An empty or all-whitespace stepArg is rejected up front (before any list request):
+// BitBucket allows steps declared without a name, so matching a blank target against
+// strings.TrimSpace(step.Name) would otherwise silently resolve to one of those unnamed steps
+// instead of erroring on missing input. This guard lives here rather than in
+// common.ValidatePathIdentifier so it does not reintroduce the '/'-in-step-name rejection that
+// guard used to cause upstream of this function. Otherwise the pipeline's steps are listed
+// (getSteps) and matched on NAME, case-insensitively and trimmed, skipping any step with no name
+// at all: exactly one match resolves to its UUID; zero matches error, naming stepArg and listing
+// the available step names (or saying none of the pipeline's steps have a name at all, when every
+// step.Name is empty); two or more matches (BitBucket allows duplicate step names within one
+// pipeline) error listing the ambiguous candidates with their UUIDs and tell the caller to pass a
+// UUID instead. Shared by get/logs/report/cases via rawStepOutput and getProcess, both of which
+// already hold repo and pass it straight through.
 func resolveStepID(ctx context.Context, cmd *cobra.Command, repo *repository.Repository, pipelineID, stepArg string) (string, error) {
 	if parsed, err := common.ParseUUID(stepArg); err == nil {
 		return parsed.String(), nil
+	}
+
+	target := strings.TrimSpace(stepArg)
+	if target == "" {
+		return "", errors.New("argument pipeline-step-uuid-or-name is missing")
 	}
 
 	steps, err := getSteps(ctx, cmd, repo, pipelineID)
@@ -106,10 +118,9 @@ func resolveStepID(ctx context.Context, cmd *cobra.Command, repo *repository.Rep
 		return "", err
 	}
 
-	target := strings.ToLower(strings.TrimSpace(stepArg))
 	var matches []Step
 	for _, step := range steps {
-		if strings.ToLower(strings.TrimSpace(step.Name)) == target {
+		if name := strings.TrimSpace(step.Name); name != "" && strings.EqualFold(name, target) {
 			matches = append(matches, step)
 		}
 	}

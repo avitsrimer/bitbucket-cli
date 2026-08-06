@@ -62,3 +62,68 @@ func TestActivityColumnsSortByUserOrdersMixedVariantsAlphabetically(t *testing.T
 		t.Fatalf("expected Zed (update) third, got %+v", activities)
 	}
 }
+
+// TestActivityColumnsSortByApprovedOrdersMixedVariantsByBoolean is
+// TestActivityColumnsSortByDateOrdersMixedVariantsChronologically for the "approved" comparator:
+// it must resolve each activity's approved boolean (via summarize) regardless of variant, so the
+// sole approved entry orders relative to the unapproved comment/update instead of the sort
+// silently no-opping across variants.
+func TestActivityColumnsSortByApprovedOrdersMixedVariantsByBoolean(t *testing.T) {
+	activities := []Activity{
+		{Approval: &ActivityApproval{User: user.User{Name: "Zed"}}},
+		{Comment: &comment.Comment{User: user.User{Name: "Alice"}}},
+		{Update: &ActivityUpdate{Author: user.User{Name: "Bob"}}},
+	}
+
+	core.Sort(activities, activityColumns.SortBy("approved"))
+
+	if activities[2].Approval == nil {
+		t.Fatalf("expected the approval activity last (approved=true sorts after approved=false), got %+v", activities)
+	}
+	for i, activity := range activities[:2] {
+		if activity.summarize().approved {
+			t.Fatalf("expected activities[%d] to be unapproved, got %+v", i, activity)
+		}
+	}
+}
+
+// TestActivityColumnsSortByApprovedIgnoresUserName proves the "approved" comparator orders solely
+// by the boolean GetRow renders, not by the approver's name: two approvals must compare equal
+// (order-preserving) regardless of their User.Name.
+func TestActivityColumnsSortByApprovedIgnoresUserName(t *testing.T) {
+	compare := activityColumns.SortBy("approved")
+
+	alice := Activity{Approval: &ActivityApproval{User: user.User{Name: "Alice"}}}
+	zed := Activity{Approval: &ActivityApproval{User: user.User{Name: "Zed"}}}
+
+	if compare(alice, zed) {
+		t.Errorf("compare(alice, zed) = true, want false: both approved, ordering must not depend on User.Name")
+	}
+	if compare(zed, alice) {
+		t.Errorf("compare(zed, alice) = true, want false: both approved, ordering must not depend on User.Name")
+	}
+}
+
+// TestActivityColumnsSortByStateOrdersMixedVariantsAlphabetically is
+// TestActivityColumnsSortByDateOrdersMixedVariantsChronologically for the "state" comparator: it
+// must resolve each activity's state (via summarize) regardless of variant, so cross-variant
+// pairs order correctly instead of the sort silently no-opping.
+func TestActivityColumnsSortByStateOrdersMixedVariantsAlphabetically(t *testing.T) {
+	activities := []Activity{
+		{Update: &ActivityUpdate{State: "ZZZ"}},
+		{Approval: &ActivityApproval{}},
+		{ChangesRequested: &ActivityApproval{}},
+	}
+
+	core.Sort(activities, activityColumns.SortBy("state"))
+
+	if activities[0].ChangesRequested == nil {
+		t.Fatalf("expected the changes_requested activity (state CHANGES_REQUESTED) first, got %+v", activities)
+	}
+	if activities[1].Approval == nil {
+		t.Fatalf("expected the approval activity (state N/A) second, got %+v", activities)
+	}
+	if activities[2].Update == nil || activities[2].Update.State != "ZZZ" {
+		t.Fatalf("expected the update activity (state ZZZ) third, got %+v", activities)
+	}
+}

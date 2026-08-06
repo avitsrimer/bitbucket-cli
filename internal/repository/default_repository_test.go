@@ -149,6 +149,40 @@ func TestGetRepositoryNameErrorNamesAllThreeWaysWhenEveryRungFails(t *testing.T)
 	}
 }
 
+// TestGetRepositoryNameLogsWarnOnProfileLoadError proves that when the flag and the git remote
+// both come up empty and resolving the profile itself fails (an invalid --profile value here), the
+// underlying profile error is logged as a [WARN] rather than silently discarded, so the real cause
+// is still visible even though GetRepositoryName still returns its own generic
+// "argument repository is missing" error.
+func TestGetRepositoryNameLogsWarnOnProfileLoadError(t *testing.T) {
+	chdirToFakeGitConfig(t, "[core]\n\tbare = false\n")
+
+	oldCurrent, oldProfiles := profile.Current, profile.Profiles
+	profile.Current = nil
+	profile.Profiles = nil
+	t.Cleanup(func() {
+		profile.Current = oldCurrent
+		profile.Profiles = oldProfiles
+	})
+
+	cmd := &cobra.Command{Use: "test"}
+	cmd.Flags().String("repository", "", "")
+	cmd.Flags().String("profile", "bogus-profile", "")
+
+	logs := captureLog(t)
+
+	_, err := GetRepositoryName(t.Context(), cmd)
+	if err == nil {
+		t.Fatal("GetRepositoryName() expected an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "argument repository is missing") {
+		t.Errorf("GetRepositoryName() error = %q, want the generic missing-argument message", err.Error())
+	}
+	if !strings.Contains(logs.String(), "WARN") || !strings.Contains(logs.String(), "argument profile is invalid") {
+		t.Errorf("logs = %q, want a [WARN] line surfacing the profile load error", logs.String())
+	}
+}
+
 // TestGetRepositoryBothDefaultsSetAndNoFlagsNeverErrorsWithArgumentMissing drives GetRepository
 // end to end (GetRepositoryName -> GetRepositoryBySlugOrID -> workspace.GetWorkspaceName): with
 // both profile.DefaultWorkspace and profile.DefaultRepository set, no --workspace/--repository
