@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
+	"github.com/avitsrimer/bitbucket-cli/internal/pipeline/step"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
 	"github.com/gildas/go-core"
 	"github.com/spf13/cobra"
@@ -50,6 +51,10 @@ var Command = &cobra.Command{
 	Aliases: []string{"pipelines", "pipe", "pp"},
 	Short:   "Manage pipelines",
 	Run:     common.SubcommandRequired("Pipeline"),
+}
+
+func init() {
+	Command.AddCommand(step.Command)
 }
 
 var columns = common.Columns[Pipeline]{
