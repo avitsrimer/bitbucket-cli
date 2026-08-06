@@ -43,6 +43,7 @@ type PullRequest struct {
 	Links             common.Links            `json:"links"`
 	CommentCount      uint64                  `json:"comment_count"`
 	TaskCount         uint64                  `json:"task_count"`
+	Participants      []user.Participant      `json:"participants,omitempty"`
 	CreatedOn         time.Time               `json:"created_on"`
 	UpdatedOn         time.Time               `json:"updated_on"`
 }
@@ -101,6 +102,9 @@ var columns = common.Columns[PullRequest]{
 	{Name: "tasks", DefaultSorter: false, Compare: func(a, b PullRequest) bool {
 		return a.TaskCount < b.TaskCount
 	}},
+	{Name: "participants", DefaultSorter: false, Compare: func(a, b PullRequest) bool {
+		return len(a.Participants) < len(b.Participants)
+	}},
 	{Name: "created_on", DefaultSorter: false, Compare: func(a, b PullRequest) bool {
 		return a.CreatedOn.Before(b.CreatedOn)
 	}},
@@ -137,6 +141,11 @@ func init() {
 // column (see profile.freeTextColumnKeys); -o json/yaml/csv/tsv always show it complete.
 // cmd.Name() distinguishes the two commands: getCmd's Use starts with "get", listCmd's with
 // "list".
+//
+// participants is deliberately out of both defaults, on either command: a multi-reviewer PR's
+// "nickname:state" summary (see formatParticipants) is exactly the kind of unbounded, list-shaped
+// value the default column set otherwise avoids -- it stays reachable via an explicit
+// `--columns participants` on either command, or unconditionally in -o json/yaml.
 func (pullrequest PullRequest) GetHeaders(cmd *cobra.Command) []string {
 	defaults := []string{"ID", "Title", "source", "destination", "state"}
 	if cmd != nil && cmd.Name() == "get" {
@@ -181,6 +190,8 @@ func (pullrequest PullRequest) GetRow(headers []string) []string {
 			row = append(row, strconv.FormatUint(pullrequest.CommentCount, 10))
 		case "tasks":
 			row = append(row, strconv.FormatUint(pullrequest.TaskCount, 10))
+		case "participants":
+			row = append(row, formatParticipants(pullrequest.Participants))
 		case "created_on":
 			row = append(row, common.TimeCell(pullrequest.CreatedOn))
 		case "updated_on":
@@ -190,6 +201,30 @@ func (pullrequest PullRequest) GetRow(headers []string) []string {
 		}
 	}
 	return row
+}
+
+// formatParticipants renders participants as a compact, comma-separated "nickname:state" summary
+// for table/csv/tsv display, one entry per participant so a reviewer's approval state stays
+// individually readable instead of being collapsed into a single count. A participant without a
+// nickname falls back to their display name; a participant who has not yet reviewed reports an
+// empty State from the API, rendered here as "pending" rather than an empty segment.
+func formatParticipants(participants []user.Participant) string {
+	if len(participants) == 0 {
+		return common.EmptyCell
+	}
+	summaries := make([]string, 0, len(participants))
+	for _, participant := range participants {
+		name := participant.User.Nickname
+		if name == "" {
+			name = participant.User.Name
+		}
+		state := participant.State
+		if state == "" {
+			state = "pending"
+		}
+		summaries = append(summaries, name+":"+state)
+	}
+	return strings.Join(summaries, ", ")
 }
 
 // Validate validates a PullRequest

@@ -609,17 +609,20 @@ const maxTableCellWidth = 80
 
 // freeTextColumnKeys is the fixed set of normalized column keys (see common.NormalizeColumnKey)
 // whose values are unbounded free text -- a pull request/commit/comment title, description,
-// message, or content, or a decline/close reason -- as opposed to an identifier a user must copy
-// verbatim (a UUID, an artifact name, a container image reference) or a short, bounded value that
-// already reads fine at any length. Only a cell under one of these keys is truncated for the
-// table renderer; every other column, including every identifier, is left exactly as returned by
-// the API, at any length.
+// message, or content, a decline/close reason, or a pull request's per-participant
+// "nickname:state" summary -- as opposed to an identifier a user must copy verbatim (a UUID, an
+// artifact name, a container image reference) or a short, bounded value that already reads fine
+// at any length. Only a cell under one of these keys is truncated for the table renderer; every
+// other column, including every identifier, is left exactly as returned by the API, at any
+// length. participants is included because its rendered value grows with the reviewer count, the
+// same "one long cell blows out the table" shape the other keys here exist to cap.
 var freeTextColumnKeys = map[string]bool{
-	"title":       true,
-	"description": true,
-	"message":     true,
-	"content":     true,
-	"reason":      true,
+	"title":        true,
+	"description":  true,
+	"message":      true,
+	"content":      true,
+	"reason":       true,
+	"participants": true,
 }
 
 // truncateTableRow returns a copy of row with every cell under a freeTextColumnKeys header (per

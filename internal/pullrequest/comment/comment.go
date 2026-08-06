@@ -82,7 +82,7 @@ func registerCommentEditFlags(cmd *cobra.Command, options *commentEditOptions, c
 	cmd.Flags().Var(options.PullRequestID, "pullrequest", pullrequestHelp)
 	cmd.Flags().StringVar(&options.Comment, "comment", "", commentHelp)
 	cmd.Flags().StringVar(&options.File, "file", "", "File to comment on")
-	cmd.Flags().IntVar(&options.From, "line", 0, "From line to comment on. Cannot be used with --to")
+	cmd.Flags().IntVar(&options.From, "line", 0, "Line to comment on, same as --from. Cannot be used with --to")
 	cmd.Flags().IntVar(&options.From, "from", 0, "From line to comment on. Cannot be used with --line")
 	cmd.Flags().IntVar(&options.To, "to", 0, "To line to comment on. Cannot be used with --line")
 	cmd.Flags().Int64Var(&options.ParentID, "parent", 0, "Parent comment ID to reply to")
