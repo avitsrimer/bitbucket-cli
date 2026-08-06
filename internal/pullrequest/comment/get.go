@@ -30,6 +30,9 @@ func getProcess(cmd *cobra.Command, args []string) (err error) {
 	if validateErr := common.ValidatePathIdentifier("pullrequest-id", pullRequestID); validateErr != nil {
 		return fmt.Errorf("cannot get comment: %w", validateErr)
 	}
+	if validateErr := common.ValidatePathIdentifier("comment-id", commentID); validateErr != nil {
+		return fmt.Errorf("cannot get comment: %w", validateErr)
+	}
 
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {

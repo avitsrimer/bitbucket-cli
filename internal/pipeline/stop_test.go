@@ -179,3 +179,24 @@ func TestStopProcessWriteAPIError(t *testing.T) {
 		t.Errorf("expected exactly 2 requests (preflight GET, stop POST), got %d", len(requests))
 	}
 }
+
+// TestStopProcessRejectsInvalidPipelineID proves the <pipeline-uuid-or-build-number> positional
+// is validated via common.ValidatePathIdentifier before any request is sent -- this is a
+// mutating command, so an unvalidated "../.." could otherwise reach the preflight GET and, worse,
+// the stop POST against a different, unintended resource.
+func TestStopProcessRejectsInvalidPipelineID(t *testing.T) {
+	var requestCount int
+	cmd := setupStopTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, false)
+	_ = cmd.Flags().Set("force", "true")
+
+	err := stopProcess(cmd, []string{"../.."})
+	if err == nil {
+		t.Fatal("stopProcess() expected an error for '../..', got nil")
+	}
+	if !strings.Contains(err.Error(), "pipeline") {
+		t.Errorf("error = %q, want it to name the pipeline argument", err.Error())
+	}
+	if requestCount != 0 {
+		t.Errorf("expected no HTTP request for an invalid pipeline id, got %d", requestCount)
+	}
+}

@@ -560,3 +560,13 @@ func TestUpdateProcessStoresDefaultRepositoryWithoutLiveValidation(t *testing.T)
 		t.Errorf("DefaultRepository = %q, want %q", updated.DefaultRepository, "acme/myrepo")
 	}
 }
+
+// TestUpdateCmdRealRegistrationHasDefaultRepositoryFlag proves the REAL updateCmd singleton (not
+// the isolated throwaway command every other test in this file drives) actually registers
+// --default-repository -- a guard against TestUpdateProcessStoresDefaultRepositoryWithoutLiveValidation
+// passing even if updateCmd's own init() registration were removed.
+func TestUpdateCmdRealRegistrationHasDefaultRepositoryFlag(t *testing.T) {
+	if updateCmd.Flags().Lookup("default-repository") == nil {
+		t.Fatal("updateCmd has no --default-repository flag registered")
+	}
+}

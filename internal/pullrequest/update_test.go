@@ -2,6 +2,7 @@ package pullrequest
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -462,6 +463,52 @@ func TestUpdateProcessSimpleFieldsSuccess(t *testing.T) {
 	}
 }
 
+// TestUpdateProcessStripsParticipantsFromPutBody proves the Participants field the initial GET
+// populated (a server-owned, read-only record of each reviewer's approval state) is never echoed
+// back in the PUT payload, mirroring the existing Summary.Type/Markup/HTML stripping.
+func TestUpdateProcessStripsParticipantsFromPutBody(t *testing.T) {
+	withUpdateOptions(t, func() {
+		updateOptions.Title = "Updated title"
+	})
+
+	var putBodyRaw []byte
+	cmd := setupTestNamed(t, "update-strips-participants", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodGet:
+			_, _ = w.Write([]byte(`{"id":42,"title":"Old title","participants":[{"role":"REVIEWER","approved":true,"state":"approved","user":{"display_name":"Ada Lovelace"}}]}`))
+		case http.MethodPut:
+			var err error
+			putBodyRaw, err = io.ReadAll(r.Body)
+			if err != nil {
+				t.Errorf("cannot read PUT body: %v", err)
+			}
+			_, _ = w.Write([]byte(`{"id":42,"title":"Updated title"}`))
+		}
+	}, false)
+	registerUpdateFlags(cmd)
+	if err := cmd.Flags().Set("title", "Updated title"); err != nil {
+		t.Fatalf("cannot set title flag: %v", err)
+	}
+
+	testutil.CaptureStdout(t, func() {
+		if err := updateProcess(cmd, []string{"42"}); err != nil {
+			t.Fatalf("updateProcess() error = %v", err)
+		}
+	})
+
+	var putBody PullRequest
+	if err := json.Unmarshal(putBodyRaw, &putBody); err != nil {
+		t.Fatalf("cannot unmarshal PUT body: %v", err)
+	}
+	if len(putBody.Participants) != 0 {
+		t.Errorf("PUT body participants = %+v, want none (server-owned, read-only)", putBody.Participants)
+	}
+	if strings.Contains(string(putBodyRaw), "Ada Lovelace") {
+		t.Errorf("PUT body = %s, must not echo back the participants the GET populated", putBodyRaw)
+	}
+}
+
 // TestUpdateProcessDescriptionFileSuccess verifies that --description-file's content lands in
 // the PUT body verbatim, including backticks and $(), and that setting only --description-file
 // (not --description) still marks the update as wanted.
@@ -833,5 +880,25 @@ func TestUpdateProcessDryRun(t *testing.T) {
 	}
 	if len(requests) != 1 || requests[0].Method != http.MethodGet {
 		t.Errorf("requests = %v, want exactly one GET and no PUT in dry-run mode", requests)
+	}
+}
+
+// TestUpdateProcessRejectsInvalidPullRequestID proves the <pullrequest-id> positional is
+// validated via common.ValidatePathIdentifier before any request is sent: `bb pullrequest
+// update ../..` must never reach repository.GetPath("pullrequests", "../..").
+func TestUpdateProcessRejectsInvalidPullRequestID(t *testing.T) {
+	var requestCount int
+	cmd := setupTestNamed(t, "update-invalid-id", func(http.ResponseWriter, *http.Request) { requestCount++ }, false)
+	registerUpdateFlags(cmd)
+
+	err := updateProcess(cmd, []string{"../.."})
+	if err == nil {
+		t.Fatal("updateProcess() expected an error for '../..', got nil")
+	}
+	if !strings.Contains(err.Error(), "pullrequest-id") {
+		t.Errorf("error = %q, want it to name pullrequest-id", err.Error())
+	}
+	if requestCount != 0 {
+		t.Errorf("expected no HTTP request for an invalid pullrequest-id, got %d", requestCount)
 	}
 }

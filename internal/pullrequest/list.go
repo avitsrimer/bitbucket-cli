@@ -103,17 +103,26 @@ func listStates(cmd *cobra.Command) []string {
 	if flag == nil || !flag.Changed {
 		return []string{listDefaultState}
 	}
-	if states, ok := flag.Value.(*common.EnumSliceFlag); ok {
-		return states.GetSlice()
+	states, ok := flag.Value.(*common.EnumSliceFlag)
+	if !ok {
+		// cmd's own "state" flag was registered as something other than *common.EnumSliceFlag --
+		// a programming error, not a user input problem. Falling back to the default state keeps
+		// the command from crashing, but this is loud rather than a silent no-op so the mismatch
+		// is never mistaken for "the user asked for the default state".
+		lgr.Printf("[WARN] state flag is not an EnumSliceFlag (got %T), falling back to %q", flag.Value, listDefaultState)
+		return []string{listDefaultState}
 	}
-	return []string{listDefaultState}
+	return states.GetSlice()
 }
 
 // listQueryFilter builds the "q=" filter from listOptions.Query and cmd's --source/--destination
 // branch flags, ANDing every non-empty piece together so all three compose. Branch names are
 // double-quoted with embedded double quotes/backslashes escaped for Bitbucket's query syntax;
 // listOptions.Query is passed through verbatim since it is already a raw Bitbucket query
-// expression.
+// expression -- when it is combined with a --source/--destination clause, it is parenthesized
+// first so a disjunction inside it (e.g. `state="OPEN" OR state="MERGED"`) cannot have AND bind
+// tighter than the caller intended and silently apply the branch filter to only one disjunct.
+// listOptions.Query alone is returned unparenthesized, matching its pre-existing output exactly.
 func listQueryFilter(cmd *cobra.Command) string {
 	var clauses []string
 	if listOptions.Query != "" {
@@ -124,6 +133,12 @@ func listQueryFilter(cmd *cobra.Command) string {
 	}
 	if destination := common.StringFlagValue(cmd, "destination"); destination != "" {
 		clauses = append(clauses, "destination.branch.name="+quoteBranchFilter(destination))
+	}
+	if len(clauses) < 2 {
+		return strings.Join(clauses, " AND ")
+	}
+	for i, clause := range clauses {
+		clauses[i] = "(" + clause + ")"
 	}
 	return strings.Join(clauses, " AND ")
 }

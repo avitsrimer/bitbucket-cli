@@ -70,6 +70,10 @@ func updateValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]st
 }
 
 func updateProcess(cmd *cobra.Command, args []string) error {
+	if err := common.ValidatePathIdentifier("pullrequest-id", args[0]); err != nil {
+		return fmt.Errorf("failed to update pullrequest: %w", err)
+	}
+
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
 		return fmt.Errorf("cannot get profile: %w", err)
@@ -126,10 +130,14 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Remove fields that should not be sent in update
+	// Remove fields that should not be sent in update: Summary.Type/Markup/HTML are server-rendered
+	// echoes of Summary.Raw, and Participants is a server-owned, read-only record of each
+	// reviewer's approval state -- neither belongs in a write back to the same resource they were
+	// just read from.
 	pullrequest.Summary.Type = ""
 	pullrequest.Summary.Markup = ""
 	pullrequest.Summary.HTML = ""
+	pullrequest.Participants = nil
 
 	uripath := repository.GetPath("pullrequests", args[0])
 

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/pullrequest"
+	"github.com/avitsrimer/bitbucket-cli/internal/pullrequest/comment"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
 	"github.com/stretchr/testify/assert"
 )
@@ -24,12 +25,12 @@ func TestActivityGetRowForApproval(t *testing.T) {
 }
 
 // TestActivityGetRowForChangesRequested proves GetRow renders a "changes_requested" activity
-// (added for FR-5) distinctly from an approval: same date/user shape, but not counted as approved
-// and with its own "state" value rather than approval's "N/A".
+// distinctly from an approval: same date/user shape, but not counted as approved and with its own
+// "state" value rather than approval's "N/A".
 func TestActivityGetRowForChangesRequested(t *testing.T) {
 	when := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
 	target := pullrequest.Activity{
-		ChangesRequested: &pullrequest.ActivityChangesRequested{
+		ChangesRequested: &pullrequest.ActivityApproval{
 			Date: when,
 			User: user.User{Name: "Jane Doe"},
 		},
@@ -54,6 +55,23 @@ func TestActivityGetRowForUpdate(t *testing.T) {
 	row := target.GetRow([]string{"date", "approved", "state", "author", "description", "destination"})
 
 	assert.Equal(t, []string{"2024-01-02 03:04:05", "false", "OPEN", "John Doe", "some description", " "}, row)
+}
+
+// TestActivityGetRowForComment proves GetRow renders a "comment" activity's date/user from
+// Comment.CreatedOn/Comment.User instead of leaving date/state/user blank -- comment activities
+// are usually most of a real pull request activity feed.
+func TestActivityGetRowForComment(t *testing.T) {
+	when := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
+	target := pullrequest.Activity{
+		Comment: &comment.Comment{
+			CreatedOn: when,
+			User:      user.User{Name: "Jane Doe"},
+		},
+	}
+
+	row := target.GetRow([]string{"date", "approved", "state", "user"})
+
+	assert.Equal(t, []string{"2024-01-02 03:04:05", "false", "N/A", "Jane Doe"}, row)
 }
 
 // TestActivityGetRowPullRequestColumn reproduces critical finding #2: GetRow had no case at all

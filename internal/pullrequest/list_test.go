@@ -393,7 +393,7 @@ func TestListProcessSourceDestinationFilters(t *testing.T) {
 	if len(requests) != 1 {
 		t.Fatalf("expected exactly 1 request, got %d", len(requests))
 	}
-	want := `source.branch.name="feature/x" AND destination.branch.name="master"`
+	want := `(source.branch.name="feature/x") AND (destination.branch.name="master")`
 	if got := requests[0].URL.Query().Get("q"); got != want {
 		t.Errorf("q query = %q, want %q", got, want)
 	}
@@ -448,7 +448,7 @@ func TestListProcessComposesStateQueryAndBranchFilters(t *testing.T) {
 	if !slices.Equal(gotStates, wantStates) {
 		t.Errorf("state query values = %v, want %v", gotStates, wantStates)
 	}
-	wantQ := `updated_on > 2025-01-01 AND source.branch.name="feature/x" AND destination.branch.name="master"`
+	wantQ := `(updated_on > 2025-01-01) AND (source.branch.name="feature/x") AND (destination.branch.name="master")`
 	if gotQ := requests[0].URL.Query().Get("q"); gotQ != wantQ {
 		t.Errorf("q query = %q, want %q", gotQ, wantQ)
 	}
@@ -491,5 +491,61 @@ func TestListProcessBranchFilterEscapesQuotes(t *testing.T) {
 	want := `source.branch.name="feature/\"quoted\"\\branch"`
 	if got := requests[0].URL.Query().Get("q"); got != want {
 		t.Errorf("q query = %q, want %q", got, want)
+	}
+}
+
+// setRealListFlag sets name to value on the real listCmd singleton and registers a t.Cleanup that
+// fully restores the flag's prior state -- both its Value (via DefValue) and its Changed bit --
+// so a test driving the singleton directly (rather than a throwaway re-declaration) never leaks
+// state into any test that runs afterward in the same binary.
+func setRealListFlag(t *testing.T, name, value string) {
+	t.Helper()
+	flag := listCmd.Flags().Lookup(name)
+	if flag == nil {
+		t.Fatalf("listCmd has no --%s flag registered", name)
+	}
+	wasChanged := flag.Changed
+	previous := flag.Value.String()
+	if err := listCmd.Flags().Set(name, value); err != nil {
+		t.Fatalf("cannot set --%s flag: %v", name, err)
+	}
+	t.Cleanup(func() {
+		_ = flag.Value.Set(previous)
+		flag.Changed = wasChanged
+	})
+}
+
+// TestListCmdRealRegistration proves the REAL listCmd singleton (not a throwaway command
+// re-declaring the same flags) actually registers --state/--source/--destination/--commit and
+// enforces all four --commit mutual-exclusivity pairs -- a guard against the flag tests above
+// passing even if listCmd's own init() registration were changed or dropped.
+func TestListCmdRealRegistration(t *testing.T) {
+	for _, name := range []string{"state", "source", "destination", "commit", "query"} {
+		if listCmd.Flags().Lookup(name) == nil {
+			t.Errorf("listCmd has no --%s flag registered", name)
+		}
+	}
+
+	for _, other := range []string{"state", "query", "source", "destination"} {
+		t.Run("commit-vs-"+other, func(t *testing.T) {
+			old := listOptions
+			t.Cleanup(func() { listOptions = old })
+
+			setRealListFlag(t, "commit", "abc123")
+			switch other {
+			case "state":
+				setRealListFlag(t, "state", "open")
+			case "query":
+				setRealListFlag(t, "query", "x")
+			case "source":
+				setRealListFlag(t, "source", "x")
+			case "destination":
+				setRealListFlag(t, "destination", "x")
+			}
+
+			if err := listCmd.ValidateFlagGroups(); err == nil {
+				t.Errorf("ValidateFlagGroups() = nil, want an error for --commit with --%s", other)
+			}
+		})
 	}
 }

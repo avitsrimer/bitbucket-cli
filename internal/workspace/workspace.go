@@ -108,7 +108,7 @@ func GetWorkspaceName(context context.Context, cmd *cobra.Command) (workspaceNam
 		}
 	}
 	if remote, err := remote.GetRemote(context, cmd); err == nil {
-		lgr.Printf("[DEBUG] workspace name found in git config: %s, from remote: %s", remote.WorkspaceName(), remote.URL)
+		lgr.Printf("[DEBUG] workspace name found in git config: %s, from remote: %s", remote.WorkspaceName(), remote.RedactedURL())
 		return remote.WorkspaceName(), nil
 	}
 	if profile.Current != nil && profile.Current.DefaultWorkspace != "" {

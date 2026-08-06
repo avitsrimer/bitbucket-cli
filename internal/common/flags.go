@@ -214,8 +214,10 @@ func (flag *EnumSliceFlag) Set(value string) error {
 // GetSlice returns the flag value list as a slice of strings.
 //
 // implements cobra.SliceValue, so shell completion recognizes this flag can be specified
-// multiple times; production code reads the resolved values through cmd.Flags().GetStringSlice,
-// which goes through Type/String instead.
+// multiple times. Production code (e.g. pullrequest list's listStates) reads the resolved values
+// by type-asserting the flag's Value back to *EnumSliceFlag and calling this directly, not through
+// cmd.Flags().GetStringSlice: that helper's CSV-based parsing does not understand String's
+// bracketed representation.
 func (flag EnumSliceFlag) GetSlice() []string {
 	return flag.Values
 }

@@ -5,9 +5,22 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 	"github.com/spf13/cobra"
 )
+
+// mustRepo resolves cmd's repository, for tests that call getSteps/resolveStepID directly (their
+// production callers, get.go/raw.go, already hold this from their own earlier
+// repository.GetRepository call).
+func mustRepo(t *testing.T, cmd *cobra.Command) *repository.Repository {
+	t.Helper()
+	repo, err := repository.GetRepository(cmd.Context(), cmd)
+	if err != nil {
+		t.Fatalf("cannot get repository: %v", err)
+	}
+	return repo
+}
 
 // TestPipelineValidArgsArg0OffersPipelineIDs proves arg 0 completion goes through
 // plcommon.GetPipelineIDs.
@@ -121,7 +134,7 @@ func TestGetStepsIgnoresLimitFlag(t *testing.T) {
 		t.Fatalf("cannot set limit flag: %v", err)
 	}
 
-	steps, err := getSteps(cmd.Context(), cmd, "42")
+	steps, err := getSteps(cmd.Context(), cmd, mustRepo(t, cmd), "42")
 	if err != nil {
 		t.Fatalf("getSteps() error = %v", err)
 	}
@@ -136,7 +149,7 @@ func TestResolveStepIDUUIDPassthrough(t *testing.T) {
 	var requests int
 	cmd := setupTest(t, func(http.ResponseWriter, *http.Request) { requests++ }, false)
 
-	got, err := resolveStepID(cmd.Context(), cmd, "42", "{11111111-1111-1111-1111-111111111111}")
+	got, err := resolveStepID(cmd.Context(), cmd, mustRepo(t, cmd), "42", "{11111111-1111-1111-1111-111111111111}")
 	if err != nil {
 		t.Fatalf("resolveStepID() error = %v", err)
 	}
@@ -156,7 +169,7 @@ func TestResolveStepIDNameMatchCaseInsensitiveTrimmed(t *testing.T) {
 		_, _ = w.Write([]byte(`{"values":[{"type":"pipeline_step","uuid":"{11111111-1111-1111-1111-111111111111}","name":"Build and Test"}]}`))
 	}, false)
 
-	got, err := resolveStepID(cmd.Context(), cmd, "42", "  BUILD AND TEST  ")
+	got, err := resolveStepID(cmd.Context(), cmd, mustRepo(t, cmd), "42", "  BUILD AND TEST  ")
 	if err != nil {
 		t.Fatalf("resolveStepID() error = %v", err)
 	}
@@ -176,7 +189,7 @@ func TestResolveStepIDUnknownNameListsAvailable(t *testing.T) {
 			`]}`))
 	}, false)
 
-	_, err := resolveStepID(cmd.Context(), cmd, "42", "Deploy")
+	_, err := resolveStepID(cmd.Context(), cmd, mustRepo(t, cmd), "42", "Deploy")
 	if err == nil {
 		t.Fatal("resolveStepID() expected an error, got nil")
 	}
@@ -199,7 +212,7 @@ func TestResolveStepIDAmbiguousNameListsCandidates(t *testing.T) {
 			`]}`))
 	}, false)
 
-	_, err := resolveStepID(cmd.Context(), cmd, "42", "build")
+	_, err := resolveStepID(cmd.Context(), cmd, mustRepo(t, cmd), "42", "build")
 	if err == nil {
 		t.Fatal("resolveStepID() expected an error, got nil")
 	}
@@ -221,11 +234,35 @@ func TestResolveStepIDListAPIError(t *testing.T) {
 		_, _ = w.Write([]byte(`{"type":"error","error":{"message":"boom"}}`))
 	}, false)
 
-	_, err := resolveStepID(cmd.Context(), cmd, "42", "Build")
+	_, err := resolveStepID(cmd.Context(), cmd, mustRepo(t, cmd), "42", "Build")
 	if err == nil {
 		t.Fatal("resolveStepID() expected an error, got nil")
 	}
 	if !strings.Contains(err.Error(), "boom") {
 		t.Errorf("error = %q, want it to contain the BitBucket error message", err.Error())
+	}
+}
+
+// TestResolveStepIDUnknownNameNoNamedStepsAtAll proves the zero-match error names the value and
+// says no steps have a name (rather than rendering a blank "available step names: " list) when
+// every step in the pipeline has an empty Name.
+func TestResolveStepIDUnknownNameNoNamedStepsAtAll(t *testing.T) {
+	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[` +
+			`{"type":"pipeline_step","uuid":"{11111111-1111-1111-1111-111111111111}"},` +
+			`{"type":"pipeline_step","uuid":"{22222222-2222-2222-2222-222222222222}"}` +
+			`]}`))
+	}, false)
+
+	_, err := resolveStepID(cmd.Context(), cmd, mustRepo(t, cmd), "42", "Deploy")
+	if err == nil {
+		t.Fatal("resolveStepID() expected an error, got nil")
+	}
+	if strings.Contains(err.Error(), "available step names: ") && !strings.Contains(err.Error(), "none of its steps have a name") {
+		t.Errorf("error = %q, want it to say no steps have a name rather than an empty list", err.Error())
+	}
+	if !strings.Contains(err.Error(), `"Deploy"`) {
+		t.Errorf("error = %q, want it to name the unresolved value", err.Error())
 	}
 }

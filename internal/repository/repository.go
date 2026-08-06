@@ -250,7 +250,7 @@ func GetRepositoryName(context context.Context, cmd *cobra.Command) (repositoryN
 		}
 	}
 	if remote, err := remote.GetRemote(context, cmd); err == nil {
-		lgr.Printf("[DEBUG] repository name found in git config: %s, from remote: %s", remote.RepositoryName(), remote.URL)
+		lgr.Printf("[DEBUG] repository name found in git config: %s, from remote: %s", remote.RepositoryName(), remote.RedactedURL())
 		return remote.RepositoryName(), nil
 	}
 	if profile.Current != nil && profile.Current.DefaultRepository != "" {

@@ -59,7 +59,10 @@ history intent) — do not try to keep it merge-compatible.
 cmd/bb/main.go            # entry point: load .env, set up lgr, cmd.Execute
 internal/cmd/             # cobra RootCmd, global flags, version
 internal/common/          # config load/save, EnumFlag, local TTL cache, error helpers,
-                           # Confirm (y/N prompt), exported flag-hiding helpers
+                           # Confirm (y/N prompt), exported flag-hiding helpers, WhatIf/
+                           # WhatIfPayload (dry-run gate + resolved-request echo),
+                           # ValidatePathIdentifier (GetPath positional guard),
+                           # ReadBodyFromFileOrStdin
 internal/profile/         # profile CRUD, OAuth2 authorize flow, HTTP client (net/http).
                            # download.go is the one request path that deliberately
                            # breaks two invariants the rest of the client relies on: it
@@ -72,7 +75,9 @@ internal/profile/         # profile CRUD, OAuth2 authorize flow, HTTP client (ne
                            # endpoint 302s to a different upload host. Keep both
                            # properties if you ever touch that file.
 internal/pullrequest/     # pullrequest command tree + shared action helper
-  /comment, /task, /common # subcommand packages + shared getters
+  /comment, /task, /common # subcommand packages; /common (prcommon) holds shared getters
+                           # (GetPullRequestIDs, PullRequestIDValidArgs), ExistsPullRequest, and
+                           # the preflight-aware DeleteSubResources
 internal/user/            # bb user get/me
 internal/workspace/       # bb workspace get/list/members
 internal/repository/      # bb repo(sitory) get/list/clone
@@ -229,6 +234,29 @@ their error checked in a CLI). `_test.go` files are exempt from `gosec`, `dupl`,
   `core.Timestamp` JSON-marshaling types are embedded directly in domain struct
   fields across `profile`, `pullrequest/task`, and `common/link.go`, not just called
   as env-var helpers, so it isn't a trivial drop-in replacement candidate.
+- Every user-supplied positional (or flag value) that reaches a `repository.Repository.GetPath`
+  call — a pull request/comment/task id, a pipeline id, a pipeline step UUID-or-name, a commit
+  hash, an artifact name — is validated via `common.ValidatePathIdentifier` before it does:
+  `GetPath` is a bare `path.Join` with no escaping, so an unvalidated value can splice extra path
+  segments into the request. The one sanctioned exception is a value that legitimately spans two
+  segments in the `workspace/repository` form (`repository.GetRepositoryBySlugOrID`, reached via
+  `--repository`/`--default-repository`), which validates that shape on its own terms instead.
+- Every mutating `RunE` gates its write on `common.WhatIfPayload` (or, for `pipeline
+  trigger`/`stop`, `common.Confirm`), called only AFTER every resolution GET a real invocation
+  would make (looking up the target resource, validating a `--file` diff anchor, resolving
+  reviewers, ...) — a `--dry-run` must fail identically to a real invocation for a nonexistent
+  target or an invalid input, never report a fabricated success for something that would actually
+  fail. `WhatIfPayload` echoes the resolved target path and payload to stderr; a payload carrying
+  a secret (e.g. a pipeline trigger's `--variable` values) must be redacted by the caller before
+  it ever reaches that call. Read-only commands (`get`/`list`/`diff`/...) keep the plain
+  `common.WhatIf` short-circuit, checked before any resolution, since there is no write to gate.
+- Read paths tolerate an unrecognized variant/type VALUE (a new activity kind, comment shape,
+  ...) rather than failing the whole decode: the offending entries are skipped with one `[WARN]`
+  per distinct unrecognized kind (deduped locally to the call, never via package-level state) and
+  every entry of a known kind still renders. Malformed JSON, wrong shapes, or a missing required
+  identity field are still hard errors — permissiveness applies only to unrecognized ENUM-shaped
+  values, never to structural or identity validation. See `internal/pullrequest/activity.go`'s
+  `Activity.UnmarshalJSON` for the reference implementation.
 
 ## Plans convention
 

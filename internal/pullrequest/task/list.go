@@ -17,7 +17,7 @@ var listCmd = &cobra.Command{
 	Use:               "list [flags] <pullrequest-id>",
 	Short:             "list all pullrequest tasks of the pullrequest identified by <pullrequest-id>.",
 	Args:              cobra.ExactArgs(1),
-	ValidArgsFunction: listValidArgs,
+	ValidArgsFunction: prcommon.PullRequestIDValidArgs,
 	RunE:              listProcess,
 }
 
@@ -30,18 +30,6 @@ func init() {
 
 	listCmd.Flags().StringVar(&listOptions.Query, "query", "", "Query string to filter tasks")
 	common.RegisterListFlags(listCmd, columns, "tasks")
-}
-
-func listValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) != 0 {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-
-	ids, err := prcommon.GetPullRequestIDs(cmd.Context(), cmd, args, toComplete)
-	if err != nil {
-		return []string{}, cobra.ShellCompDirectiveNoFileComp
-	}
-	return common.FilterValidArgs(ids, args, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
 func listProcess(cmd *cobra.Command, args []string) (err error) {

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/gildas/go-core"
@@ -66,10 +67,26 @@ func GetPullRequestIDs(context context.Context, cmd *cobra.Command, args []strin
 	return GetPullRequestIDsWithState(context, cmd, "ALL")
 }
 
+// PullRequestIDValidArgs is the ValidArgsFunction shared by every comment/task subcommand whose
+// only positional is <pullrequest-id> (create, list, and the len(args)==0 case of delete):
+// completes open pullrequest ids via GetPullRequestIDs, offering nothing once the positional is
+// already filled.
+func PullRequestIDValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) != 0 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	ids, err := GetPullRequestIDs(cmd.Context(), cmd, args, toComplete)
+	if err != nil {
+		return []string{}, cobra.ShellCompDirectiveNoFileComp
+	}
+	return common.FilterValidArgs(ids, args, toComplete), cobra.ShellCompDirectiveNoFileComp
+}
+
 // ExistsPullRequest validates via a GET that pullRequestID names an existing pull request in repo,
 // returning the same error a write against that id would produce. Every mutating command whose
 // target sub-resource does not exist yet (pullrequest merge/approve/decline/..., a new comment or
-// task) calls this as part of its full preflight (see FR-6) so a nonexistent pull request id fails
+// task) calls this as part of its full preflight, so a nonexistent pull request id fails
 // identically whether or not --dry-run is set, instead of dry-run's skipped write silently hiding
 // the failure. A command whose target IS an existing sub-resource (updating/reopening/resolving/
 // deleting a comment or task) instead GETs that sub-resource directly, which validates the parent

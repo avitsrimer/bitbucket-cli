@@ -48,7 +48,8 @@ func TestRunActionSimpleActions(t *testing.T) {
 
 	for _, spec := range specs {
 		t.Run(spec.name+"/success", func(t *testing.T) { testRunActionSuccess(t, spec) })
-		t.Run(spec.name+"/api_error", func(t *testing.T) { testRunActionAPIError(t, spec) })
+		t.Run(spec.name+"/preflight_error", func(t *testing.T) { testRunActionPreflightError(t, spec) })
+		t.Run(spec.name+"/write_error", func(t *testing.T) { testRunActionWriteError(t, spec) })
 		t.Run(spec.name+"/dry_run", func(t *testing.T) { testRunActionDryRun(t, spec) })
 		t.Run(spec.name+"/invalid_id", func(t *testing.T) { testRunActionInvalidID(t, spec) })
 	}
@@ -118,13 +119,18 @@ func testRunActionSuccess(t *testing.T, spec actionSpec) {
 	}
 }
 
-func testRunActionAPIError(t *testing.T, spec actionSpec) {
+// testRunActionPreflightError proves a failure of the preflight existence GET (the pull request
+// does not exist) surfaces as the "cannot <verb> pull request" wrap, without ever reaching the
+// write.
+func testRunActionPreflightError(t *testing.T, spec actionSpec) {
 	t.Helper()
 
+	var requests []*http.Request
 	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(`{"type":"error","error":{"message":"pull request state is not open"}}`))
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"message":"pull request not found"}}`))
 	}, false)
 
 	err := runAction(cmd, []string{"42"}, spec)
@@ -135,8 +141,49 @@ func testRunActionAPIError(t *testing.T, spec actionSpec) {
 	if !strings.Contains(err.Error(), wantSubstring) {
 		t.Errorf("error = %q, want it to contain %q", err.Error(), wantSubstring)
 	}
+	if !strings.Contains(err.Error(), "pull request not found") {
+		t.Errorf("error = %q, want it to contain the BitBucket error message", err.Error())
+	}
+	if len(requests) != 1 {
+		t.Errorf("expected exactly 1 request (the failed preflight GET, no write attempted), got %d", len(requests))
+	}
+}
+
+// testRunActionWriteError proves a failure of the write itself (POST/DELETE), as opposed to the
+// preflight existence GET, surfaces as the "failed to <verb> pull request 42" wrap -- the
+// preflight GET must succeed first, or this assertion would be exercising the preflight error
+// path instead.
+func testRunActionWriteError(t *testing.T, spec actionSpec) {
+	t.Helper()
+
+	var requests []*http.Request
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"id":42}`))
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"message":"pull request state is not open"}}`))
+	}, false)
+
+	err := runAction(cmd, []string{"42"}, spec)
+	if err == nil {
+		t.Fatal("runAction() expected an error, got nil")
+	}
+	wantSubstring := fmt.Sprintf("failed to %s pull request 42", spec.errVerb)
+	if !strings.Contains(err.Error(), wantSubstring) {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), wantSubstring)
+	}
 	if !strings.Contains(err.Error(), "pull request state is not open") {
 		t.Errorf("error = %q, want it to contain the BitBucket error message", err.Error())
+	}
+	if len(requests) != 2 {
+		t.Fatalf("expected exactly 2 requests (preflight GET, write), got %d", len(requests))
+	}
+	if requests[0].Method != http.MethodGet {
+		t.Errorf("first request method = %s, want GET (preflight)", requests[0].Method)
 	}
 }
 

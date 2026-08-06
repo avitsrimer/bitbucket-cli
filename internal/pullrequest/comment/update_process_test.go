@@ -193,8 +193,9 @@ func TestUpdateProcessCommentFromFileVerbatim(t *testing.T) {
 		updateOptions.CommentFile = path
 	})
 
+	var requests []*http.Request
 	var gotBody CommentPayload
-	cmd := setupTest(t, createProcessHandler(t, &[]*http.Request{}, &gotBody, okGetHandler, func(w http.ResponseWriter, _ *http.Request) {
+	cmd := setupTest(t, createProcessHandler(t, &requests, &gotBody, okGetHandler, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"id":7}`))
 	}), false)
@@ -205,6 +206,19 @@ func TestUpdateProcessCommentFromFileVerbatim(t *testing.T) {
 		}
 	})
 
+	if len(requests) != 2 {
+		t.Fatalf("expected exactly 2 requests (existsComment preflight GET, PUT), got %d", len(requests))
+	}
+	if requests[0].Method != http.MethodGet {
+		t.Errorf("first request method = %s, want GET (preflight)", requests[0].Method)
+	}
+	if requests[1].Method != http.MethodPut {
+		t.Errorf("second request method = %s, want PUT", requests[1].Method)
+	}
+	wantPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/pullrequests/42/comments/7"
+	if requests[1].URL.Path != wantPath {
+		t.Errorf("PUT path = %s, want %s", requests[1].URL.Path, wantPath)
+	}
 	if gotBody.Content.Raw != body {
 		t.Errorf("posted content.raw = %q, want %q (verbatim)", gotBody.Content.Raw, body)
 	}

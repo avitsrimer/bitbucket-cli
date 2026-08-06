@@ -63,7 +63,7 @@ func TestSubcommandsRejectInvalidPullRequestID(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		for _, invalid := range []string{"", ".", ".."} {
+		for _, invalid := range []string{"", ".", "..", "../..", "../../..", "1/../../.."} {
 			t.Run(tc.name+"/"+describeID(invalid), func(t *testing.T) {
 				err := tc.run(t, invalid)
 				if err == nil {
@@ -74,6 +74,82 @@ func TestSubcommandsRejectInvalidPullRequestID(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestSubcommandsRejectInvalidCommentID proves every comment subcommand that takes a
+// <comment-id> second positional (get, update, reopen, resolve) validates it via
+// common.ValidatePathIdentifier before it ever reaches a GetPath call, exactly like the
+// pullrequest-id positional -- guarding against `bb pullrequest comment get 1 '../..'`
+// collapsing repo.GetPath("pullrequests", "1", "comments", "../..") into a different resource.
+func TestSubcommandsRejectInvalidCommentID(t *testing.T) {
+	cases := []struct {
+		name string
+		run  func(t *testing.T, commentID string) error
+	}{
+		{"get", func(t *testing.T, id string) error {
+			cmd := setupTest(t, failIfCalled(t), false)
+			return getProcess(cmd, []string{"1", id})
+		}},
+		{"update", func(t *testing.T, id string) error {
+			withCommentEditOptions(t, &updateOptions, func() { updateOptions.Comment = "hi" })
+			cmd := setupTest(t, failIfCalled(t), false)
+			return updateProcess(cmd, []string{"1", id})
+		}},
+		{"reopen", func(t *testing.T, id string) error {
+			cmd := setupTest(t, failIfCalled(t), false)
+			return reopenProcess(cmd, []string{"1", id})
+		}},
+		{"resolve", func(t *testing.T, id string) error {
+			cmd := setupTest(t, failIfCalled(t), false)
+			return resolveProcess(cmd, []string{"1", id})
+		}},
+	}
+
+	for _, tc := range cases {
+		for _, invalid := range []string{"", ".", "..", "../..", "../../.."} {
+			t.Run(tc.name+"/"+describeID(invalid), func(t *testing.T) {
+				err := tc.run(t, invalid)
+				if err == nil {
+					t.Fatalf("%s(%q) expected an error, got nil", tc.name, invalid)
+				}
+				if !strings.Contains(err.Error(), "comment-id") {
+					t.Errorf("%s(%q) error = %q, want it to name comment-id", tc.name, invalid, err.Error())
+				}
+			})
+		}
+	}
+}
+
+// TestCommentDeleteRejectsInvalidCommentIDs proves "comment delete" validates every variadic
+// comment-id positional (not just the pullrequest-id) via common.ValidatePathIdentifier before
+// any request is sent -- the DeleteSubResources path FR-14's field report flagged as a path
+// traversal: `bb pullrequest comment delete 1 ../../..` must never reach
+// repo.GetPath("pullrequests", "1", "comments", "../../..").
+func TestCommentDeleteRejectsInvalidCommentIDs(t *testing.T) {
+	cmd := setupTest(t, failIfCalled(t), false)
+
+	err := deleteProcess(cmd, []string{"1", "../../.."})
+	if err == nil {
+		t.Fatal("deleteProcess() expected an error for an invalid comment id, got nil")
+	}
+	if !strings.Contains(err.Error(), "comment-id") {
+		t.Errorf("deleteProcess() error = %q, want it to name comment-id", err.Error())
+	}
+}
+
+// TestCommentListRejectsDotDotSlashPullRequestID proves "comment list '../..'" -- a value the
+// pre-fix ValidatePathIdentifier (which rejected only "", ".", "..") let through -- is rejected
+// before any request is sent.
+func TestCommentListRejectsDotDotSlashPullRequestID(t *testing.T) {
+	cmd := setupTest(t, failIfCalled(t), false)
+
+	err := listProcess(cmd, []string{"../.."})
+	if err == nil {
+		t.Fatal("listProcess() expected an error for '../..', got nil")
+	}
+	if !strings.Contains(err.Error(), "pullrequest-id") {
+		t.Errorf("listProcess() error = %q, want it to name pullrequest-id", err.Error())
 	}
 }
 

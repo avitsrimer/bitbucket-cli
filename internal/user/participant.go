@@ -1,6 +1,8 @@
 package user
 
 import (
+	"encoding/json"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -15,6 +17,29 @@ type Participant struct {
 	Approved       bool      `json:"approved"`
 	State          string    `json:"state"`
 	ParticipatedOn time.Time `json:"participated_on"`
+}
+
+// MarshalJSON implements the json.Marshaler interface.
+//
+// ParticipatedOn is only formatted (and only included at all, via omitempty) when non-zero:
+// BitBucket returns no participated_on at all for a reviewer who has not yet acted, which decodes
+// here as the zero time.Time, and a year-1 "0001-01-01T00:00:00Z" in machine-readable output has
+// no meaning to a caller scripting against it. Matches the same pattern already used by
+// Comment/Resolution/ActivityUpdate for their own optional timestamps.
+func (participant Participant) MarshalJSON() (data []byte, err error) {
+	type surrogate Participant
+
+	data, err = json.Marshal(struct {
+		surrogate
+		ParticipatedOn *string `json:"participated_on,omitempty"`
+	}{
+		surrogate:      surrogate(participant),
+		ParticipatedOn: common.FormatOptionalTime(participant.ParticipatedOn),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("cannot marshal participant to json: %w", err)
+	}
+	return data, nil
 }
 
 // GetHeaders gets the header for a table

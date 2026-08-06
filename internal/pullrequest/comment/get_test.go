@@ -1,4 +1,4 @@
-package pullrequest
+package comment
 
 import (
 	"encoding/json"
@@ -9,10 +9,12 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 )
 
+// TestGetProcess covers getProcess's success, API-error, and dry-run paths -- previously
+// exercised only indirectly (getProcess was at 15.8% coverage despite FR-10 changing its
+// contract to read both positionals directly instead of a --pullrequest flag).
 func TestGetProcess(t *testing.T) {
 	tests := []struct {
 		name          string
-		args          []string
 		handler       http.HandlerFunc
 		dryRun        bool
 		wantErrSubstr []string
@@ -22,26 +24,23 @@ func TestGetProcess(t *testing.T) {
 			name: "success",
 			handler: func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"id":42,"title":"Add feature","state":"OPEN"}`))
+				_, _ = w.Write([]byte(`{"id":452466,"content":{"raw":"looks good to me"}}`))
 			},
 			validate: func(t *testing.T, requests []*http.Request, stdout string) {
 				t.Helper()
 				if len(requests) != 1 {
 					t.Fatalf("expected exactly 1 request, got %d", len(requests))
 				}
-				wantPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/pullrequests/42"
+				wantPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/pullrequests/42/comments/452466"
 				if requests[0].URL.Path != wantPath {
 					t.Errorf("path = %s, want %s", requests[0].URL.Path, wantPath)
 				}
-				if requests[0].Method != http.MethodGet {
-					t.Errorf("method = %s, want GET", requests[0].Method)
-				}
-				var pr PullRequest
-				if err := json.Unmarshal([]byte(stdout), &pr); err != nil {
+				var got Comment
+				if err := json.Unmarshal([]byte(stdout), &got); err != nil {
 					t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
 				}
-				if pr.Title != "Add feature" {
-					t.Errorf("printed pullrequest title = %q, want %q", pr.Title, "Add feature")
+				if got.Content.Raw != "looks good to me" {
+					t.Errorf("printed comment content = %q, want %q", got.Content.Raw, "looks good to me")
 				}
 			},
 		},
@@ -50,9 +49,9 @@ func TestGetProcess(t *testing.T) {
 			handler: func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusNotFound)
-				_, _ = w.Write([]byte(`{"type":"error","error":{"message":"pull request not found"}}`))
+				_, _ = w.Write([]byte(`{"type":"error","error":{"message":"comment not found"}}`))
 			},
-			wantErrSubstr: []string{"failed to get pullrequest 42", "pull request not found"},
+			wantErrSubstr: []string{"failed to get pullrequest comment 452466", "comment not found"},
 		},
 		{
 			name:    "dry run",
@@ -65,21 +64,10 @@ func TestGetProcess(t *testing.T) {
 				}
 			},
 		},
-		{
-			name:          "invalid pullrequest id",
-			args:          []string{"../.."},
-			handler:       func(http.ResponseWriter, *http.Request) {},
-			wantErrSubstr: []string{"pullrequest-id"},
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			args := tt.args
-			if args == nil {
-				args = []string{"42"}
-			}
-
 			var requests []*http.Request
 			cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
 				requests = append(requests, r)
@@ -88,7 +76,7 @@ func TestGetProcess(t *testing.T) {
 
 			var err error
 			stdout := testutil.CaptureStdout(t, func() {
-				err = getProcess(cmd, args)
+				err = getProcess(cmd, []string{"42", "452466"})
 			})
 
 			if len(tt.wantErrSubstr) > 0 {
@@ -100,9 +88,6 @@ func TestGetProcess(t *testing.T) {
 						t.Errorf("error = %q, want it to contain %q", err.Error(), substr)
 					}
 				}
-				if tt.validate != nil {
-					tt.validate(t, requests, stdout)
-				}
 				return
 			}
 			if err != nil {
@@ -112,25 +97,5 @@ func TestGetProcess(t *testing.T) {
 				tt.validate(t, requests, stdout)
 			}
 		})
-	}
-}
-
-// TestGetProcessRejectsInvalidPullRequestIDNoRequest proves the "invalid pullrequest id" case
-// above fails before any HTTP request is issued -- a plain assertion, kept separate from the
-// table (rather than as that case's validate) because getProcess() returns before dry-run's own
-// early exit would matter here.
-func TestGetProcessRejectsInvalidPullRequestIDNoRequest(t *testing.T) {
-	var requestCount int
-	cmd := setupTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, false)
-
-	err := getProcess(cmd, []string{"../.."})
-	if err == nil {
-		t.Fatal("getProcess() expected an error for '../..', got nil")
-	}
-	if !strings.Contains(err.Error(), "pullrequest-id") {
-		t.Errorf("error = %q, want it to name pullrequest-id", err.Error())
-	}
-	if requestCount != 0 {
-		t.Errorf("expected no HTTP request for an invalid pullrequest-id, got %d", requestCount)
 	}
 }

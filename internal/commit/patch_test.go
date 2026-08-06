@@ -62,3 +62,34 @@ func TestPatchProcessDryRun(t *testing.T) {
 		t.Errorf("expected no HTTP request in dry-run mode, got %d", requestCount)
 	}
 }
+
+// TestPatchProcessRejectsInvalidHash proves each <commit-hash> is validated via
+// common.ValidatePathIdentifier before any request is sent -- guarding against `bb commit patch
+// ../../.. aaaaaaa` splicing an extra path segment into repo.GetPath("patch", spec).
+func TestPatchProcessRejectsInvalidHash(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{"first hash invalid", []string{"../../..", "aaaaaaa"}},
+		{"second hash invalid", []string{"aaaaaaa", "../../.."}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var requestCount int
+			cmd := setupTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, false)
+
+			err := patchProcess(cmd, tt.args)
+			if err == nil {
+				t.Fatal("patchProcess() expected an error, got nil")
+			}
+			if !strings.Contains(err.Error(), "commit-hash") {
+				t.Errorf("error = %q, want it to name commit-hash", err.Error())
+			}
+			if requestCount != 0 {
+				t.Errorf("expected no HTTP request for an invalid hash, got %d", requestCount)
+			}
+		})
+	}
+}
