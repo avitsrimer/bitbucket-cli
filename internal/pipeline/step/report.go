@@ -5,19 +5,17 @@ import (
 )
 
 var reportCmd = &cobra.Command{
-	Use:               "report [flags] <pipeline-step-uuid-or-name>",
+	Use:               "report [flags] <pipeline> <pipeline-step-uuid-or-name>",
 	Short:             "display the test report of a pipeline step",
-	Args:              cobra.ExactArgs(1),
-	ValidArgsFunction: stepValidArgs,
+	Args:              cobra.ExactArgs(2),
+	ValidArgsFunction: pipelineAndStepValidArgs,
 	RunE:              reportProcess,
 }
 
 func init() {
 	Command.AddCommand(reportCmd)
-
-	registerPipelineFlag(reportCmd, "Pipeline the step belongs to")
 }
 
 func reportProcess(cmd *cobra.Command, args []string) error {
-	return rawStepOutput(cmd, args[0], "test report", "test_reports")
+	return rawStepOutput(cmd, args[0], args[1], "test report", "test_reports")
 }

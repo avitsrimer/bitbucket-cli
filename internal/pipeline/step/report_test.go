@@ -8,7 +8,7 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 )
 
-func TestReportProcessSuccess(t *testing.T) {
+func TestReportProcessSuccessUUID(t *testing.T) {
 	const reportBody = `{"passed":10,"failed":0}`
 
 	var requests []*http.Request
@@ -17,12 +17,9 @@ func TestReportProcessSuccess(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(reportBody))
 	}, false)
-	if err := cmd.Flags().Set("pipeline", "42"); err != nil {
-		t.Fatalf("cannot set pipeline flag: %v", err)
-	}
 
 	stdout := testutil.CaptureStdout(t, func() {
-		if err := reportProcess(cmd, []string{"{cec5beef-dead-deed-bead-5ae1bedd9ada}"}); err != nil {
+		if err := reportProcess(cmd, []string{"42", "{cec5beef-dead-deed-bead-5ae1bedd9ada}"}); err != nil {
 			t.Fatalf("reportProcess() error = %v", err)
 		}
 	})
@@ -39,20 +36,48 @@ func TestReportProcessSuccess(t *testing.T) {
 	}
 }
 
+// TestReportProcessSuccessName proves a step name resolves to its UUID before the report request
+// is issued.
+func TestReportProcessSuccessName(t *testing.T) {
+	const reportBody = `{"passed":10,"failed":0}`
+
+	var requests []*http.Request
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		if strings.HasSuffix(r.URL.Path, "/steps") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"values":[{"type":"pipeline_step","uuid":"{cec5beef-dead-deed-bead-5ae1bedd9ada}","name":"Test"}]}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(reportBody))
+	}, false)
+
+	stdout := testutil.CaptureStdout(t, func() {
+		if err := reportProcess(cmd, []string{"42", "Test"}); err != nil {
+			t.Fatalf("reportProcess() error = %v", err)
+		}
+	})
+
+	if len(requests) != 2 {
+		t.Fatalf("expected exactly 2 requests (list then report), got %d", len(requests))
+	}
+	if stdout != reportBody {
+		t.Errorf("stdout = %q, want the raw report body %q copied unchanged", stdout, reportBody)
+	}
+}
+
 func TestReportProcessAPIError(t *testing.T) {
 	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte("not found"))
 	}, false)
-	if err := cmd.Flags().Set("pipeline", "42"); err != nil {
-		t.Fatalf("cannot set pipeline flag: %v", err)
-	}
 
-	err := reportProcess(cmd, []string{"missing"})
+	err := reportProcess(cmd, []string{"42", "{cec5beef-dead-deed-bead-5ae1bedd9ada}"})
 	if err == nil {
 		t.Fatal("reportProcess() expected an error, got nil")
 	}
-	if !strings.Contains(err.Error(), "cannot get test report for step missing") {
+	if !strings.Contains(err.Error(), "cannot get test report for step {cec5beef-dead-deed-bead-5ae1bedd9ada}") {
 		t.Errorf("error = %q, want it to mention the report failure", err.Error())
 	}
 }
@@ -60,11 +85,8 @@ func TestReportProcessAPIError(t *testing.T) {
 func TestReportProcessDryRun(t *testing.T) {
 	var requestCount int
 	cmd := setupTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, true)
-	if err := cmd.Flags().Set("pipeline", "42"); err != nil {
-		t.Fatalf("cannot set pipeline flag: %v", err)
-	}
 
-	if err := reportProcess(cmd, []string{"{cec5beef-dead-deed-bead-5ae1bedd9ada}"}); err != nil {
+	if err := reportProcess(cmd, []string{"42", "{cec5beef-dead-deed-bead-5ae1bedd9ada}"}); err != nil {
 		t.Fatalf("reportProcess() error = %v", err)
 	}
 	if requestCount != 0 {

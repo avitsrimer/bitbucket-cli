@@ -28,12 +28,9 @@ func TestListProcessDefaultPreservesExecutionOrder(t *testing.T) {
 			`{"type":"pipeline_step","uuid":"{11111111-1111-1111-1111-111111111111}","name":"a-step","run_number":1,"state":{"type":"pipeline_step_state_completed","name":"COMPLETED"},"image":{"name":"golang:1.25"},"started_on":"2026-01-01T00:00:00Z","duration_in_seconds":0}` +
 			`]}`))
 	}, false)
-	if err := cmd.Flags().Set("pipeline", "42"); err != nil {
-		t.Fatalf("cannot set pipeline flag: %v", err)
-	}
 
 	stdout := testutil.CaptureStdout(t, func() {
-		if err := listProcess(cmd, nil); err != nil {
+		if err := listProcess(cmd, []string{"42"}); err != nil {
 			t.Fatalf("listProcess() error = %v", err)
 		}
 	})
@@ -68,15 +65,12 @@ func TestListProcessSortFlagChangedSorts(t *testing.T) {
 			`{"type":"pipeline_step","uuid":"{bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb}","name":"alpha-step","started_on":"2026-01-01T00:00:00Z"}` +
 			`]}`))
 	}, false)
-	if err := cmd.Flags().Set("pipeline", "42"); err != nil {
-		t.Fatalf("cannot set pipeline flag: %v", err)
-	}
 	if err := cmd.Flags().Set("sort", "name"); err != nil {
 		t.Fatalf("cannot set sort flag: %v", err)
 	}
 
 	stdout := testutil.CaptureStdout(t, func() {
-		if err := listProcess(cmd, nil); err != nil {
+		if err := listProcess(cmd, []string{"42"}); err != nil {
 			t.Fatalf("listProcess() error = %v", err)
 		}
 	})
@@ -98,12 +92,9 @@ func TestListProcessNoResults(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"values":[]}`))
 	}, false)
-	if err := cmd.Flags().Set("pipeline", "42"); err != nil {
-		t.Fatalf("cannot set pipeline flag: %v", err)
-	}
 
 	stdout := testutil.CaptureStdout(t, func() {
-		if err := listProcess(cmd, nil); err != nil {
+		if err := listProcess(cmd, []string{"42"}); err != nil {
 			t.Fatalf("listProcess() error = %v", err)
 		}
 	})
@@ -122,11 +113,8 @@ func TestListProcessAPIError(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(`{"type":"error","error":{"message":"server exploded"}}`))
 	}, false)
-	if err := cmd.Flags().Set("pipeline", "42"); err != nil {
-		t.Fatalf("cannot set pipeline flag: %v", err)
-	}
 
-	err := listProcess(cmd, nil)
+	err := listProcess(cmd, []string{"42"})
 	if err == nil {
 		t.Fatal("listProcess() expected an error, got nil")
 	}
@@ -138,11 +126,8 @@ func TestListProcessAPIError(t *testing.T) {
 func TestListProcessDryRun(t *testing.T) {
 	var requestCount int
 	cmd := setupTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, true)
-	if err := cmd.Flags().Set("pipeline", "42"); err != nil {
-		t.Fatalf("cannot set pipeline flag: %v", err)
-	}
 
-	if err := listProcess(cmd, nil); err != nil {
+	if err := listProcess(cmd, []string{"42"}); err != nil {
 		t.Fatalf("listProcess() error = %v", err)
 	}
 	if requestCount != 0 {
@@ -158,15 +143,12 @@ func TestListProcessRendersTableOutput(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"values":[{"type":"pipeline_step","uuid":"{11111111-1111-1111-1111-111111111111}","name":"build-step","run_number":1,"state":{"type":"pipeline_step_state_completed","name":"COMPLETED"},"image":{"name":"golang:1.25"},"started_on":"2026-01-01T00:00:00Z","duration_in_seconds":0}]}`))
 	}, false)
-	if err := cmd.Flags().Set("pipeline", "42"); err != nil {
-		t.Fatalf("cannot set pipeline flag: %v", err)
-	}
 	if err := cmd.Flags().Set("output", "table"); err != nil {
 		t.Fatalf("cannot set output flag: %v", err)
 	}
 
 	stdout := testutil.CaptureStdout(t, func() {
-		if err := listProcess(cmd, nil); err != nil {
+		if err := listProcess(cmd, []string{"42"}); err != nil {
 			t.Fatalf("listProcess() error = %v", err)
 		}
 	})

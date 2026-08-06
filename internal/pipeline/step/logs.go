@@ -5,20 +5,18 @@ import (
 )
 
 var logsCmd = &cobra.Command{
-	Use:               "logs [flags] <pipeline-step-uuid-or-name>",
+	Use:               "logs [flags] <pipeline> <pipeline-step-uuid-or-name>",
 	Aliases:           []string{"log"},
 	Short:             "display the logs of a pipeline step",
-	Args:              cobra.ExactArgs(1),
-	ValidArgsFunction: stepValidArgs,
+	Args:              cobra.ExactArgs(2),
+	ValidArgsFunction: pipelineAndStepValidArgs,
 	RunE:              logsProcess,
 }
 
 func init() {
 	Command.AddCommand(logsCmd)
-
-	registerPipelineFlag(logsCmd, "Pipeline the step belongs to")
 }
 
 func logsProcess(cmd *cobra.Command, args []string) error {
-	return rawStepOutput(cmd, args[0], "logs", "log")
+	return rawStepOutput(cmd, args[0], args[1], "logs", "log")
 }
