@@ -11,6 +11,7 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/avitsrimer/bitbucket-cli/internal/pullrequest/comment"
+	prcommon "github.com/avitsrimer/bitbucket-cli/internal/pullrequest/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
 	"github.com/gildas/go-core"
@@ -168,4 +169,27 @@ func GetPullRequestTaskIDs(ctx context.Context, cmd *cobra.Command, pullRequestI
 	return core.Map(tasks, func(task Task) string {
 		return strconv.Itoa(task.ID)
 	}), nil
+}
+
+// pullRequestAndTaskIDValidArgs is the ValidArgsFunction shared by every task subcommand that
+// takes exactly <pullrequest-id> <task-id> as its two positionals (get, update): arg 0
+// completes open pullrequest ids, arg 1 completes the task ids of the pullrequest named in
+// arg 0.
+func pullRequestAndTaskIDValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	switch len(args) {
+	case 0:
+		ids, err := prcommon.GetPullRequestIDs(cmd.Context(), cmd, args, toComplete)
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveNoFileComp
+		}
+		return common.FilterValidArgs(ids, args, toComplete), cobra.ShellCompDirectiveNoFileComp
+	case 1:
+		taskIDs, err := GetPullRequestTaskIDs(cmd.Context(), cmd, args[0])
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveNoFileComp
+		}
+		return common.FilterValidArgs(taskIDs, args, toComplete), cobra.ShellCompDirectiveNoFileComp
+	default:
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
 }

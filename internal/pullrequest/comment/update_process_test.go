@@ -73,7 +73,6 @@ func TestUpdateProcess(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			withCommentEditOptions(t, &updateOptions, func() {
-				updateOptions.PullRequestID.Value = "42"
 				updateOptions.Comment = "updated comment"
 			})
 
@@ -87,7 +86,7 @@ func TestUpdateProcess(t *testing.T) {
 
 			var err error
 			stdout := testutil.CaptureStdout(t, func() {
-				err = updateProcess(cmd, []string{"7"})
+				err = updateProcess(cmd, []string{"42", "7"})
 			})
 
 			if len(tt.wantErrSubstr) > 0 {
@@ -115,7 +114,6 @@ func TestUpdateProcess(t *testing.T) {
 // produces the real, readable error message, not a blank one, and sends no request.
 func TestUpdateProcessToWithoutFileReturnsError(t *testing.T) {
 	withCommentEditOptions(t, &updateOptions, func() {
-		updateOptions.PullRequestID.Value = "42"
 		updateOptions.Comment = "updated comment"
 		updateOptions.To = 5
 	})
@@ -123,7 +121,7 @@ func TestUpdateProcessToWithoutFileReturnsError(t *testing.T) {
 	var requestCount int
 	cmd := setupTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, false)
 
-	err := updateProcess(cmd, []string{"7"})
+	err := updateProcess(cmd, []string{"42", "7"})
 	if err == nil {
 		t.Fatal("updateProcess() expected an error, got nil")
 	}

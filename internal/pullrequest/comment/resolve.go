@@ -5,46 +5,29 @@ import (
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
-	prcommon "github.com/avitsrimer/bitbucket-cli/internal/pullrequest/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
 var resolveCmd = &cobra.Command{
-	Use:               "resolve [flags] <comment-id>",
-	Short:             "resolve a pullrequest comment by its <comment-id>.",
-	Args:              cobra.ExactArgs(1),
-	ValidArgsFunction: resolveValidArgs,
+	Use:               "resolve [flags] <pullrequest-id> <comment-id>",
+	Short:             "resolve a pullrequest comment by its <comment-id> on the pullrequest identified by <pullrequest-id>.",
+	Args:              cobra.ExactArgs(2),
+	ValidArgsFunction: pullRequestAndCommentIDValidArgs,
 	RunE:              resolveProcess,
-}
-
-var resolveOptions struct {
-	PullRequestID *common.EnumFlag
 }
 
 func init() {
 	Command.AddCommand(resolveCmd)
-
-	resolveOptions.PullRequestID = common.NewEnumFlagWithFunc("", prcommon.GetPullRequestIDs)
-	resolveCmd.Flags().Var(resolveOptions.PullRequestID, "pullrequest", "Pullrequest to resolve comments from")
-	_ = resolveCmd.MarkFlagRequired("pullrequest")
-	_ = resolveCmd.RegisterFlagCompletionFunc(resolveOptions.PullRequestID.CompletionFunc("pullrequest"))
-}
-
-func resolveValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) != 0 {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-
-	commentIDs, err := GetPullRequestCommentIDs(cmd.Context(), cmd, args, toComplete)
-	if err != nil {
-		return []string{}, cobra.ShellCompDirectiveNoFileComp
-	}
-	return commentIDs, cobra.ShellCompDirectiveNoFileComp
 }
 
 func resolveProcess(cmd *cobra.Command, args []string) (err error) {
+	pullRequestID, commentID := args[0], args[1]
+	if validateErr := common.ValidatePathIdentifier("pullrequest-id", pullRequestID); validateErr != nil {
+		return fmt.Errorf("cannot resolve comment: %w", validateErr)
+	}
+
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
 		return fmt.Errorf("cannot get profile: %w", err)
@@ -55,19 +38,19 @@ func resolveProcess(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("cannot get repository: %w", err)
 	}
 
-	if !common.WhatIf(cmd, "Resolving comment %s from pullrequest %s", args[0], resolveOptions.PullRequestID.Value) {
+	if !common.WhatIf(cmd, "Resolving comment %s from pullrequest %s", commentID, pullRequestID) {
 		return nil
 	}
 
 	err = profile.Post(
 		cmd.Context(),
-		repository.GetPath("pullrequests", resolveOptions.PullRequestID.Value, "comments", args[0], "resolve"),
+		repository.GetPath("pullrequests", pullRequestID, "comments", commentID, "resolve"),
 		nil,
 		nil,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to resolve pullrequest comment %s: %w", args[0], err)
+		return fmt.Errorf("failed to resolve pullrequest comment %s: %w", commentID, err)
 	}
-	lgr.Printf("[DEBUG] pullrequest comment %s resolved", args[0])
+	lgr.Printf("[DEBUG] pullrequest comment %s resolved", commentID)
 	return nil
 }

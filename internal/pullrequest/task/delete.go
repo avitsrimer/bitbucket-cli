@@ -10,44 +10,44 @@ import (
 )
 
 var deleteCmd = &cobra.Command{
-	Use:               "delete [flags] <task-id...>",
+	Use:               "delete [flags] <pullrequest-id> <task-id...>",
 	Aliases:           []string{"remove", "rm"},
-	Short:             "delete pullrequest tasks by their <task-id>.",
-	Args:              cobra.MinimumNArgs(1),
+	Short:             "delete pullrequest tasks by their <task-id> on the pullrequest identified by <pullrequest-id>.",
+	Args:              cobra.MinimumNArgs(2),
 	ValidArgsFunction: deleteValidArgs,
 	RunE:              deleteProcess,
 }
 
-var deleteOptions struct {
-	PullRequestID *common.EnumFlag
-}
-
 func init() {
 	Command.AddCommand(deleteCmd)
-
-	deleteOptions.PullRequestID = common.NewEnumFlagWithFunc("", prcommon.GetPullRequestIDs)
-	deleteCmd.Flags().Var(deleteOptions.PullRequestID, "pullrequest", "Pullrequest to delete comments from")
-	_ = deleteCmd.MarkFlagRequired("pullrequest")
-	_ = deleteCmd.RegisterFlagCompletionFunc(deleteOptions.PullRequestID.CompletionFunc("pullrequest"))
 }
 
 func deleteValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) != 0 {
-		return nil, cobra.ShellCompDirectiveNoFileComp
+	if len(args) == 0 {
+		ids, err := prcommon.GetPullRequestIDs(cmd.Context(), cmd, args, toComplete)
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveNoFileComp
+		}
+		return common.FilterValidArgs(ids, args, toComplete), cobra.ShellCompDirectiveNoFileComp
 	}
 
-	taskIDs, err := GetPullRequestTaskIDs(cmd.Context(), cmd, deleteOptions.PullRequestID.Value)
+	taskIDs, err := GetPullRequestTaskIDs(cmd.Context(), cmd, args[0])
 	if err != nil {
 		return []string{}, cobra.ShellCompDirectiveNoFileComp
 	}
-	return taskIDs, cobra.ShellCompDirectiveNoFileComp
+	return common.FilterValidArgs(taskIDs, args[1:], toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
 func deleteProcess(cmd *cobra.Command, args []string) error {
+	pullRequestID, taskIDs := args[0], args[1:]
+	if err := common.ValidatePathIdentifier("pullrequest-id", pullRequestID); err != nil {
+		return fmt.Errorf("cannot delete tasks: %w", err)
+	}
+
 	repo, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
 		return fmt.Errorf("cannot get repository: %w", err)
 	}
 
-	return prcommon.DeleteSubResources(cmd, repo, deleteOptions.PullRequestID.Value, "tasks", args, "task", "tasks") //nolint:wrapcheck // DeleteSubResources returns the same joined error TolerateErrors produces (or nil); wrapping would prefix it with redundant noise
+	return prcommon.DeleteSubResources(cmd, repo, pullRequestID, "tasks", taskIDs, "task", "tasks") //nolint:wrapcheck // DeleteSubResources returns the same joined error TolerateErrors produces (or nil); wrapping would prefix it with redundant noise
 }

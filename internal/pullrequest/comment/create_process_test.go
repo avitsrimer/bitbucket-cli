@@ -76,7 +76,6 @@ func TestCreateProcess(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			withCommentEditOptions(t, &createOptions, func() {
-				createOptions.PullRequestID.Value = "42"
 				createOptions.Comment = "looks good"
 			})
 
@@ -90,7 +89,7 @@ func TestCreateProcess(t *testing.T) {
 
 			var err error
 			stdout := testutil.CaptureStdout(t, func() {
-				err = createProcess(cmd, nil)
+				err = createProcess(cmd, []string{"42"})
 			})
 
 			if len(tt.wantErrSubstr) > 0 {
@@ -116,7 +115,6 @@ func TestCreateProcess(t *testing.T) {
 
 func TestCreateProcessWithFileAnchor(t *testing.T) {
 	withCommentEditOptions(t, &createOptions, func() {
-		createOptions.PullRequestID.Value = "42"
 		createOptions.Comment = "fix this"
 		createOptions.File = "main.go"
 		createOptions.From = 10
@@ -133,7 +131,7 @@ func TestCreateProcessWithFileAnchor(t *testing.T) {
 	}, false)
 
 	testutil.CaptureStdout(t, func() {
-		if err := createProcess(cmd, nil); err != nil {
+		if err := createProcess(cmd, []string{"42"}); err != nil {
 			t.Fatalf("createProcess() error = %v", err)
 		}
 	})
@@ -150,7 +148,6 @@ func TestCreateProcessWithFileAnchor(t *testing.T) {
 // the real, readable "cannot specify from/to without a file" error message, and sends no request.
 func TestCreateProcessFromWithoutFileReturnsError(t *testing.T) {
 	withCommentEditOptions(t, &createOptions, func() {
-		createOptions.PullRequestID.Value = "42"
 		createOptions.Comment = "fix this"
 		createOptions.From = 10
 	})
@@ -158,7 +155,7 @@ func TestCreateProcessFromWithoutFileReturnsError(t *testing.T) {
 	var requestCount int
 	cmd := setupTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, false)
 
-	err := createProcess(cmd, nil)
+	err := createProcess(cmd, []string{"42"})
 	if err == nil {
 		t.Fatal("createProcess() expected an error, got nil")
 	}

@@ -9,13 +9,6 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 )
 
-func withGetOptions(t *testing.T, mutate func()) {
-	t.Helper()
-	old := getOptions.PullRequestID.Value
-	t.Cleanup(func() { getOptions.PullRequestID.Value = old })
-	mutate()
-}
-
 func TestGetProcess(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -75,8 +68,6 @@ func TestGetProcess(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			withGetOptions(t, func() { getOptions.PullRequestID.Value = "42" })
-
 			var requests []*http.Request
 			cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
 				requests = append(requests, r)
@@ -85,7 +76,7 @@ func TestGetProcess(t *testing.T) {
 
 			var err error
 			stdout := testutil.CaptureStdout(t, func() {
-				err = getProcess(cmd, []string{"7"})
+				err = getProcess(cmd, []string{"42", "7"})
 			})
 
 			if len(tt.wantErrSubstr) > 0 {

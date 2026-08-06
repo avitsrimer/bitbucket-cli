@@ -33,10 +33,8 @@ func setupTest(t *testing.T, handler http.HandlerFunc, dryRun bool) *cobra.Comma
 func withCommentEditOptions(t *testing.T, options *commentEditOptions, mutate func()) {
 	t.Helper()
 	old := *options
-	oldPullRequestIDValue := options.PullRequestID.Value
 	t.Cleanup(func() {
 		*options = old
-		options.PullRequestID.Value = oldPullRequestIDValue
 	})
 	mutate()
 }

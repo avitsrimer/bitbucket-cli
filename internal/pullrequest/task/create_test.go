@@ -11,12 +11,10 @@ import (
 
 func withCreateOptions(t *testing.T, mutate func()) {
 	t.Helper()
-	oldPullRequestIDValue := createOptions.PullRequestID.Value
 	oldContent := createOptions.Content
 	oldCommentIDValue := createOptions.CommentID.Value
 	oldPending := createOptions.Pending
 	t.Cleanup(func() {
-		createOptions.PullRequestID.Value = oldPullRequestIDValue
 		createOptions.Content = oldContent
 		createOptions.CommentID.Value = oldCommentIDValue
 		createOptions.Pending = oldPending
@@ -91,7 +89,6 @@ func TestCreateProcess(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			withCreateOptions(t, func() {
-				createOptions.PullRequestID.Value = "42"
 				createOptions.Content = "please fix"
 				createOptions.CommentID.Value = ""
 				createOptions.Pending = false
@@ -107,7 +104,7 @@ func TestCreateProcess(t *testing.T) {
 
 			var err error
 			stdout := testutil.CaptureStdout(t, func() {
-				err = createProcess(cmd, nil)
+				err = createProcess(cmd, []string{"42"})
 			})
 
 			if len(tt.wantErrSubstr) > 0 {
@@ -133,7 +130,6 @@ func TestCreateProcess(t *testing.T) {
 
 func TestCreateProcessWithComment(t *testing.T) {
 	withCreateOptions(t, func() {
-		createOptions.PullRequestID.Value = "42"
 		createOptions.Content = "please fix"
 		createOptions.CommentID.Value = "123"
 		createOptions.Pending = true
@@ -147,7 +143,7 @@ func TestCreateProcessWithComment(t *testing.T) {
 	}, false)
 
 	testutil.CaptureStdout(t, func() {
-		if err := createProcess(cmd, nil); err != nil {
+		if err := createProcess(cmd, []string{"42"}); err != nil {
 			t.Fatalf("createProcess() error = %v", err)
 		}
 	})
@@ -161,7 +157,6 @@ func TestCreateProcessWithComment(t *testing.T) {
 
 func TestCreateProcessInvalidCommentID(t *testing.T) {
 	withCreateOptions(t, func() {
-		createOptions.PullRequestID.Value = "42"
 		createOptions.Content = "please fix"
 		createOptions.CommentID.Value = "not-a-number"
 	})
@@ -169,7 +164,7 @@ func TestCreateProcessInvalidCommentID(t *testing.T) {
 	var requestCount int
 	cmd := setupTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, false)
 
-	err := createProcess(cmd, nil)
+	err := createProcess(cmd, []string{"42"})
 	if err == nil {
 		t.Fatal("createProcess() expected an error, got nil")
 	}

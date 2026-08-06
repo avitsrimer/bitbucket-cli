@@ -11,10 +11,8 @@ import (
 
 func withListOptions(t *testing.T, mutate func()) {
 	t.Helper()
-	oldPullRequestIDValue := listOptions.PullRequestID.Value
 	oldQuery := listOptions.Query
 	t.Cleanup(func() {
-		listOptions.PullRequestID.Value = oldPullRequestIDValue
 		listOptions.Query = oldQuery
 	})
 	mutate()
@@ -94,7 +92,6 @@ func TestListProcess(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			withListOptions(t, func() {
-				listOptions.PullRequestID.Value = "42"
 				listOptions.Query = ""
 			})
 
@@ -106,7 +103,7 @@ func TestListProcess(t *testing.T) {
 
 			var err error
 			stdout := testutil.CaptureStdout(t, func() {
-				err = listProcess(cmd, nil)
+				err = listProcess(cmd, []string{"42"})
 			})
 
 			if tt.wantErrSubstr != "" {
@@ -130,7 +127,6 @@ func TestListProcess(t *testing.T) {
 
 func TestListProcessWithQuery(t *testing.T) {
 	withListOptions(t, func() {
-		listOptions.PullRequestID.Value = "42"
 		listOptions.Query = `content.raw~"fix"`
 	})
 
@@ -141,7 +137,7 @@ func TestListProcessWithQuery(t *testing.T) {
 		_, _ = w.Write([]byte(`{"values":[]}`))
 	}, false)
 
-	if err := listProcess(cmd, nil); err != nil {
+	if err := listProcess(cmd, []string{"42"}); err != nil {
 		t.Fatalf("listProcess() error = %v", err)
 	}
 	if len(requests) != 1 {
@@ -165,7 +161,6 @@ func TestListCmdRegistersLimitFlag(t *testing.T) {
 // reaches GetAll and truncates the result instead of being permanently unreachable dead plumbing.
 func TestListProcessRespectsLimitFlag(t *testing.T) {
 	withListOptions(t, func() {
-		listOptions.PullRequestID.Value = "42"
 		listOptions.Query = ""
 	})
 
@@ -178,7 +173,7 @@ func TestListProcessRespectsLimitFlag(t *testing.T) {
 	}
 
 	stdout := testutil.CaptureStdout(t, func() {
-		if err := listProcess(cmd, nil); err != nil {
+		if err := listProcess(cmd, []string{"42"}); err != nil {
 			t.Fatalf("listProcess() error = %v", err)
 		}
 	})

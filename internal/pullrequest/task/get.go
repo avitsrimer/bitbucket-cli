@@ -5,48 +5,32 @@ import (
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
-	prcommon "github.com/avitsrimer/bitbucket-cli/internal/pullrequest/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
 var getCmd = &cobra.Command{
-	Use:               "get [flags] <task-id>",
+	Use:               "get [flags] <pullrequest-id> <task-id>",
 	Aliases:           []string{"show", "info", "display"},
-	Short:             "get a pullrequest task by its <task-id>.",
-	Args:              cobra.ExactArgs(1),
-	ValidArgsFunction: getValidArgs,
+	Short:             "get a pullrequest task by its <task-id> on the pullrequest identified by <pullrequest-id>.",
+	Args:              cobra.ExactArgs(2),
+	ValidArgsFunction: pullRequestAndTaskIDValidArgs,
 	RunE:              getProcess,
-}
-
-var getOptions struct {
-	PullRequestID *common.EnumFlag
 }
 
 func init() {
 	Command.AddCommand(getCmd)
 
-	getOptions.PullRequestID = common.NewEnumFlagWithFunc("", prcommon.GetPullRequestIDs)
-	getCmd.Flags().Var(getOptions.PullRequestID, "pullrequest", "Pullrequest to get tasks from")
 	common.RegisterColumnsFlag(getCmd, columns)
-	_ = getCmd.MarkFlagRequired("pullrequest")
-	_ = getCmd.RegisterFlagCompletionFunc(getOptions.PullRequestID.CompletionFunc("pullrequest"))
-}
-
-func getValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) != 0 {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-
-	taskIDs, err := GetPullRequestTaskIDs(cmd.Context(), cmd, getOptions.PullRequestID.Value)
-	if err != nil {
-		return []string{}, cobra.ShellCompDirectiveNoFileComp
-	}
-	return taskIDs, cobra.ShellCompDirectiveNoFileComp
 }
 
 func getProcess(cmd *cobra.Command, args []string) (err error) {
+	pullRequestID, taskID := args[0], args[1]
+	if validateErr := common.ValidatePathIdentifier("pullrequest-id", pullRequestID); validateErr != nil {
+		return fmt.Errorf("cannot get task: %w", validateErr)
+	}
+
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
 		return fmt.Errorf("cannot get profile: %w", err)
@@ -57,8 +41,8 @@ func getProcess(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("cannot get repository: %w", err)
 	}
 
-	lgr.Printf("[DEBUG] displaying pullrequest task %s", args[0])
-	if !common.WhatIf(cmd, "Showing pullrequest task "+args[0]) {
+	lgr.Printf("[DEBUG] displaying pullrequest task %s", taskID)
+	if !common.WhatIf(cmd, "Showing pullrequest task "+taskID) {
 		return nil
 	}
 
@@ -66,11 +50,11 @@ func getProcess(cmd *cobra.Command, args []string) (err error) {
 
 	err = profile.Get(
 		cmd.Context(),
-		repository.GetPath("pullrequests", getOptions.PullRequestID.Value, "tasks", args[0]),
+		repository.GetPath("pullrequests", pullRequestID, "tasks", taskID),
 		&task,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to get pullrequest task %s: %w", args[0], err)
+		return fmt.Errorf("failed to get pullrequest task %s: %w", taskID, err)
 	}
 	if err := profile.Print(cmd.Context(), cmd, task); err != nil {
 		return fmt.Errorf("cannot print result: %w", err)

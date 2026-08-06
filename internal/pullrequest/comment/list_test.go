@@ -21,13 +21,10 @@ func TestListCmdRegistersLimitFlag(t *testing.T) {
 // command: it drives listProcess with a "limit" flag on its cmd, proving the value actually
 // reaches GetAll and truncates the result instead of being permanently unreachable dead plumbing.
 func TestListProcessRespectsLimitFlag(t *testing.T) {
-	oldPullRequestIDValue := listOptions.PullRequestID.Value
 	oldQuery := listOptions.Query
 	t.Cleanup(func() {
-		listOptions.PullRequestID.Value = oldPullRequestIDValue
 		listOptions.Query = oldQuery
 	})
-	listOptions.PullRequestID.Value = "42"
 	listOptions.Query = ""
 
 	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
@@ -39,7 +36,7 @@ func TestListProcessRespectsLimitFlag(t *testing.T) {
 	}
 
 	stdout := testutil.CaptureStdout(t, func() {
-		if err := listProcess(cmd, nil); err != nil {
+		if err := listProcess(cmd, []string{"42"}); err != nil {
 			t.Fatalf("listProcess() error = %v", err)
 		}
 	})

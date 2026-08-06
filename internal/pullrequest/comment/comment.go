@@ -34,13 +34,12 @@ type CommentContent struct {
 
 // commentEditOptions holds the flags shared by the create and update commands
 type commentEditOptions struct {
-	PullRequestID *common.EnumFlag
-	Comment       string
-	File          string
-	From          int
-	To            int
-	ParentID      int64
-	Pending       bool
+	Comment  string
+	File     string
+	From     int
+	To       int
+	ParentID int64
+	Pending  bool
 }
 
 // payload builds the request body for a create/update comment request from o, resolving the
@@ -77,9 +76,7 @@ func (o commentEditOptions) payload(cmd *cobra.Command) (CommentPayload, error) 
 }
 
 // registerCommentEditFlags registers the flags shared by the create and update commands
-func registerCommentEditFlags(cmd *cobra.Command, options *commentEditOptions, commentHelp, pullrequestHelp string) {
-	options.PullRequestID = common.NewEnumFlagWithFunc("", prcommon.GetPullRequestIDs)
-	cmd.Flags().Var(options.PullRequestID, "pullrequest", pullrequestHelp)
+func registerCommentEditFlags(cmd *cobra.Command, options *commentEditOptions, commentHelp string) {
 	cmd.Flags().StringVar(&options.Comment, "comment", "", commentHelp)
 	cmd.Flags().StringVar(&options.File, "file", "", "File to comment on")
 	cmd.Flags().IntVar(&options.From, "line", 0, "Line to comment on, same as --from. Cannot be used with --to")
@@ -89,9 +86,7 @@ func registerCommentEditFlags(cmd *cobra.Command, options *commentEditOptions, c
 	cmd.Flags().BoolVar(&options.Pending, "pending", false, "Mark the comment as pending")
 	cmd.MarkFlagsMutuallyExclusive("line", "from")
 	cmd.MarkFlagsMutuallyExclusive("line", "to")
-	_ = cmd.MarkFlagRequired("pullrequest")
 	_ = cmd.MarkFlagRequired("comment")
-	_ = cmd.RegisterFlagCompletionFunc(options.PullRequestID.CompletionFunc("pullrequest"))
 }
 
 type Comment struct {
@@ -282,23 +277,42 @@ func (comment Comment) MarshalJSON() (data []byte, err error) {
 	return data, nil
 }
 
-// GetPullRequestCommentIDs gets the IDs of the comments for a pullrequest
-func GetPullRequestCommentIDs(context context.Context, cmd *cobra.Command, args []string, toComplete string) (ids []string, err error) {
+// GetPullRequestCommentIDs gets the IDs of the comments for the pullrequest identified by
+// pullRequestID
+func GetPullRequestCommentIDs(ctx context.Context, cmd *cobra.Command, pullRequestID string) (ids []string, err error) {
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
 		return nil, fmt.Errorf("cannot get repository: %w", err)
 	}
 
-	if cmd.Flag("pullrequest") == nil {
-		return nil, errors.New("flag --pullrequest is required")
-	}
-	pullRequestID := cmd.Flag("pullrequest").Value.String()
-
-	comments, err := profile.GetAll[Comment](context, cmd, repository.GetPath(fmt.Sprintf("pullrequests/%s/comments", pullRequestID)))
+	comments, err := profile.GetAll[Comment](ctx, cmd, repository.GetPath(fmt.Sprintf("pullrequests/%s/comments", pullRequestID)))
 	if err != nil {
 		lgr.Printf("[ERROR] failed to get pullrequests: %v", err)
 		return nil, err
 	}
 	ids = core.Map(comments, func(comment Comment) string { return strconv.Itoa(comment.ID) })
-	return common.FilterValidArgs(ids, args, toComplete), nil
+	return ids, nil
+}
+
+// pullRequestAndCommentIDValidArgs is the ValidArgsFunction shared by every comment subcommand
+// that takes exactly <pullrequest-id> <comment-id> as its two positionals (get, update, reopen,
+// resolve): arg 0 completes open pullrequest ids, arg 1 completes the comment ids of the
+// pullrequest named in arg 0.
+func pullRequestAndCommentIDValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	switch len(args) {
+	case 0:
+		ids, err := prcommon.GetPullRequestIDs(cmd.Context(), cmd, args, toComplete)
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveNoFileComp
+		}
+		return common.FilterValidArgs(ids, args, toComplete), cobra.ShellCompDirectiveNoFileComp
+	case 1:
+		commentIDs, err := GetPullRequestCommentIDs(cmd.Context(), cmd, args[0])
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveNoFileComp
+		}
+		return common.FilterValidArgs(commentIDs, args, toComplete), cobra.ShellCompDirectiveNoFileComp
+	default:
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
 }
