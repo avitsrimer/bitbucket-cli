@@ -167,3 +167,13 @@ func TestCreateProcessStoresDefaultRepository(t *testing.T) {
 		t.Errorf("created profile's DefaultRepository = %q, want %q", created.DefaultRepository, "acme/myrepo")
 	}
 }
+
+// TestCreateCmdRealRegistrationHasDefaultRepositoryFlag proves the REAL createCmd singleton (not
+// the isolated throwaway command every other test in this file drives) actually registers
+// --default-repository -- a guard against TestCreateProcessStoresDefaultRepository passing even
+// if createCmd's own init() registration were removed.
+func TestCreateCmdRealRegistrationHasDefaultRepositoryFlag(t *testing.T) {
+	if createCmd.Flags().Lookup("default-repository") == nil {
+		t.Fatal("createCmd has no --default-repository flag registered")
+	}
+}

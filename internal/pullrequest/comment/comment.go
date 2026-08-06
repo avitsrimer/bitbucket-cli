@@ -45,9 +45,8 @@ type commentEditOptions struct {
 
 // payload builds the request body for a create/update comment request from o, resolving the
 // comment body from --comment or --comment-file/stdin, the --file/--line/--from/--to file anchor,
-// and the --parent/--pending flags. Returns an error when the resolved comment body is empty
-// (FR-6's full preflight rejects an empty body explicitly) or when --line/--from/--to was given
-// without --file.
+// and the --parent/--pending flags. Returns an error when the resolved comment body is empty or
+// when --line/--from/--to was given without --file.
 func (o commentEditOptions) payload(cmd *cobra.Command) (CommentPayload, error) {
 	commentBody, err := o.resolveComment(cmd)
 	if err != nil {
@@ -132,11 +131,11 @@ type diffstatFile struct {
 }
 
 // validateFileAnchor confirms anchor.Path names a file actually changed by the pull request
-// identified by pullRequestID, via a GET of its diffstat. This is the full-preflight validation
-// FR-6 requires for --file, deliberately stricter than what the write endpoint itself enforces
-// (see the FR-6 section of docs/plans/field-report-findings.md): --file is a diff anchor path
-// inside the pull request, not a local file, so this checks the pull request's actual diffstat
-// rather than os.Stat-ing anything on disk.
+// identified by pullRequestID, via a GET of its diffstat, run on every --file invocation
+// (--dry-run or not) as part of comment create/update's preflight -- deliberately stricter than
+// what the write endpoint itself enforces: --file is a diff anchor path inside the pull request,
+// not a local file, so this checks the pull request's actual diffstat rather than os.Stat-ing
+// anything on disk.
 func validateFileAnchor(ctx context.Context, cmd *cobra.Command, repo *repository.Repository, pullRequestID string, anchor *common.FileAnchor) error {
 	if anchor == nil {
 		return nil
@@ -393,7 +392,7 @@ func pullRequestAndCommentIDValidArgs(cmd *cobra.Command, args []string, toCompl
 		if err != nil {
 			return []string{}, cobra.ShellCompDirectiveNoFileComp
 		}
-		return common.FilterValidArgs(commentIDs, args, toComplete), cobra.ShellCompDirectiveNoFileComp
+		return common.FilterValidArgs(commentIDs, args[1:], toComplete), cobra.ShellCompDirectiveNoFileComp
 	default:
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}

@@ -135,37 +135,36 @@ func TestDownloadProcessDefaultDestinationIsCurrentDirectory(t *testing.T) {
 	}
 }
 
-// TestDownloadProcessPathTraversalNameSanitized proves the destination path is always
-// filepath.Base(name) joined under --destination: a "../"-laden artifact name can never write
-// outside the destination directory.
-func TestDownloadProcessPathTraversalNameSanitized(t *testing.T) {
+// TestDownloadProcessPathTraversalNameRejected proves a "../"-laden artifact name is rejected by
+// common.ValidatePathIdentifier before any request is sent or any local file written: it contains
+// a path separator, which the destination path's own filepath.Base(name) sanitization would
+// otherwise silently collapse to a different, unexpected local filename.
+func TestDownloadProcessPathTraversalNameRejected(t *testing.T) {
 	destDir := t.TempDir()
 
+	var requestCount int
 	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		requestCount++
 		_, _ = w.Write([]byte("payload"))
 	}, false)
 	if err := cmd.Flags().Set("destination", destDir); err != nil {
 		t.Fatalf("cannot set destination flag: %v", err)
 	}
 
-	if err := downloadProcess(cmd, []string{"../../../etc/passwd"}); err != nil {
-		t.Fatalf("downloadProcess() error = %v", err)
+	err := downloadProcess(cmd, []string{"../../../etc/passwd"})
+	if err == nil {
+		t.Fatal("downloadProcess() expected an error for a name containing a path separator, got nil")
 	}
-
-	data, err := os.ReadFile(filepath.Join(destDir, "passwd"))
-	if err != nil {
-		t.Fatalf("expected the file at destDir/passwd (base name only), got: %v", err)
-	}
-	if string(data) != "payload" {
-		t.Errorf("downloaded content = %q, want %q", string(data), "payload")
+	if requestCount != 0 {
+		t.Errorf("expected no HTTP request for an invalid name, got %d", requestCount)
 	}
 
 	entries, err := os.ReadDir(destDir)
 	if err != nil {
 		t.Fatalf("cannot read destination directory: %v", err)
 	}
-	if len(entries) != 1 || entries[0].Name() != "passwd" {
-		t.Errorf("destination directory entries = %v, want exactly [passwd]", entries)
+	if len(entries) != 0 {
+		t.Errorf("destination directory entries = %v, want none", entries)
 	}
 }
 

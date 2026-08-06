@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -16,6 +17,20 @@ import (
 type Remote struct {
 	URL   string
 	Fetch string
+}
+
+// RedactedURL returns URL with any embedded userinfo password masked, safe to write to a log
+// line. A git remote occasionally embeds a credential directly (e.g. an https remote of the form
+// "https://user:app-password@bitbucket.org/workspace/repo.git"); url.Parse recognizes that form
+// and url.URL.Redacted replaces the password with "xxxxx". A remote URL url.Parse cannot make
+// sense of (e.g. the SSH short form "git@bitbucket.org:workspace/repo.git", which carries no
+// password) is returned unchanged.
+func (remote *Remote) RedactedURL() string {
+	parsed, err := url.Parse(remote.URL)
+	if err != nil || parsed.User == nil {
+		return remote.URL
+	}
+	return parsed.Redacted()
 }
 
 // GetRemoteFromGitConfig gets a remote from the git configuration

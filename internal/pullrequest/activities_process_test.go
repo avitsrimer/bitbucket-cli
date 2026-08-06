@@ -27,18 +27,18 @@ func TestFilterUnknownActivityKindsWarnsOncePerDistinctKind(t *testing.T) {
 	if err := json.Unmarshal(fixture, &page); err != nil {
 		t.Fatalf("cannot unmarshal fixture feed: %v", err)
 	}
-	if len(page.Values) != 6 {
-		t.Fatalf("fixture feed decoded %d activities, want 6", len(page.Values))
+	if len(page.Values) != 7 {
+		t.Fatalf("fixture feed decoded %d activities, want 7", len(page.Values))
 	}
 
 	logBuf := testutil.CaptureLog(t)
 	known := filterUnknownActivityKinds("1650", page.Values)
 
-	if len(known) != 3 {
-		t.Fatalf("filterUnknownActivityKinds returned %d known activities, want 3 (approval, changes_requested, update)", len(known))
+	if len(known) != 4 {
+		t.Fatalf("filterUnknownActivityKinds returned %d known activities, want 4 (approval, changes_requested, comment, update)", len(known))
 	}
 	for _, activity := range known {
-		if activity.Approval == nil && activity.ChangesRequested == nil && activity.Update == nil {
+		if activity.Approval == nil && activity.ChangesRequested == nil && activity.Comment == nil && activity.Update == nil {
 			t.Errorf("filterUnknownActivityKinds kept an activity with no known variant: %+v", activity)
 		}
 	}
@@ -93,12 +93,82 @@ func TestActivitiesProcessRendersKnownEntriesFromAMixedFeed(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &activities); err != nil {
 		t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
 	}
-	if len(activities) != 3 {
-		t.Fatalf("printed %d activities, want 3 (the unknown-kind entries must be skipped, not printed)", len(activities))
+	if len(activities) != 4 {
+		t.Fatalf("printed %d activities, want 4 (the unknown-kind entries must be skipped, not printed)", len(activities))
 	}
 
 	logOutput := logBuf.String()
 	if warnCount := strings.Count(logOutput, "WARN"); warnCount != 2 {
 		t.Errorf("log output has %d WARN lines, want exactly 2 (one per distinct unknown kind): %s", warnCount, logOutput)
+	}
+}
+
+// TestActivitiesProcessLimitAppliesAfterFilteringUnknownKinds is a regression test: --limit must
+// count only KNOWN activities, not the raw, unfiltered feed. Before the fix, profile.GetAll
+// applied --limit to the raw page (known and unknown kinds together), so a feed containing
+// unrecognized entries could silently return fewer than --limit known activities. The fixture
+// here has 3 unknown-kind entries interleaved before 2 known ones; --limit 2 must still return
+// both known entries.
+func TestActivitiesProcessLimitAppliesAfterFilteringUnknownKinds(t *testing.T) {
+	const fixture = `{"values":[
+		{"pull_request":{"id":1650},"some_kind":{"note":"unknown 1"}},
+		{"pull_request":{"id":1650},"some_kind":{"note":"unknown 2"}},
+		{"pull_request":{"id":1650},"some_kind":{"note":"unknown 3"}},
+		{"pull_request":{"id":1650},"approval":{"date":"2026-08-01T00:00:00+00:00","user":{"display_name":"A"}}},
+		{"pull_request":{"id":1650},"approval":{"date":"2026-08-02T00:00:00+00:00","user":{"display_name":"B"}}}
+	],"next":""}`
+
+	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(fixture))
+	}, false)
+	if err := cmd.Flags().Set("limit", "2"); err != nil {
+		t.Fatalf("cannot set limit flag: %v", err)
+	}
+
+	if _, err := profile.GetProfileFromCommand(cmd.Context(), cmd); err != nil {
+		t.Fatalf("cannot warm up profile resolution: %v", err)
+	}
+
+	var runErr error
+	stdout := testutil.CaptureStdout(t, func() {
+		runErr = activitiesProcess(cmd, []string{"1650"})
+	})
+	if runErr != nil {
+		t.Fatalf("activitiesProcess() error = %v", runErr)
+	}
+
+	var activities []Activity
+	if err := json.Unmarshal([]byte(stdout), &activities); err != nil {
+		t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
+	}
+	if len(activities) != 2 {
+		t.Fatalf("printed %d activities, want 2 known activities despite --limit=2 also matching 3 unknown-kind entries in the raw feed", len(activities))
+	}
+}
+
+// TestUnrecognizedActivityVariantIgnoresNonObjectKeys proves an incidental non-object top-level
+// key (e.g. a scalar "id" BitBucket might add alongside a genuine variant) is never mistaken for
+// the unknown variant itself: only a key whose value is a JSON object qualifies.
+func TestUnrecognizedActivityVariantIgnoresNonObjectKeys(t *testing.T) {
+	data := []byte(`{"pull_request":{"id":1650},"id":999,"some_future_activity_kind":{"date":"2026-08-01T00:00:00+00:00"}}`)
+
+	variant, found := unrecognizedActivityVariant(data)
+	if !found {
+		t.Fatal("unrecognizedActivityVariant() found = false, want true")
+	}
+	if variant != "some_future_activity_kind" {
+		t.Errorf("unrecognizedActivityVariant() = %q, want %q (not the scalar \"id\" key)", variant, "some_future_activity_kind")
+	}
+}
+
+// TestUnrecognizedActivityVariantNoObjectShapedKeys proves an entry whose only non-known keys are
+// all non-object (so none of them can be a genuine variant payload) reports not found.
+func TestUnrecognizedActivityVariantNoObjectShapedKeys(t *testing.T) {
+	data := []byte(`{"pull_request":{"id":1650},"id":999,"note":"just some scalar metadata"}`)
+
+	_, found := unrecognizedActivityVariant(data)
+	if found {
+		t.Error("unrecognizedActivityVariant() found = true, want false (no object-shaped unrecognized key)")
 	}
 }

@@ -99,11 +99,18 @@ func activitiesProcess(cmd *cobra.Command, args []string) (err error) {
 		return nil
 	}
 
-	activities, err := profile.GetAll[Activity](cmd.Context(), cmd, uripath)
+	// GetAllUnbounded, not GetAll: an unknown activity kind is dropped by filterUnknownActivityKinds
+	// below, after the fetch. Fetching with GetAll's own --limit-bounded pagination would apply
+	// --limit to the RAW page (known and unknown kinds together), so a feed containing unrecognized
+	// entries could return fewer than --limit known activities, or even zero, despite --limit
+	// activities actually existing. Filtering happens first here, then activityLimit below applies
+	// --limit to the filtered result, exactly like GetAll would have applied it to an all-known feed.
+	activities, err := profile.GetAllUnbounded[Activity](cmd.Context(), cmd, uripath)
 	if err != nil {
 		return err
 	}
 	activities = filterUnknownActivityKinds(pullRequestID, activities)
+	activities = activityLimit(cmd, activities)
 	if len(activities) == 0 {
 		lgr.Printf("[DEBUG] no activities found")
 		return nil
@@ -141,4 +148,20 @@ func filterUnknownActivityKinds(pullRequestID string, activities []Activity) []A
 		}
 	}
 	return known
+}
+
+// activityLimit truncates activities to cmd's own --limit flag, when explicitly set to a positive
+// value, mirroring the truncation profile.GetAll would have applied during pagination -- but
+// applied here, after filterUnknownActivityKinds, so an unrecognized activity kind never counts
+// against the limit a caller placed on the KNOWN activities they actually want.
+func activityLimit(cmd *cobra.Command, activities []Activity) []Activity {
+	limitFlag := cmd.Flag("limit")
+	if limitFlag == nil || !limitFlag.Changed {
+		return activities
+	}
+	limit, err := cmd.Flags().GetInt("limit")
+	if err != nil || limit <= 0 || limit >= len(activities) {
+		return activities
+	}
+	return activities[:limit]
 }

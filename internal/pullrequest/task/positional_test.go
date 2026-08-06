@@ -54,7 +54,7 @@ func TestSubcommandsRejectInvalidPullRequestID(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		for _, invalid := range []string{"", ".", ".."} {
+		for _, invalid := range []string{"", ".", "..", "../..", "../../..", "1/../../.."} {
 			t.Run(tc.name+"/"+describeID(invalid), func(t *testing.T) {
 				err := tc.run(t, invalid)
 				if err == nil {
@@ -65,6 +65,57 @@ func TestSubcommandsRejectInvalidPullRequestID(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestSubcommandsRejectInvalidTaskID proves every task subcommand that takes a <task-id> second
+// positional (get, update) validates it via common.ValidatePathIdentifier before it ever reaches
+// a GetPath call, exactly like the pullrequest-id positional -- guarding against `bb pullrequest
+// task get 1 '../..'` collapsing repo.GetPath("pullrequests", "1", "tasks", "../..") into a
+// different resource.
+func TestSubcommandsRejectInvalidTaskID(t *testing.T) {
+	cases := []struct {
+		name string
+		run  func(t *testing.T, taskID string) error
+	}{
+		{"get", func(t *testing.T, id string) error {
+			cmd := setupTest(t, failIfCalled(t), false)
+			return getProcess(cmd, []string{"1", id})
+		}},
+		{"update", func(t *testing.T, id string) error {
+			cmd := setupTest(t, failIfCalled(t), false)
+			return updateProcess(cmd, []string{"1", id})
+		}},
+	}
+
+	for _, tc := range cases {
+		for _, invalid := range []string{"", ".", "..", "../..", "../../.."} {
+			t.Run(tc.name+"/"+describeID(invalid), func(t *testing.T) {
+				err := tc.run(t, invalid)
+				if err == nil {
+					t.Fatalf("%s(%q) expected an error, got nil", tc.name, invalid)
+				}
+				if !strings.Contains(err.Error(), "task-id") {
+					t.Errorf("%s(%q) error = %q, want it to name task-id", tc.name, invalid, err.Error())
+				}
+			})
+		}
+	}
+}
+
+// TestTaskDeleteRejectsInvalidTaskIDs proves "task delete" validates every variadic task-id
+// positional (not just the pullrequest-id) via common.ValidatePathIdentifier before any request
+// is sent: `bb pullrequest task delete 1 ../../..` must never reach
+// repo.GetPath("pullrequests", "1", "tasks", "../../..").
+func TestTaskDeleteRejectsInvalidTaskIDs(t *testing.T) {
+	cmd := setupTest(t, failIfCalled(t), false)
+
+	err := deleteProcess(cmd, []string{"1", "../../.."})
+	if err == nil {
+		t.Fatal("deleteProcess() expected an error for an invalid task id, got nil")
+	}
+	if !strings.Contains(err.Error(), "task-id") {
+		t.Errorf("deleteProcess() error = %q, want it to name task-id", err.Error())
 	}
 }
 

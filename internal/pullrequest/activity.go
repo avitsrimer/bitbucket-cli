@@ -1,6 +1,7 @@
 package pullrequest
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,11 +37,11 @@ var activityKnownVariants = map[string]struct{}{
 // UnmarshalJSON): decoding still succeeds, and unknownVariant records the raw JSON key so the
 // caller can skip the entry and warn about it instead of the whole feed failing to decode.
 type Activity struct {
-	PullRequest      PullRequestReference      `json:"pull_request"`
-	Approval         *ActivityApproval         `json:"approval,omitempty"`
-	ChangesRequested *ActivityChangesRequested `json:"changes_requested,omitempty"`
-	Comment          *comment.Comment          `json:"comment,omitempty"`
-	Update           *ActivityUpdate           `json:"update,omitempty"`
+	PullRequest      PullRequestReference `json:"pull_request"`
+	Approval         *ActivityApproval    `json:"approval,omitempty"`
+	ChangesRequested *ActivityApproval    `json:"changes_requested,omitempty"`
+	Comment          *comment.Comment     `json:"comment,omitempty"`
+	Update           *ActivityUpdate      `json:"update,omitempty"`
 
 	// unknownVariant is the raw JSON key of an activity-feed entry kind this type does not
 	// recognize (e.g. a new kind BitBucket adds later), set by UnmarshalJSON. It is deliberately
@@ -56,11 +57,6 @@ type ActivityApproval struct {
 	User        user.User             `json:"user"`
 	PullRequest *PullRequestReference `json:"pullrequest"`
 }
-
-// ActivityChangesRequested describes a request-changes activity on a PullRequest. Its shape is
-// identical to ActivityApproval (date, user, pullrequest reference) per the Bitbucket Cloud REST
-// API's pull request activity feed.
-type ActivityChangesRequested = ActivityApproval
 
 // ActivityUpdate describes an update activity on a PullRequest
 type ActivityUpdate struct {
@@ -120,6 +116,8 @@ var activityColumns = common.Columns[Activity]{
 			return a.Approval.Date.Before(b.Approval.Date)
 		} else if a.ChangesRequested != nil && b.ChangesRequested != nil {
 			return a.ChangesRequested.Date.Before(b.ChangesRequested.Date)
+		} else if a.Comment != nil && b.Comment != nil {
+			return a.Comment.CreatedOn.Before(b.Comment.CreatedOn)
 		} else if a.Update != nil && b.Update != nil {
 			return a.Update.Date.Before(b.Update.Date)
 		}
@@ -166,6 +164,8 @@ var activityColumns = common.Columns[Activity]{
 			return strings.ToLower(a.Approval.User.Name) < strings.ToLower(b.Approval.User.Name)
 		} else if a.ChangesRequested != nil && b.ChangesRequested != nil {
 			return strings.ToLower(a.ChangesRequested.User.Name) < strings.ToLower(b.ChangesRequested.User.Name)
+		} else if a.Comment != nil && b.Comment != nil {
+			return strings.ToLower(a.Comment.User.Name) < strings.ToLower(b.Comment.User.Name)
 		} else if a.Update != nil && b.Update != nil {
 			return strings.ToLower(a.Update.Author.Name) < strings.ToLower(b.Update.Author.Name)
 		}
@@ -204,30 +204,39 @@ func (activity Activity) GetHeaders(cmd *cobra.Command) []string {
 	return common.HeadersFromFlag(cmd, "Date", "Approved", "State", "User")
 }
 
+// activitySummary holds the per-variant fields GetRow's per-column switch renders the same way
+// regardless of which variant activity carries, resolved once by summarize instead of inline in
+// GetRow (which keeps GetRow's own per-column switch, already the bulk of its complexity, from
+// also carrying the per-variant one).
+type activitySummary struct {
+	date     time.Time
+	approved bool
+	state    string
+	actor    user.User
+}
+
+// summarize resolves activity's date/approved/state/actor from whichever variant it carries. A
+// variant this type does not recognize (unknownVariant set) resolves to the zero activitySummary.
+func (activity Activity) summarize() activitySummary {
+	switch {
+	case activity.Approval != nil:
+		return activitySummary{date: activity.Approval.Date, approved: true, actor: activity.Approval.User, state: "N/A"}
+	case activity.ChangesRequested != nil:
+		return activitySummary{date: activity.ChangesRequested.Date, actor: activity.ChangesRequested.User, state: "CHANGES_REQUESTED"}
+	case activity.Comment != nil:
+		return activitySummary{date: activity.Comment.CreatedOn, actor: activity.Comment.User, state: "N/A"}
+	case activity.Update != nil:
+		return activitySummary{date: activity.Update.Date, state: activity.Update.State, actor: activity.Update.Author}
+	default:
+		return activitySummary{}
+	}
+}
+
 // GetRow gets the row for a table
 //
 // implements common.Tableable
 func (activity Activity) GetRow(headers []string) []string {
-	var activityDate time.Time
-	var approval bool
-	var state string
-	var actor user.User
-
-	switch {
-	case activity.Approval != nil:
-		activityDate = activity.Approval.Date
-		approval = true
-		actor = activity.Approval.User
-		state = "N/A"
-	case activity.ChangesRequested != nil:
-		activityDate = activity.ChangesRequested.Date
-		actor = activity.ChangesRequested.User
-		state = "CHANGES_REQUESTED"
-	case activity.Update != nil:
-		activityDate = activity.Update.Date
-		state = activity.Update.State
-		actor = activity.Update.Author
-	}
+	summary := activity.summarize()
 
 	row := make([]string, 0, len(headers))
 	for _, header := range headers {
@@ -235,13 +244,13 @@ func (activity Activity) GetRow(headers []string) []string {
 		case "pull_request":
 			row = append(row, strconv.FormatUint(activity.PullRequest.ID, 10))
 		case "date":
-			row = append(row, common.TimeCell(activityDate))
+			row = append(row, common.TimeCell(summary.date))
 		case "approved":
-			row = append(row, strconv.FormatBool(approval))
+			row = append(row, strconv.FormatBool(summary.approved))
 		case "description":
 			row = append(row, activity.updateField(func(update *ActivityUpdate) string { return update.Description }))
 		case "state":
-			row = append(row, state)
+			row = append(row, summary.state)
 		case "author":
 			row = append(row, activity.updateField(func(update *ActivityUpdate) string { return update.Author.Name }))
 		case "closed_by":
@@ -249,7 +258,7 @@ func (activity Activity) GetRow(headers []string) []string {
 		case "reason":
 			row = append(row, activity.updateField(func(update *ActivityUpdate) string { return update.Reason }))
 		case "user":
-			row = append(row, actor.Name)
+			row = append(row, summary.actor.Name)
 		case "destination":
 			row = append(row, activity.updateField(func(update *ActivityUpdate) string {
 				if update.Destination.Repository == nil {
@@ -338,19 +347,25 @@ func (activity *Activity) UnmarshalJSON(data []byte) (err error) {
 }
 
 // unrecognizedActivityVariant looks for a top-level JSON key on an activity entry that
-// activityKnownVariants does not recognize, returning it (and true) when found. Multiple
-// unrecognized keys on one entry cannot happen for a real BitBucket response (an entry carries
-// exactly one variant besides "pull_request"), but if it did, the lexicographically first key is
-// returned for deterministic behavior.
+// activityKnownVariants does not recognize AND whose value is itself a JSON object -- every
+// documented variant payload (approval, changes_requested, comment, update) is an object, never a
+// scalar or array, so this keeps an incidental non-object field (an id, a links block, ...)
+// BitBucket might add alongside a genuine variant from ever being mistaken for one. Returns the
+// key (and true) when found. Multiple qualifying keys on one entry cannot happen for a real
+// BitBucket response (an entry carries exactly one variant besides "pull_request"), but if it did,
+// the lexicographically first key is returned for deterministic behavior. data is assumed to
+// already be valid JSON: the caller's own json.Unmarshal into surrogate Activity already succeeded
+// on these same bytes before this is ever called, so the re-unmarshal below cannot fail.
 func unrecognizedActivityVariant(data []byte) (variant string, found bool) {
 	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return "", false
-	}
+	_ = json.Unmarshal(data, &raw)
 
 	var unrecognized []string
-	for key := range raw {
-		if _, known := activityKnownVariants[key]; !known {
+	for key, value := range raw {
+		if _, known := activityKnownVariants[key]; known {
+			continue
+		}
+		if trimmed := bytes.TrimSpace(value); len(trimmed) > 0 && trimmed[0] == '{' {
 			unrecognized = append(unrecognized, key)
 		}
 	}

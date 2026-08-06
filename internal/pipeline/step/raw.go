@@ -36,7 +36,7 @@ func rawStepOutput(cmd *cobra.Command, pipelineID, stepArg, noun string, pathSuf
 		return nil
 	}
 
-	stepID, err := resolveStepID(cmd.Context(), cmd, pipelineID, stepArg)
+	stepID, err := resolveStepID(cmd.Context(), cmd, repo, pipelineID, stepArg)
 	if err != nil {
 		return fmt.Errorf("cannot resolve step %s: %w", stepArg, err)
 	}

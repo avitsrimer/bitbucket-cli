@@ -5,6 +5,7 @@ import (
 	"slices"
 	"testing"
 
+	prcommon "github.com/avitsrimer/bitbucket-cli/internal/pullrequest/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 	"github.com/spf13/cobra"
 )
@@ -16,9 +17,9 @@ func TestValidArgsCompletesPullRequestIDsForArg0(t *testing.T) {
 		name        string
 		validArgsFn func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective)
 	}{
-		{"create", createValidArgs},
+		{"create", prcommon.PullRequestIDValidArgs},
 		{"get", pullRequestAndTaskIDValidArgs},
-		{"list", listValidArgs},
+		{"list", prcommon.PullRequestIDValidArgs},
 		{"update", pullRequestAndTaskIDValidArgs},
 		{"delete", deleteValidArgs},
 	}

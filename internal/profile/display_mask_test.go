@@ -150,3 +150,28 @@ func (suite *ProfileSuite) TestProfileGetYAMLShowsRealAccessToken() {
 
 	suite.Contains(output, liveLookingAccessToken, "yaml output is the documented scripting path and must show the real token")
 }
+
+// TestProfileColumnsRejectsClientSecretAndPassword proves ClientSecret and Password have no
+// --columns value at all (unlike AccessToken, which has one masked by redactWithHash): requesting
+// either is rejected at cobra flag-parse time, before GetRow or any request runs, so there is no
+// code path through which either secret could ever reach table/csv/tsv output.
+func (suite *ProfileSuite) TestProfileColumnsRejectsClientSecretAndPassword() {
+	defer resetProfilesState()()
+	configPath := writeLiveTokenConfig(suite.T())
+
+	for _, column := range []string{"clientsecret", "password"} {
+		suite.Run(column, func() {
+			profile.Profiles = nil
+			profile.Current = nil
+
+			root := newTestRootCommand()
+			root.AddCommand(profile.Command)
+			suite.Require().NoError(root.PersistentFlags().Set("config", configPath))
+			suite.Require().NoError(common.Initialize(root))
+			root.SetArgs([]string{"profile", "list", "--columns", column})
+
+			err := root.Execute()
+			suite.Error(err, "--columns %s must be rejected at flag-parse time", column)
+		})
+	}
+}

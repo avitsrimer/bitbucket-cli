@@ -94,7 +94,7 @@ By default `bb` works in the current git repository. You can specify a Bitbucket
 
 Many commands and flags are dynamically auto-completed. See the [Completion](#completion) section for more information about completion.
 
-Most `delete` commands, and `bb artifact download`, support multiple arguments. You can pass a list of arguments or a file with one argument per line:
+Most `delete` commands, and `bb artifact download`, accept multiple ids/names as separate positional arguments on the same command line:
 
 ```bash
 bb pullrequest comment delete 1 452466 452467 452468
@@ -111,16 +111,16 @@ bb pullrequest decline 1 --dry-run
 
 `--dry-run` runs full preflight: every resolution GET a real invocation would make (looking up the
 pull request/comment/task/pipeline, validating a `--file` diff anchor against the PR's diffstat,
-and so on) still runs, and the command echoes the resolved target URL and payload it would have
-sent — only the final write is skipped. A nonexistent pull request id or an empty comment/task
-body fails under `--dry-run` with the same error a real invocation would produce; the output is
-never a fabricated success line for input that would actually fail.
+and so on) still runs, and the command echoes the resolved target API path and payload it would
+have sent, to stderr — only the final write is skipped. A nonexistent pull request id or an empty
+comment/task body fails under `--dry-run` with the same error a real invocation would produce; the
+output is never a fabricated success line for input that would actually fail.
 
 ```bash
 bb pullrequest decline 999999 --dry-run   # fails: pull request 999999 not found
 ```
 
-Most commands will support the `--workspace` and `--repository` flags to specify the workspace and repository to use. If not provided, each is resolved independently in the same three-rung order: the flag itself, then a Bitbucket git remote in the current checkout (a GitHub or other non-Bitbucket remote is ignored and falls through), then the profile's default (`--default-workspace`/`--default-repository` on `bb profile create`/`update`). If all three rungs come up empty, the error names all three ways to supply the value. The workspace and repository can be combined in the `--repository` flag in the form `workspace/repository`. For example:
+Most commands will support the `--workspace` and `--repository` flags to specify the workspace and repository to use. If not provided, each is resolved independently in the same three-rung order: the flag itself, then a Bitbucket git remote in the current checkout (a GitHub or other non-Bitbucket remote is ignored and falls through), then the profile's default (`--default-workspace`/`--default-repository` on `bb profile create`/`update`). If all three rungs come up empty, the error names all three ways to supply the value. The workspace and repository can be combined in the form `workspace/repository`, whether supplied via `--repository` or via `--default-repository` on the profile -- either way, the workspace segment it carries overrides `--default-workspace`/a git remote/`--workspace`. For example:
 
 ```bash
 bb pullrequest list --repository myrepository
@@ -235,10 +235,11 @@ $ bb pr list --state all
 > body, a commit message -- can no longer blow one column, and with it every other column, out to
 > an unreadable width. This cap is cosmetic: it only affects the rendered table. `csv`, `tsv`,
 > `json`, and `yaml` output always contain the complete, untruncated value, since those formats
-> are meant for scripting. For the same reason, `description` and `participants` are not among
-> `bb pullrequest get`/`list`'s default columns (an unbounded, list-shaped value is rarely useful
-> in a rendered table) -- pass `--columns description`/`--columns participants` (or `--columns
-> all`) to include them anyway. In table/csv/tsv, `participants` renders a compact
+> are meant for scripting. For the same reason, `participants` is not among `bb pullrequest
+> get`/`list`'s default columns, and `description` is not among `list`'s (though it IS a default
+> column on `get`) -- an unbounded, list-shaped value is rarely useful in a rendered table -- pass
+> `--columns description`/`--columns participants` (or `--columns all`) to include them anyway on
+> whichever subcommand doesn't already. In table/csv/tsv, `participants` renders a compact
 > `nickname:state` summary per reviewer; `-o json`/`yaml` carry the full participant objects
 > (role, approval state, participation date) regardless of `--columns`.
 
@@ -363,6 +364,13 @@ When you use a user/password, the password is stored in the vault of the operati
 > `--clone-protocol` and `--clone-user` are functional again: `bb repo clone` uses them as the
 > default protocol (overridable per invocation with `--protocol`) and, for the `https` protocol,
 > the username embedded in the clone URL.
+
+> [!NOTE]
+> `bb profile list`/`bb profile get` mask the access token in table/csv/tsv output (a masked
+> placeholder even under the explicit `--columns accesstoken`), but `-o json`/`-o yaml` intentionally
+> show it in full -- that's the supported way to script retrieval of a stored token. `client-secret`
+> and `password` have no `--columns` value at all, so they never appear in table/csv/tsv output
+> regardless.
 
 You can get the list of your profiles with the `bb profile list` command:
 
@@ -754,6 +762,10 @@ bb pullrequest activities 1
 
 If no pull request is provided, the command will try to list the activities of the opened pull request with the current branch.
 
+An activity kind BitBucket adds in the future that this version of `bb` does not recognize is
+silently dropped from the printed list (rather than failing the whole command) and reported once,
+per distinct unknown kind, as a `[WARN]` line on stderr.
+
 You can list the commits of a pull request with the `bb pullrequest commits` command:
 
 ```bash
@@ -805,6 +817,12 @@ bb pullrequest comment add 1 \
   --file    README.md \
   --line    404
 ```
+
+`--file` names a path inside the pull request's own diff, not a local file: every invocation
+(with or without `--dry-run`) validates it against the pull request's actual diffstat before
+sending the comment, which is deliberately stricter than what the write endpoint itself enforces.
+`README.md` above must actually be a file the pull request's diff touches, or the command fails
+before any comment is created.
 
 A markdown comment body containing backticks or `$(...)` is a shell command-substitution hazard
 on the command line. `--comment-file <path>` reads the body from a file instead, or from stdin
@@ -1106,6 +1124,14 @@ ways that break existing scripts and installs:
 - **Eight command groups remain removed**: `project`, `issue`, `tag`, `gpg-key`, `ssh-key`,
   `cache`, `remote`, `component`, and the deprecated `pullrequest activity` alias (use
   `pullrequest activities`).
+- **`--pullrequest` is gone from every `pullrequest comment`/`pullrequest task` subcommand.** The
+  pull request id is now a required first positional argument on all of them (e.g. `bb
+  pullrequest comment list 1`, `bb pullrequest task delete 1 452466`); top-level `pullrequest`
+  commands (`get`, `approve`, ...) are unaffected.
+- **`--pipeline` is gone from every `pipeline step` subcommand.** The pipeline is now a required
+  first positional, and the step is the next positional, identified by its UUID or its name (e.g.
+  `bb pipeline step get 42 Build`); an ambiguous or unknown step name fails with the available
+  names listed.
 - **`--log <file>` / `-l` and the `LOG_DESTINATION`/`LOG_LEVEL`/`DEBUG` environment variables are
   gone.** Logs always go to stderr; use `--debug 2> bb.log` instead — see
   [Obtaining logs for debugging](#obtaining-logs-for-debugging).

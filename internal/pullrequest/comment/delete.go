@@ -24,11 +24,7 @@ func init() {
 
 func deleteValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	if len(args) == 0 {
-		ids, err := prcommon.GetPullRequestIDs(cmd.Context(), cmd, args, toComplete)
-		if err != nil {
-			return []string{}, cobra.ShellCompDirectiveNoFileComp
-		}
-		return common.FilterValidArgs(ids, args, toComplete), cobra.ShellCompDirectiveNoFileComp
+		return prcommon.PullRequestIDValidArgs(cmd, args, toComplete)
 	}
 
 	commentIDs, err := GetPullRequestCommentIDs(cmd.Context(), cmd, args[0])

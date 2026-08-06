@@ -153,3 +153,43 @@ func TestGetRemoteFromReaderReportsMissingRemoteAsNotFound(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
+
+// TestRemoteRedactedURLMasksEmbeddedPassword proves an https remote URL carrying a userinfo
+// password (e.g. an app password) never appears in RedactedURL's output -- the string GetRemote
+// callers must log instead of Remote.URL.
+func TestRemoteRedactedURLMasksEmbeddedPassword(t *testing.T) {
+	target := &remote.Remote{URL: "https://myuser:super-secret-app-password@bitbucket.org/acme/widgets.git"}
+
+	got := target.RedactedURL()
+	if strings.Contains(got, "super-secret-app-password") {
+		t.Errorf("RedactedURL() = %q, leaked the embedded password", got)
+	}
+	if !strings.Contains(got, "myuser") {
+		t.Errorf("RedactedURL() = %q, want it to still name the user", got)
+	}
+	if !strings.Contains(got, "bitbucket.org/acme/widgets.git") {
+		t.Errorf("RedactedURL() = %q, want the rest of the URL intact", got)
+	}
+}
+
+// TestRemoteRedactedURLNoCredentials proves a remote URL carrying no userinfo (the common case)
+// is returned unchanged.
+func TestRemoteRedactedURLNoCredentials(t *testing.T) {
+	target := &remote.Remote{URL: "https://bitbucket.org/acme/widgets.git"}
+
+	got := target.RedactedURL()
+	if got != target.URL {
+		t.Errorf("RedactedURL() = %q, want it unchanged as %q", got, target.URL)
+	}
+}
+
+// TestRemoteRedactedURLSSHShortFormUnchanged proves the SSH short form (which carries no
+// password, so there is nothing to redact) is returned unchanged rather than mangled by url.Parse.
+func TestRemoteRedactedURLSSHShortFormUnchanged(t *testing.T) {
+	target := &remote.Remote{URL: "git@bitbucket.org:acme/widgets.git"}
+
+	got := target.RedactedURL()
+	if got != target.URL {
+		t.Errorf("RedactedURL() = %q, want it unchanged as %q", got, target.URL)
+	}
+}

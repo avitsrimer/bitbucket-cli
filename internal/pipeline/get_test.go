@@ -75,3 +75,22 @@ func TestGetProcessDryRunSkipsFetchAndPrinting(t *testing.T) {
 		t.Errorf("expected no printed output in dry-run mode, got %q", stdout)
 	}
 }
+
+// TestGetProcessRejectsInvalidPipelineID proves the <pipeline-uuid-or-build-number> positional is
+// validated via common.ValidatePathIdentifier before any request is sent: `bb pipeline get
+// ../..` must never reach repo.GetPath("pipelines", "../..").
+func TestGetProcessRejectsInvalidPipelineID(t *testing.T) {
+	var requestCount int
+	cmd := setupTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, false)
+
+	err := getProcess(cmd, []string{"../.."})
+	if err == nil {
+		t.Fatal("getProcess() expected an error for '../..', got nil")
+	}
+	if !strings.Contains(err.Error(), "pipeline") {
+		t.Errorf("error = %q, want it to name the pipeline argument", err.Error())
+	}
+	if requestCount != 0 {
+		t.Errorf("expected no HTTP request for an invalid pipeline id, got %d", requestCount)
+	}
+}

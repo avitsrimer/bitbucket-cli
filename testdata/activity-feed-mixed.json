@@ -68,6 +68,31 @@
         "id": 1650,
         "title": "Add README.md"
       },
+      "comment": {
+        "id": 118571088,
+        "content": {
+          "raw": "looks good to me"
+        },
+        "user": {
+          "display_name": "Commenting User",
+          "type": "user",
+          "uuid": "{ddc4305b-23d8-479b-9c17-eda2543808b5}",
+          "nickname": "Commenting User"
+        },
+        "created_on": "2026-08-03T12:00:00.000000+00:00",
+        "pullrequest": {
+          "type": "pullrequest",
+          "id": 1650,
+          "title": "Add README.md"
+        }
+      }
+    },
+    {
+      "pull_request": {
+        "type": "pullrequest",
+        "id": 1650,
+        "title": "Add README.md"
+      },
       "some_future_activity_kind": {
         "date": "2026-08-04T07:10:57.603622+00:00",
         "note": "first occurrence of an unrecognized variant"

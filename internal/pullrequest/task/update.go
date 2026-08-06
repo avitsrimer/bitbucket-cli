@@ -47,6 +47,9 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 	if validateErr := common.ValidatePathIdentifier("pullrequest-id", pullRequestID); validateErr != nil {
 		return fmt.Errorf("cannot update task: %w", validateErr)
 	}
+	if validateErr := common.ValidatePathIdentifier("task-id", taskID); validateErr != nil {
+		return fmt.Errorf("cannot update task: %w", validateErr)
+	}
 
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {

@@ -27,6 +27,9 @@ func resolveProcess(cmd *cobra.Command, args []string) (err error) {
 	if validateErr := common.ValidatePathIdentifier("pullrequest-id", pullRequestID); validateErr != nil {
 		return fmt.Errorf("cannot resolve comment: %w", validateErr)
 	}
+	if validateErr := common.ValidatePathIdentifier("comment-id", commentID); validateErr != nil {
+		return fmt.Errorf("cannot resolve comment: %w", validateErr)
+	}
 
 	ctx := cmd.Context()
 

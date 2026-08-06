@@ -58,6 +58,9 @@ func mergeStatusProcess(cmd *cobra.Command, args []string) (err error) {
 	if err != nil {
 		return fmt.Errorf("cannot merge pull request: %w", err)
 	}
+	if validateErr := common.ValidatePathIdentifier("task-id", mergeStatusOptions.TaskID); validateErr != nil {
+		return fmt.Errorf("cannot get merge status: %w", validateErr)
+	}
 
 	lgr.Printf("[DEBUG] getting the pull request merge status for %s", pullRequestID)
 	if !common.WhatIf(cmd, "Getting the merge status for pull request %s", pullRequestID) {

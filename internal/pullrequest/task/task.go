@@ -188,7 +188,7 @@ func pullRequestAndTaskIDValidArgs(cmd *cobra.Command, args []string, toComplete
 		if err != nil {
 			return []string{}, cobra.ShellCompDirectiveNoFileComp
 		}
-		return common.FilterValidArgs(taskIDs, args, toComplete), cobra.ShellCompDirectiveNoFileComp
+		return common.FilterValidArgs(taskIDs, args[1:], toComplete), cobra.ShellCompDirectiveNoFileComp
 	default:
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}

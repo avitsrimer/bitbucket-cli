@@ -32,6 +32,14 @@ func updateProcess(cmd *cobra.Command, args []string) (err error) {
 	if validateErr := common.ValidatePathIdentifier("pullrequest-id", pullRequestID); validateErr != nil {
 		return fmt.Errorf("cannot update comment: %w", validateErr)
 	}
+	if validateErr := common.ValidatePathIdentifier("comment-id", commentID); validateErr != nil {
+		return fmt.Errorf("cannot update comment: %w", validateErr)
+	}
+
+	payload, err := updateOptions.payload(cmd)
+	if err != nil {
+		return err
+	}
 
 	ctx := cmd.Context()
 
@@ -43,11 +51,6 @@ func updateProcess(cmd *cobra.Command, args []string) (err error) {
 	repository, err := repository.GetRepository(ctx, cmd)
 	if err != nil {
 		return fmt.Errorf("cannot get repository: %w", err)
-	}
-
-	payload, err := updateOptions.payload(cmd)
-	if err != nil {
-		return err
 	}
 
 	if err = existsComment(ctx, cmd, repository, pullRequestID, commentID); err != nil {

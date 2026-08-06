@@ -31,7 +31,7 @@ var createCmd = &cobra.Command{
 	Aliases:           []string{"add", "new"},
 	Short:             "create a pullrequest task on the pullrequest identified by <pullrequest-id>.",
 	Args:              cobra.ExactArgs(1),
-	ValidArgsFunction: createValidArgs,
+	ValidArgsFunction: prcommon.PullRequestIDValidArgs,
 	RunE:              createProcess,
 }
 
@@ -58,18 +58,6 @@ func init() {
 	createCmd.Flags().BoolVar(&createOptions.Pending, "pending", false, "Mark the task as pending")
 	_ = createCmd.MarkFlagRequired("content")
 	_ = createCmd.RegisterFlagCompletionFunc(createOptions.CommentID.CompletionFunc("comment"))
-}
-
-func createValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) != 0 {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-
-	ids, err := prcommon.GetPullRequestIDs(cmd.Context(), cmd, args, toComplete)
-	if err != nil {
-		return []string{}, cobra.ShellCompDirectiveNoFileComp
-	}
-	return common.FilterValidArgs(ids, args, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
 func createProcess(cmd *cobra.Command, args []string) error {

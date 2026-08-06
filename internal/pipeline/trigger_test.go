@@ -486,3 +486,44 @@ func TestTriggerProcessUnsetPullRequestFallsBackToBranch(t *testing.T) {
 		t.Errorf("target = %+v, want a branch target for main", sent.Target)
 	}
 }
+
+// TestTriggerProcessDryRunRedactsVariableValues is FR-6's binding secret-redaction test: under
+// --dry-run, WhatIfPayload prints the resolved payload to stderr, and dryRunTriggerPayload must
+// have replaced every --variable's real value with "***" in that copy before it ever reaches
+// there. Without this test, reverting dryRunTriggerPayload's redaction back to the real value
+// would pass the rest of the suite (which only exercises the non-dry-run path) while printing a
+// live secret to stderr on every dry-run invocation.
+func TestTriggerProcessDryRunRedactsVariableValues(t *testing.T) {
+	const secretValue = "super-secret-deploy-token"
+
+	var requestCount int
+	cmd := setupTriggerTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, true)
+	_ = cmd.Flags().Set("branch", "main")
+	_ = cmd.Flags().Set("force", "true")
+	_ = cmd.Flags().Set("variable", "DEPLOY_TOKEN="+secretValue)
+
+	var stderr string
+	stdout := testutil.CaptureStdout(t, func() {
+		stderr = testutil.CaptureStderr(t, func() {
+			if err := triggerProcess(cmd, nil); err != nil {
+				t.Fatalf("triggerProcess() error = %v", err)
+			}
+		})
+	})
+
+	if requestCount != 0 {
+		t.Errorf("expected no HTTP request in dry-run mode, got %d", requestCount)
+	}
+	if strings.Contains(stderr, secretValue) {
+		t.Fatalf("dry-run stderr leaked the variable value: %q", stderr)
+	}
+	if !strings.Contains(stderr, "DEPLOY_TOKEN") {
+		t.Errorf("dry-run stderr = %q, want it to still mention the variable key", stderr)
+	}
+	if !strings.Contains(stderr, "***") {
+		t.Errorf("dry-run stderr = %q, want the redacted placeholder in the echoed payload", stderr)
+	}
+	if strings.Contains(stdout, secretValue) {
+		t.Errorf("dry-run stdout leaked the variable value: %q", stdout)
+	}
+}

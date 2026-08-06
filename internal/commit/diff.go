@@ -44,6 +44,17 @@ func diffValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]stri
 }
 
 func diffProcess(cmd *cobra.Command, args []string) error {
+	// Each hash is validated on its own, before being joined with the literal ".." separator
+	// below: repo.GetPath("diff", spec) is a bare path.Join with no escaping, so an unvalidated
+	// hash could splice extra path segments into the request. The joined spec itself legitimately
+	// contains ".." (BitBucket's own two-commit diff syntax), so ValidatePathIdentifier is never
+	// called on spec, only on each hash that goes into it.
+	for _, hash := range args {
+		if err := common.ValidatePathIdentifier("commit-hash", hash); err != nil {
+			return fmt.Errorf("cannot get diff: %w", err)
+		}
+	}
+
 	spec := args[0]
 	if len(args) > 1 {
 		spec = args[0] + ".." + args[1]

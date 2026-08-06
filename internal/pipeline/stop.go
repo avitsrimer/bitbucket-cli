@@ -26,6 +26,9 @@ func init() {
 
 func stopProcess(cmd *cobra.Command, args []string) error {
 	pipelineID := args[0]
+	if err := common.ValidatePathIdentifier("pipeline", pipelineID); err != nil {
+		return fmt.Errorf("cannot stop pipeline: %w", err)
+	}
 
 	repo, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {

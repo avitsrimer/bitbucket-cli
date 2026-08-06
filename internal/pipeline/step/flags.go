@@ -42,21 +42,19 @@ func pipelineAndStepValidArgs(cmd *cobra.Command, args []string, toComplete stri
 			cobra.CompErrorln(err.Error())
 			return []string{}, cobra.ShellCompDirectiveError
 		}
-		return common.FilterValidArgs(names, args, toComplete), cobra.ShellCompDirectiveNoFileComp
+		return common.FilterValidArgs(names, args[1:], toComplete), cobra.ShellCompDirectiveNoFileComp
 	default:
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 }
 
-// getSteps gets every step of the pipeline identified by pipelineID, for resolveStepID and shell
-// completion. Uses profile.GetAllUnbounded, not profile.GetAll: cmd here is the calling command's
-// own flags, which may carry an unrelated --limit meant to bound a different query, and both
-// resolution and completion must enumerate every step regardless of it.
-func getSteps(ctx context.Context, cmd *cobra.Command, pipelineID string) ([]Step, error) {
-	repo, err := repository.GetRepository(ctx, cmd)
-	if err != nil {
-		return nil, fmt.Errorf("cannot get repository: %w", err)
-	}
+// getSteps gets every step of the pipeline identified by pipelineID within repo, for
+// resolveStepID and shell completion. Uses profile.GetAllUnbounded, not profile.GetAll: cmd here
+// is the calling command's own flags, which may carry an unrelated --limit meant to bound a
+// different query, and both resolution and completion must enumerate every step regardless of it.
+// Callers that already hold repo (get.go, raw.go) pass it straight through instead of this
+// re-resolving it via a second repository.GetRepository call.
+func getSteps(ctx context.Context, cmd *cobra.Command, repo *repository.Repository, pipelineID string) ([]Step, error) {
 	steps, err := profile.GetAllUnbounded[Step](ctx, cmd, repo.GetPath("pipelines", pipelineID, "steps"))
 	if err != nil {
 		return nil, fmt.Errorf("cannot get steps: %w", err)
@@ -67,9 +65,15 @@ func getSteps(ctx context.Context, cmd *cobra.Command, pipelineID string) ([]Ste
 // getStepNamesAndIDs returns every step's name followed by every step's UUID, for shell
 // completion of the <pipeline-step-uuid-or-name> positional: names are offered first since that
 // is what a human reads in BitBucket's own UI, but a UUID always resolves too (per
-// resolveStepID), so completion never suggests a value the command would reject.
+// resolveStepID), so completion never suggests a value the command would reject. Unlike
+// resolveStepID's callers, a completion function has no repo already resolved, so this resolves
+// its own.
 func getStepNamesAndIDs(ctx context.Context, cmd *cobra.Command, pipelineID string) ([]string, error) {
-	steps, err := getSteps(ctx, cmd, pipelineID)
+	repo, err := repository.GetRepository(ctx, cmd)
+	if err != nil {
+		return nil, fmt.Errorf("cannot get repository: %w", err)
+	}
+	steps, err := getSteps(ctx, cmd, repo, pipelineID)
 	if err != nil {
 		return nil, err
 	}
@@ -83,19 +87,21 @@ func getStepNamesAndIDs(ctx context.Context, cmd *cobra.Command, pipelineID stri
 	return append(names, ids...), nil
 }
 
-// resolveStepID resolves stepArg to a step UUID within the pipeline identified by pipelineID. A
-// value that parses as common.ParseUUID passes through as-is, with NO list request issued.
-// Otherwise the pipeline's steps are listed (getSteps) and matched on NAME, case-insensitively and
-// trimmed: exactly one match resolves to its UUID; zero matches error, naming stepArg and listing
-// the available step names; two or more matches (BitBucket allows duplicate step names within one
-// pipeline) error listing the ambiguous candidates with their UUIDs and tell the caller to pass a
-// UUID instead. Shared by get/logs/report/cases via rawStepOutput and getProcess.
-func resolveStepID(ctx context.Context, cmd *cobra.Command, pipelineID, stepArg string) (string, error) {
+// resolveStepID resolves stepArg to a step UUID within the pipeline identified by pipelineID of
+// repo. A value that parses as common.ParseUUID passes through as-is, with NO list request
+// issued. Otherwise the pipeline's steps are listed (getSteps) and matched on NAME,
+// case-insensitively and trimmed: exactly one match resolves to its UUID; zero matches error,
+// naming stepArg and listing the available step names (or saying none of the pipeline's steps
+// have a name at all, when every step.Name is empty); two or more matches (BitBucket allows
+// duplicate step names within one pipeline) error listing the ambiguous candidates with their
+// UUIDs and tell the caller to pass a UUID instead. Shared by get/logs/report/cases via
+// rawStepOutput and getProcess, both of which already hold repo and pass it straight through.
+func resolveStepID(ctx context.Context, cmd *cobra.Command, repo *repository.Repository, pipelineID, stepArg string) (string, error) {
 	if parsed, err := common.ParseUUID(stepArg); err == nil {
 		return parsed.String(), nil
 	}
 
-	steps, err := getSteps(ctx, cmd, pipelineID)
+	steps, err := getSteps(ctx, cmd, repo, pipelineID)
 	if err != nil {
 		return "", err
 	}
@@ -112,7 +118,15 @@ func resolveStepID(ctx context.Context, cmd *cobra.Command, pipelineID, stepArg 
 	case 1:
 		return matches[0].ID.String(), nil
 	case 0:
-		names := core.Map(steps, func(step Step) string { return step.Name })
+		var names []string
+		for _, step := range steps {
+			if step.Name != "" {
+				names = append(names, step.Name)
+			}
+		}
+		if len(names) == 0 {
+			return "", fmt.Errorf("no step named %q found for pipeline %s; none of its steps have a name, pass a UUID instead", stepArg, pipelineID)
+		}
 		return "", fmt.Errorf("no step named %q found for pipeline %s; available step names: %s", stepArg, pipelineID, strings.Join(names, ", "))
 	default:
 		candidates := core.Map(matches, func(step Step) string { return fmt.Sprintf("%s (%s)", step.Name, step.ID.String()) })
