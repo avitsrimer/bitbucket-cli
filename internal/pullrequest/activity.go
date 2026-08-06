@@ -115,10 +115,7 @@ var activityColumns = common.Columns[Activity]{
 		return a.summarize().date.Before(b.summarize().date)
 	}},
 	{Name: "approved", DefaultSorter: false, Compare: func(a, b Activity) bool {
-		if a.Approval != nil && b.Approval != nil {
-			return a.Approval.User.Name < b.Approval.User.Name
-		}
-		return false
+		return !a.summarize().approved && b.summarize().approved
 	}},
 	{Name: "description", DefaultSorter: false, Compare: func(a, b Activity) bool {
 		if a.Update != nil && b.Update != nil {
@@ -127,10 +124,7 @@ var activityColumns = common.Columns[Activity]{
 		return false
 	}},
 	{Name: "state", DefaultSorter: false, Compare: func(a, b Activity) bool {
-		if a.Update != nil && b.Update != nil {
-			return strings.ToLower(a.Update.State) < strings.ToLower(b.Update.State)
-		}
-		return false
+		return strings.ToLower(a.summarize().state) < strings.ToLower(b.summarize().state)
 	}},
 	{Name: "author", DefaultSorter: false, Compare: func(a, b Activity) bool {
 		if a.Update != nil && b.Update != nil {

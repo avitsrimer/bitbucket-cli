@@ -246,8 +246,11 @@ func (repository Repository) String() string {
 // profile.Current is still nil at this point more often than not. cmd lacking a "profile" flag
 // (a bare *cobra.Command built by a test, never the real command tree) skips this resolution
 // rather than panicking, matching the nil-check the first rung already does for "repository". A
-// profile-loading error here is not surfaced as this function's own error -- it just means the
-// third rung has nothing to offer, and the final "every rung failed" error below still applies.
+// profile-loading error here is logged as a [WARN] rather than surfaced as this function's own
+// error -- it just means the third rung has nothing to offer, and the final "every rung failed"
+// error below still applies -- but the warning line still tells the user the real cause (e.g. an
+// invalid --profile value) instead of leaving them with only the generic missing-argument
+// message.
 //
 // The repository is determined by the following order:
 //  1. The repository flag in the command
@@ -265,7 +268,10 @@ func GetRepositoryName(context context.Context, cmd *cobra.Command) (repositoryN
 	}
 	currentProfile := profile.Current
 	if currentProfile == nil && cmd.Flag("profile") != nil {
-		currentProfile, _ = profile.GetProfileFromCommand(context, cmd)
+		var profileErr error
+		if currentProfile, profileErr = profile.GetProfileFromCommand(context, cmd); profileErr != nil {
+			lgr.Printf("[WARN] cannot load profile to resolve a default repository: %s", profileErr.Error())
+		}
 	}
 	if currentProfile != nil && currentProfile.DefaultRepository != "" {
 		lgr.Printf("[DEBUG] repository name found in profile: %s", currentProfile.DefaultRepository)

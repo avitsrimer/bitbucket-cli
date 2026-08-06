@@ -1,17 +1,20 @@
 package workspace
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -108,4 +111,56 @@ func captureStdout(t *testing.T, fn func()) string {
 
 	_ = w.Close()
 	return <-captured
+}
+
+// captureLog redirects the global lgr logger to a buffer for the duration of the test, with
+// [DEBUG] lines enabled, and returns that buffer. It restores whatever logger was active
+// beforehand once the test ends -- rather than a hardcoded quiet baseline -- by wrapping the
+// previous logger as a slog.Handler and forwarding every record to it, so a test run after this
+// one sees exactly the logging behavior it would have without this call. Identical to
+// testutil.CaptureLog, duplicated locally for the same import-cycle reason as the rest of this
+// file (see the comment above setupTest).
+func captureLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	previous := lgr.Default()
+	var buf bytes.Buffer
+	lgr.Setup(lgr.Out(&buf), lgr.Err(&buf), lgr.Debug)
+	t.Cleanup(func() {
+		lgr.Setup(lgr.Debug, lgr.SlogHandler(lgr.ToSlogHandler(previous)))
+	})
+	return &buf
+}
+
+// chdirToFakeGitConfig writes a hand-rolled .git/config file (no real git binary required) whose
+// content is config, then chdirs the process into that directory for the duration of the calling
+// test, restoring the original working directory via t.Cleanup. This is enough to steer
+// remote.GetRemote (via common.OpenGitConfig, which just walks up from cwd looking for a
+// ".git/config" file) without needing a real git checkout, and without depending on this
+// repository's own ambient git remote.
+func chdirToFakeGitConfig(t *testing.T, config string) {
+	t.Helper()
+
+	dir := t.TempDir()
+	gitDir := filepath.Join(dir, ".git")
+	if err := os.Mkdir(gitDir, 0o750); err != nil {
+		t.Fatalf("cannot create fake .git dir: %v", err)
+	}
+	if config != "" {
+		if err := os.WriteFile(filepath.Join(gitDir, "config"), []byte(config), 0o600); err != nil {
+			t.Fatalf("cannot write fake .git/config: %v", err)
+		}
+	}
+
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("cannot get working directory: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("cannot chdir to %s: %v", dir, err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(original); err != nil {
+			t.Fatalf("cannot restore working directory: %v", err)
+		}
+	})
 }
