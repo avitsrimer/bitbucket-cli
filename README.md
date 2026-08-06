@@ -236,10 +236,11 @@ You should define the default workspace for the profile with the `--default-work
 You can also pass the `--default` flag to make this profile the default one, or pass a `--output` flag to change the profile output format. If you use only one profile, it will be used as the default profile.
 
 > [!NOTE]
-> `--default-project`, `--default-ssh-key-file`, and `--progress` are still accepted and stored
-> in the profile (for compatibility with config files written by upstream) but have no effect in
-> this fork: the clone/upload/download commands that read them were removed from the command
-> surface.
+> `--default-project` and `--progress` are still accepted and stored in the profile (for
+> compatibility with config files written by upstream) but have no effect in this fork: the
+> commands that read them were removed from the command surface. `--default-ssh-key-file` is
+> functional again: `bb repo clone` uses it as the default SSH private key file when cloning over
+> the `git`/`ssh` protocols and no `--ssh-key-file` flag is passed.
 
 By default, the password or client secret is stored in the vault of the operating system (Windows Credential Manager, macOS Keychain, or Linux Secret Service). You can pass the `--no-vault` flag to disable this feature and store the password or client secret in plain text in the configuration file. This is not recommended, but can be useful for testing purposes.
 
@@ -267,8 +268,9 @@ Permission Scopes:
 When you use a user/password, the password is stored in the vault of the operating system (Windows Credential Manager, macOS Keychain, or Linux Secret Service). You can pass the `--no-vault` flag to disable this feature and store the password in plain text in the configuration file. This is not recommended, but can be useful for testing purposes. On Linux and macOS, you can also pass the `--vault-key` flag to set the key to use in the system keychain. By default, the key is `bitbucket-cli`. On Windows, this option is not available.
 
 > [!NOTE]
-> `--clone-protocol` and `--clone-user` are likewise still accepted and stored but have no
-> effect here: this fork does not clone repositories.
+> `--clone-protocol` and `--clone-user` are functional again: `bb repo clone` uses them as the
+> default protocol (overridable per invocation with `--protocol`) and, for the `https` protocol,
+> the username embedded in the clone URL.
 
 You can get the list of your profiles with the `bb profile list` command:
 
