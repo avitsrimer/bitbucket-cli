@@ -14,19 +14,23 @@ import (
 //
 // otherwise it does nothing
 func WhatIf(cmd *cobra.Command, format string, args ...any) (proceed bool) {
-	dryRun := false
+	if !isDryRun(cmd) {
+		return true
+	}
+	lgr.Printf("[DEBUG] dry run: "+format, args...)
+	fmt.Fprintf(os.Stderr, "Dry run: "+format+"\n", args...)
+	return false
+}
+
+// isDryRun reports whether cmd carries a dry-run/noop/whatif flag set to true. Shared by WhatIf
+// (which also prints the "would do X" message) and Confirm (which short-circuits before prompting,
+// leaving the caller's own WhatIf check to report the dry-run message once).
+func isDryRun(cmd *cobra.Command) bool {
 	for _, name := range []string{"dry-run", "noop", "whatif"} {
 		flag := cmd.Flag(name)
 		if flag != nil && flag.Value != nil && flag.Value.String() == "true" {
-			dryRun = true
-			break
+			return true
 		}
 	}
-
-	if dryRun {
-		lgr.Printf("[DEBUG] dry run: "+format, args...)
-		fmt.Fprintf(os.Stderr, "Dry run: "+format+"\n", args...)
-		return false
-	}
-	return true
+	return false
 }
