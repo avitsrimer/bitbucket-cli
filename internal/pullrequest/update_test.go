@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -21,13 +22,14 @@ import (
 // at init) so tests can set the values they need without leaking state across other tests.
 func withUpdateOptions(t *testing.T, mutate func()) {
 	t.Helper()
-	oldTitle, oldDescription := updateOptions.Title, updateOptions.Description
+	oldTitle, oldDescription, oldDescriptionFile := updateOptions.Title, updateOptions.Description, updateOptions.DescriptionFile
 	oldDestinationValue := updateOptions.Destination.Value
 	oldAddReviewers, oldRemoveReviewers := updateOptions.AddReviewers, updateOptions.RemoveReviewers
 	oldCloseSourceBranch := updateOptions.CloseSourceBranch
 	t.Cleanup(func() {
 		updateOptions.Title = oldTitle
 		updateOptions.Description = oldDescription
+		updateOptions.DescriptionFile = oldDescriptionFile
 		updateOptions.Destination.Value = oldDestinationValue
 		updateOptions.AddReviewers = oldAddReviewers
 		updateOptions.RemoveReviewers = oldRemoveReviewers
@@ -48,6 +50,7 @@ func withUpdateOptions(t *testing.T, mutate func()) {
 func registerUpdateFlags(cmd *cobra.Command) {
 	cmd.Flags().String("title", "", "")
 	cmd.Flags().String("description", "", "")
+	cmd.Flags().String("description-file", "", "")
 	cmd.Flags().String("destination", "", "")
 	cmd.Flags().Bool("close-source-branch", false, "")
 	cmd.Flags().StringSlice("add-reviewer", nil, "")
@@ -126,7 +129,11 @@ func TestApplySimpleFieldUpdates(t *testing.T) {
 			}
 
 			var pr PullRequest
-			if changed := applySimpleFieldUpdates(cmd, &pr); changed != tt.wantChanged {
+			changed, err := applySimpleFieldUpdates(cmd, &pr)
+			if err != nil {
+				t.Fatalf("applySimpleFieldUpdates() error = %v", err)
+			}
+			if changed != tt.wantChanged {
 				t.Errorf("applySimpleFieldUpdates() = %v, want %v", changed, tt.wantChanged)
 			}
 			if !tt.setFlags {
@@ -452,6 +459,89 @@ func TestUpdateProcessSimpleFieldsSuccess(t *testing.T) {
 	}
 	if printed.Title != "Updated title" {
 		t.Errorf("printed title = %q, want %q", printed.Title, "Updated title")
+	}
+}
+
+// TestUpdateProcessDescriptionFileSuccess verifies that --description-file's content lands in
+// the PUT body verbatim, including backticks and $(), and that setting only --description-file
+// (not --description) still marks the update as wanted.
+func TestUpdateProcessDescriptionFileSuccess(t *testing.T) {
+	body := "Now also fixes `go vet` warnings; verified with $(go build ./...).\n"
+	path := filepath.Join(t.TempDir(), "description.md")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("cannot write fixture file: %v", err)
+	}
+
+	withUpdateOptions(t, func() {
+		updateOptions.DescriptionFile = path
+	})
+
+	var requests []*http.Request
+	var putBody PullRequest
+	cmd := setupTestNamed(t, "update-description-file", func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodGet:
+			_, _ = w.Write([]byte(`{"id":42,"title":"Old title"}`))
+		case http.MethodPut:
+			if err := json.NewDecoder(r.Body).Decode(&putBody); err != nil {
+				t.Errorf("cannot decode PUT body: %v", err)
+			}
+			_, _ = w.Write([]byte(`{"id":42,"title":"Old title"}`))
+		}
+	}, false)
+	registerUpdateFlags(cmd)
+	if err := cmd.Flags().Set("description-file", path); err != nil {
+		t.Fatalf("cannot set description-file flag: %v", err)
+	}
+
+	testutil.CaptureStdout(t, func() {
+		if err := updateProcess(cmd, []string{"42"}); err != nil {
+			t.Fatalf("updateProcess() error = %v", err)
+		}
+	})
+
+	if len(requests) != 2 || requests[1].Method != http.MethodPut {
+		t.Fatalf("requests = %v, want exactly a GET followed by a PUT", requests)
+	}
+	if putBody.Description != body {
+		t.Errorf("PUT body description = %q, want %q (verbatim)", putBody.Description, body)
+	}
+}
+
+// TestUpdateProcessEmptyDescriptionFileBodyErrors verifies that a --description-file pointing at
+// an empty file is rejected before any PUT, consistent with FR-6's empty-body rule.
+func TestUpdateProcessEmptyDescriptionFileBodyErrors(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "empty.md")
+	if err := os.WriteFile(path, []byte("\n"), 0o600); err != nil {
+		t.Fatalf("cannot write fixture file: %v", err)
+	}
+
+	withUpdateOptions(t, func() {
+		updateOptions.DescriptionFile = path
+	})
+
+	var requests []*http.Request
+	cmd := setupTestNamed(t, "update-description-file-empty", func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":42,"title":"Old title"}`))
+	}, false)
+	registerUpdateFlags(cmd)
+	if err := cmd.Flags().Set("description-file", path); err != nil {
+		t.Fatalf("cannot set description-file flag: %v", err)
+	}
+
+	err := updateProcess(cmd, []string{"42"})
+	if err == nil {
+		t.Fatal("updateProcess() expected an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "description body is empty") {
+		t.Errorf("error = %q, want it to mention the empty description body", err.Error())
+	}
+	if len(requests) != 1 || requests[0].Method != http.MethodGet {
+		t.Errorf("requests = %v, want exactly one GET and no PUT", requests)
 	}
 }
 

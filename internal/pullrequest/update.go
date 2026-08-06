@@ -31,6 +31,7 @@ var updateCmd = &cobra.Command{
 var updateOptions struct {
 	Title             string
 	Description       string
+	DescriptionFile   string
 	Destination       *common.EnumFlag
 	AddReviewers      []string
 	RemoveReviewers   []string
@@ -44,6 +45,7 @@ func init() {
 
 	updateCmd.Flags().StringVar(&updateOptions.Title, "title", "", "Title of the pullrequest")
 	updateCmd.Flags().StringVar(&updateOptions.Description, "description", "", "Description of the pullrequest")
+	registerDescriptionFileFlag(updateCmd, &updateOptions.DescriptionFile)
 	updateCmd.Flags().Var(updateOptions.Destination, "destination", "Destination branch of the pullrequest")
 	updateCmd.Flags().StringSliceVar(&updateOptions.AddReviewers, "add-reviewer", nil, "Reviewer(s) to add to the pullrequest. Can be specified multiple times, or as a comma-separated list. Can be the user Account ID, UUID, name, or nickname. If the first reviewer is `default`, the command will try to find the default reviewers from the repository or project settings.")
 	updateCmd.Flags().StringSliceVar(&updateOptions.RemoveReviewers, "remove-reviewer", nil, "Reviewer(s) to remove from the pullrequest. Can be specified multiple times, or as a comma-separated list. Can be the user Account ID, UUID, name, or nickname.")
@@ -92,7 +94,10 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 	lgr.Printf("[DEBUG] fetched pullrequest %s", args[0])
 	lgr.Printf("[DEBUG] pullrequest %s details", args[0])
 
-	updateWanted := applySimpleFieldUpdates(cmd, &pullrequest)
+	updateWanted, err := applySimpleFieldUpdates(cmd, &pullrequest)
+	if err != nil {
+		return err
+	}
 
 	workspaceSlug, err := destinationWorkspaceSlug(cmd.Context(), cmd, &pullrequest, repository)
 	if err != nil {
@@ -153,15 +158,19 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 
 // applySimpleFieldUpdates copies the flag-backed simple fields onto pullrequest and reports
 // whether anything changed
-func applySimpleFieldUpdates(cmd *cobra.Command, pullrequest *PullRequest) bool {
+func applySimpleFieldUpdates(cmd *cobra.Command, pullrequest *PullRequest) (bool, error) {
 	updateWanted := false
 	if cmd.Flag("title").Changed {
 		pullrequest.Title = updateOptions.Title
 		updateWanted = true
 	}
-	if cmd.Flag("description").Changed {
-		pullrequest.Description = updateOptions.Description
-		pullrequest.Summary.Raw = updateOptions.Description
+	if cmd.Flag("description").Changed || cmd.Flag("description-file").Changed {
+		description, err := resolveDescriptionBody(cmd, updateOptions.Description, updateOptions.DescriptionFile)
+		if err != nil {
+			return false, err
+		}
+		pullrequest.Description = description
+		pullrequest.Summary.Raw = description
 		updateWanted = true
 	}
 	if cmd.Flag("destination").Changed {
@@ -172,7 +181,7 @@ func applySimpleFieldUpdates(cmd *cobra.Command, pullrequest *PullRequest) bool 
 		pullrequest.CloseSourceBranch = updateOptions.CloseSourceBranch
 		updateWanted = true
 	}
-	return updateWanted
+	return updateWanted, nil
 }
 
 // destinationWorkspaceSlug resolves the workspace slug that owns pr's destination repository,

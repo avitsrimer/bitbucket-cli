@@ -34,26 +34,31 @@ type CommentContent struct {
 
 // commentEditOptions holds the flags shared by the create and update commands
 type commentEditOptions struct {
-	Comment  string
-	File     string
-	From     int
-	To       int
-	ParentID int64
-	Pending  bool
+	Comment     string
+	CommentFile string
+	File        string
+	From        int
+	To          int
+	ParentID    int64
+	Pending     bool
 }
 
 // payload builds the request body for a create/update comment request from o, resolving the
-// --file/--line/--from/--to file anchor and the --parent/--pending flags. Returns an error when
-// the comment body is empty (--comment is required by cobra, but an empty string still passes
-// that check, and FR-6's full preflight rejects an empty body explicitly) or when --line/--from/
-// --to was given without --file.
+// comment body from --comment or --comment-file/stdin, the --file/--line/--from/--to file anchor,
+// and the --parent/--pending flags. Returns an error when the resolved comment body is empty
+// (FR-6's full preflight rejects an empty body explicitly) or when --line/--from/--to was given
+// without --file.
 func (o commentEditOptions) payload(cmd *cobra.Command) (CommentPayload, error) {
-	if strings.TrimSpace(o.Comment) == "" {
+	commentBody, err := o.resolveComment(cmd)
+	if err != nil {
+		return CommentPayload{}, err
+	}
+	if strings.TrimSpace(commentBody) == "" {
 		return CommentPayload{}, errors.New("comment body is empty")
 	}
 
 	payload := CommentPayload{
-		Content: CommentContent{Raw: o.Comment},
+		Content: CommentContent{Raw: commentBody},
 	}
 
 	if o.ParentID > 0 {
@@ -81,9 +86,25 @@ func (o commentEditOptions) payload(cmd *cobra.Command) (CommentPayload, error) 
 	return payload, nil
 }
 
+// resolveComment returns the comment body to send: o.CommentFile's content (or cmd's stdin, via
+// "-") when o.CommentFile is set, otherwise o.Comment verbatim. registerCommentEditFlags'
+// MarkFlagsMutuallyExclusive guarantees at most one of --comment/--comment-file was given, and its
+// MarkFlagsOneRequired guarantees at least one was.
+func (o commentEditOptions) resolveComment(cmd *cobra.Command) (string, error) {
+	if o.CommentFile == "" {
+		return o.Comment, nil
+	}
+	body, err := common.ReadBodyFromFileOrStdin(cmd, o.CommentFile)
+	if err != nil {
+		return "", fmt.Errorf("cannot read comment body: %w", err)
+	}
+	return body, nil
+}
+
 // registerCommentEditFlags registers the flags shared by the create and update commands
 func registerCommentEditFlags(cmd *cobra.Command, options *commentEditOptions, commentHelp string) {
 	cmd.Flags().StringVar(&options.Comment, "comment", "", commentHelp)
+	cmd.Flags().StringVar(&options.CommentFile, "comment-file", "", "Read the comment body from <path>, or - to read it from stdin. Mutually exclusive with --comment.")
 	cmd.Flags().StringVar(&options.File, "file", "", "File to comment on")
 	cmd.Flags().IntVar(&options.From, "line", 0, "Line to comment on, same as --from. Cannot be used with --to")
 	cmd.Flags().IntVar(&options.From, "from", 0, "From line to comment on. Cannot be used with --line")
@@ -92,7 +113,9 @@ func registerCommentEditFlags(cmd *cobra.Command, options *commentEditOptions, c
 	cmd.Flags().BoolVar(&options.Pending, "pending", false, "Mark the comment as pending")
 	cmd.MarkFlagsMutuallyExclusive("line", "from")
 	cmd.MarkFlagsMutuallyExclusive("line", "to")
-	_ = cmd.MarkFlagRequired("comment")
+	cmd.MarkFlagsMutuallyExclusive("comment", "comment-file")
+	cmd.MarkFlagsOneRequired("comment", "comment-file")
+	_ = cmd.MarkFlagFilename("comment-file")
 }
 
 // diffstatEntry is the shape of one entry of a pull request's diffstat (GET
