@@ -127,6 +127,13 @@ func setupTestNamed(t *testing.T, profileName string, handler http.HandlerFunc, 
 	cmd.Flags().String("repository", fixtureRepositoryFlag, "")
 	cmd.Flags().String("output", "", "")
 	cmd.Flags().Bool("dry-run", dryRun, "")
+	// Mirrors RootCmd's persistent stop-on-error/warn-on-error/ignore-errors flags (see
+	// internal/cmd/root.go): Profile.ShouldStopOnError/ShouldWarnOnError/ShouldIgnoreErrors read
+	// them via cmd.Flag(name).Changed unconditionally, so any code path reaching them needs the
+	// flags to exist even when a test never sets them.
+	cmd.Flags().Bool("stop-on-error", false, "")
+	cmd.Flags().Bool("warn-on-error", false, "")
+	cmd.Flags().Bool("ignore-errors", false, "")
 	return cmd
 }
 

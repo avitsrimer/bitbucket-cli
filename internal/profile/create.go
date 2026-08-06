@@ -141,23 +141,32 @@ func resolveCreateSecrets() error {
 
 	switch {
 	case createOptions.ClientID != "":
-		secret, err := resolveVaultSecret("client secret", createOptions.VaultKey, createOptions.ClientID, createOptions.ClientSecret, createOptions.SetCredentialInVault, createOptions.GetCredentialFromVault)
+		secret, fromVault, err := resolveVaultSecret("client secret", createOptions.VaultKey, createOptions.ClientID, createOptions.ClientSecret, createOptions.SetCredentialInVault, createOptions.GetCredentialFromVault)
 		if err != nil {
 			return errors.New("a client secret is required when using a client ID since it is not stored in the vault. Please provide it with --client-secret or store it in the vault with the command")
 		}
 		createOptions.ClientSecret = secret
+		if fromVault {
+			createOptions.vault.clientSecret = true // must never be written back to the config file in plain text
+		}
 	case createOptions.User != "":
-		secret, err := resolveVaultSecret("user password", createOptions.VaultKey, createOptions.User, createOptions.Password, createOptions.SetCredentialInVault, createOptions.GetCredentialFromVault)
+		secret, fromVault, err := resolveVaultSecret("user password", createOptions.VaultKey, createOptions.User, createOptions.Password, createOptions.SetCredentialInVault, createOptions.GetCredentialFromVault)
 		if err != nil {
 			return errors.New("a password is required when using a user since it is not stored in the vault. Please provide it with --password or store it in the vault with the command")
 		}
 		createOptions.Password = secret
+		if fromVault {
+			createOptions.vault.password = true // must never be written back to the config file in plain text
+		}
 	case createOptions.AccessToken != "":
-		secret, err := resolveVaultSecret("access token", createOptions.VaultKey, createOptions.Name, createOptions.AccessToken, createOptions.SetCredentialInVault, createOptions.GetCredentialFromVault)
+		secret, fromVault, err := resolveVaultSecret("access token", createOptions.VaultKey, createOptions.Name, createOptions.AccessToken, createOptions.SetCredentialInVault, createOptions.GetCredentialFromVault)
 		if err != nil {
 			return err
 		}
 		createOptions.AccessToken = secret
+		if fromVault {
+			createOptions.vault.accessToken = true // must never be written back to the config file in plain text
+		}
 	}
 	return nil
 }
@@ -166,20 +175,23 @@ func resolveCreateSecrets() error {
 //
 // It returns the secret to keep in the profile in memory: cleared when successfully stored in the
 // vault, unchanged when the store failed (so it falls back to being saved in plain text), or the
-// value loaded from the vault.
-func resolveVaultSecret(kind, vaultKey, username, secret string, set func(vaultKey, username, secret string) error, get func(vaultKey, username string) (*Credential, error)) (string, error) {
+// value loaded from the vault -- along with fromVault, reporting whether the returned value came
+// from the vault (mirroring getSecretOrFromVault). The caller must set the matching
+// createOptions.vault.* bit when fromVault is true, or Profile.forSave has no way to tell the
+// loaded secret apart from one the user typed in plain text, and will persist it verbatim.
+func resolveVaultSecret(kind, vaultKey, username, secret string, set func(vaultKey, username, secret string) error, get func(vaultKey, username string) (*Credential, error)) (value string, fromVault bool, err error) {
 	if secret != "" {
-		if err := set(vaultKey, username, secret); err != nil {
-			lgr.Printf("[ERROR] failed to store %s in the %s vault, the secret will be stored in plain text in the configuration file: %v", kind, vaultKey, err)
-			fmt.Fprintf(os.Stderr, "Failed to store %s in the %s vault, the secret will be stored in plain text in the configuration file: %s\n", kind, vaultKey, err)
-			return secret, nil
+		if setErr := set(vaultKey, username, secret); setErr != nil {
+			lgr.Printf("[ERROR] failed to store %s in the %s vault, the secret will be stored in plain text in the configuration file: %v", kind, vaultKey, setErr)
+			fmt.Fprintf(os.Stderr, "Failed to store %s in the %s vault, the secret will be stored in plain text in the configuration file: %s\n", kind, vaultKey, setErr)
+			return secret, false, nil
 		}
 		lgr.Printf("[DEBUG] stored %s in the %s vault for %s", kind, vaultKey, username)
-		return "", nil
+		return "", false, nil
 	}
 	credential, err := get(vaultKey, username)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	return credential.Password, nil
+	return credential.Password, true, nil
 }

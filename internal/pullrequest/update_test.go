@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
+	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
 	"github.com/avitsrimer/bitbucket-cli/internal/workspace"
@@ -50,6 +51,15 @@ func registerUpdateFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("close-source-branch", false, "")
 	cmd.Flags().StringSlice("add-reviewer", nil, "")
 	cmd.Flags().StringSlice("remove-reviewer", nil, "")
+	// Mirrors RootCmd's persistent stop-on-error/warn-on-error/ignore-errors flags (see
+	// internal/cmd/root.go): Profile.ShouldStopOnError/ShouldWarnOnError/ShouldIgnoreErrors read
+	// them via cmd.Flag(name).Changed unconditionally. Guarded against double-registration since
+	// some callers pass a cmd that setupTestNamed already equipped with these same flags.
+	if cmd.Flags().Lookup("stop-on-error") == nil {
+		cmd.Flags().Bool("stop-on-error", false, "")
+		cmd.Flags().Bool("warn-on-error", false, "")
+		cmd.Flags().Bool("ignore-errors", false, "")
+	}
 }
 
 func TestUpdateValidArgsListsAllPullRequestIDs(t *testing.T) {
@@ -138,7 +148,11 @@ func TestRemoveRequestedReviewersRemovesMatch(t *testing.T) {
 		return strings.EqualFold(member.User.Nickname, id)
 	}
 
-	if changed := removeRequestedReviewers(cmd, pr, isMember); !changed {
+	changed, err := removeRequestedReviewers(cmd, &profile.Profile{}, pr, isMember)
+	if err != nil {
+		t.Fatalf("removeRequestedReviewers() error = %v", err)
+	}
+	if !changed {
 		t.Error("removeRequestedReviewers() = false, want true when a matching reviewer is removed")
 	}
 	if len(pr.Reviewers) != 1 || pr.Reviewers[0].Nickname != "other" {
@@ -156,7 +170,11 @@ func TestRemoveRequestedReviewersNoOpWhenFlagNotChanged(t *testing.T) {
 	pr := &PullRequest{Reviewers: []user.User{{Nickname: "jdoe"}}}
 	isMember := func(member workspace.Member, id string) bool { return strings.EqualFold(member.User.Nickname, id) }
 
-	if changed := removeRequestedReviewers(cmd, pr, isMember); changed {
+	changed, err := removeRequestedReviewers(cmd, &profile.Profile{}, pr, isMember)
+	if err != nil {
+		t.Fatalf("removeRequestedReviewers() error = %v", err)
+	}
+	if changed {
 		t.Error("removeRequestedReviewers() = true, want false when --remove-reviewer was not passed")
 	}
 	if len(pr.Reviewers) != 1 {
@@ -539,7 +557,7 @@ func TestAddReviewerFlagAcceptsDefaultSentinelThroughRealFlagParsing(t *testing.
 		return member.User.AccountID == id || strings.EqualFold(member.User.Nickname, id) || strings.EqualFold(member.User.Name, id)
 	}
 
-	added, err := addRequestedReviewers(cmd.Context(), cmd, pr, pullrequestWorkspace, isMember)
+	added, err := addRequestedReviewers(cmd.Context(), cmd, profile.Current, pr, pullrequestWorkspace, isMember)
 	if err != nil {
 		t.Fatalf("addRequestedReviewers() error = %v", err)
 	}
@@ -569,6 +587,138 @@ func TestAddReviewerFlagAcceptsNonNicknameIdentifierThroughRealFlagParsing(t *te
 	}
 	if !slices.Equal(updateOptions.AddReviewers, []string{accountID}) {
 		t.Errorf("updateOptions.AddReviewers = %v, want [%s]", updateOptions.AddReviewers, accountID)
+	}
+}
+
+// TestUpdateProcessAddReviewerTypoErrorsBeforePut is a regression test for review-iter5 finding
+// 2: an unresolvable --add-reviewer value used to be silently dropped (printed to stderr, no
+// error returned), so `pullrequest update 42 --add-reviewer jdoe-typo` issued no PUT at all but
+// still exited 0. It must now abort with an error naming the offending value, and no PUT may be
+// sent.
+func TestUpdateProcessAddReviewerTypoErrorsBeforePut(t *testing.T) {
+	withUpdateOptions(t, func() {
+		updateOptions.AddReviewers = []string{"jdoe-typo"}
+	})
+
+	var putCount int
+	cmd := setupTestNamed(t, "update-add-reviewer-typo", func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/members"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"values":[{"user":{"uuid":"{33333333-3333-3333-3333-333333333333}","nickname":"alice"}}]}`))
+		case r.Method == http.MethodPut:
+			putCount++
+		default:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":42,"title":"Old title"}`))
+		}
+	}, false)
+	registerUpdateFlags(cmd)
+	if err := cmd.Flags().Set("add-reviewer", "jdoe-typo"); err != nil {
+		t.Fatalf("cannot set add-reviewer flag: %v", err)
+	}
+
+	err := updateProcess(cmd, []string{"42"})
+	if err == nil {
+		t.Fatal("updateProcess() expected an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "jdoe-typo") {
+		t.Errorf("error = %q, want it to name the unresolved reviewer jdoe-typo", err.Error())
+	}
+	if putCount != 0 {
+		t.Errorf("expected no PUT request, got %d", putCount)
+	}
+}
+
+// TestUpdateProcessRemoveReviewerNobodyErrors is a regression test for review-iter5 finding 2:
+// removeRequestedReviewers used to silently no-op when the requested --remove-reviewer value
+// matched none of the pullrequest's current reviewers. It must now abort with an error naming the
+// offending value, and no PUT may be sent.
+func TestUpdateProcessRemoveReviewerNobodyErrors(t *testing.T) {
+	withUpdateOptions(t, func() {
+		updateOptions.RemoveReviewers = []string{"nobody"}
+	})
+
+	var putCount int
+	cmd := setupTestNamed(t, "update-remove-reviewer-nobody", func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/members"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"values":[]}`))
+		case r.Method == http.MethodPut:
+			putCount++
+		default:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":42,"title":"Old title","reviewers":[{"nickname":"alice"}]}`))
+		}
+	}, false)
+	registerUpdateFlags(cmd)
+	if err := cmd.Flags().Set("remove-reviewer", "nobody"); err != nil {
+		t.Fatalf("cannot set remove-reviewer flag: %v", err)
+	}
+
+	err := updateProcess(cmd, []string{"42"})
+	if err == nil {
+		t.Fatal("updateProcess() expected an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "nobody") {
+		t.Errorf("error = %q, want it to name the unresolved reviewer nobody", err.Error())
+	}
+	if putCount != 0 {
+		t.Errorf("expected no PUT request, got %d", putCount)
+	}
+}
+
+// TestUpdateProcessAddReviewerAllExpandsToEveryMember is the --add-reviewer counterpart of
+// TestCreateProcessReviewerAllExpandsToEveryMember (review-iter5 finding 3): the "all" sentinel
+// must expand to every workspace member here too.
+func TestUpdateProcessAddReviewerAllExpandsToEveryMember(t *testing.T) {
+	withUpdateOptions(t, func() {
+		updateOptions.AddReviewers = []string{"all"}
+	})
+
+	var putBody PullRequest
+	var putCount int
+	cmd := setupTestNamed(t, "update-add-reviewer-all", func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/members"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"values":[` +
+				`{"user":{"uuid":"{33333333-3333-3333-3333-333333333333}","nickname":"alice"}},` +
+				`{"user":{"uuid":"{44444444-4444-4444-4444-444444444444}","nickname":"bob"}}` +
+				`]}`))
+		case r.Method == http.MethodPut:
+			putCount++
+			if err := json.NewDecoder(r.Body).Decode(&putBody); err != nil {
+				t.Errorf("cannot decode PUT body: %v", err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":42,"title":"Old title"}`))
+		default:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":42,"title":"Old title"}`))
+		}
+	}, false)
+	registerUpdateFlags(cmd)
+	if err := cmd.Flags().Set("add-reviewer", "all"); err != nil {
+		t.Fatalf("cannot set add-reviewer flag: %v", err)
+	}
+
+	if err := updateProcess(cmd, []string{"42"}); err != nil {
+		t.Fatalf("updateProcess() error = %v", err)
+	}
+	if putCount != 1 {
+		t.Fatalf("expected exactly one PUT request, got %d", putCount)
+	}
+	if len(putBody.Reviewers) != 2 {
+		t.Fatalf("PUT body reviewers = %+v, want every workspace member (2)", putBody.Reviewers)
+	}
+	nicknames := map[string]bool{}
+	for _, reviewer := range putBody.Reviewers {
+		nicknames[reviewer.Nickname] = true
+	}
+	if !nicknames["alice"] || !nicknames["bob"] {
+		t.Errorf("PUT body reviewer nicknames = %v, want both alice and bob", nicknames)
 	}
 }
 

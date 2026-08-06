@@ -118,11 +118,15 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 		return member.User.AccountID == id || strings.EqualFold(member.User.Nickname, id) || strings.EqualFold(member.User.Name, id)
 	}
 
-	if removeRequestedReviewers(cmd, &pullrequest, isMember) {
+	removed, err := removeRequestedReviewers(cmd, profile, &pullrequest, isMember)
+	if err != nil {
+		return err
+	}
+	if removed {
 		updateWanted = true
 	}
 
-	added, err := addRequestedReviewers(cmd.Context(), cmd, &pullrequest, pullrequestWorkspace, isMember)
+	added, err := addRequestedReviewers(cmd.Context(), cmd, profile, &pullrequest, pullrequestWorkspace, isMember)
 	if err != nil {
 		return err
 	}
@@ -188,12 +192,17 @@ func applySimpleFieldUpdates(cmd *cobra.Command, pullrequest *PullRequest) bool 
 }
 
 // removeRequestedReviewers removes reviewers listed in --remove-reviewer from pullrequest and
-// reports whether anything changed
-func removeRequestedReviewers(cmd *cobra.Command, pullrequest *PullRequest, isMember func(workspace.Member, string) bool) bool {
+// reports whether anything changed. A value that does not match any current reviewer is an
+// error: by default (or with --stop-on-error/ErrorProcessing StopOnError) it aborts immediately
+// naming the offending value, so no PUT is sent; with --warn-on-error/WarnOnError or
+// --ignore-errors/IgnoreErrors it is tolerated (warned or silently skipped) and the update
+// proceeds with whichever reviewers were resolved.
+func removeRequestedReviewers(cmd *cobra.Command, prof *profile.Profile, pullrequest *PullRequest, isMember func(workspace.Member, string) bool) (bool, error) {
 	if !cmd.Flag("remove-reviewer").Changed || len(updateOptions.RemoveReviewers) == 0 {
-		return false
+		return false, nil
 	}
 	updateWanted := false
+	var errs []error
 	for _, reviewerNameOrID := range updateOptions.RemoveReviewers {
 		found := -1
 		for index, reviewer := range pullrequest.Reviewers {
@@ -205,9 +214,27 @@ func removeRequestedReviewers(cmd *cobra.Command, pullrequest *PullRequest, isMe
 		if found != -1 {
 			pullrequest.Reviewers = append(pullrequest.Reviewers[:found], pullrequest.Reviewers[found+1:]...)
 			updateWanted = true
+			continue
 		}
+		reviewerErr := fmt.Errorf("reviewer %s is not a reviewer of the pullrequest", reviewerNameOrID)
+		lgr.Printf("[ERROR] %s", reviewerErr)
+		if prof.ShouldStopOnError(cmd) {
+			return false, reviewerErr
+		}
+		errs = append(errs, reviewerErr)
 	}
-	return updateWanted
+	if joined := errors.Join(errs...); joined != nil {
+		if prof.ShouldWarnOnError(cmd) {
+			fmt.Fprintf(os.Stderr, "Failed to remove these reviewers: %s\n", joined)
+			return updateWanted, nil
+		}
+		if prof.ShouldIgnoreErrors(cmd) {
+			lgr.Printf("[WARN] failed to remove these reviewers, but ignoring errors: %s", joined)
+			return updateWanted, nil
+		}
+		return false, joined
+	}
+	return updateWanted, nil
 }
 
 // resolveDefaultReviewers resolves the "default" sentinel in --add-reviewer to the effective
@@ -251,9 +278,13 @@ func resolveDefaultReviewers(ctx context.Context, cmd *cobra.Command, pullreques
 	), nil
 }
 
-// addRequestedReviewers adds reviewers listed in --add-reviewer (resolving the "default" sentinel
-// first) and reports whether anything changed
-func addRequestedReviewers(ctx context.Context, cmd *cobra.Command, pullrequest *PullRequest, pullrequestWorkspace *workspace.Workspace, isMember func(workspace.Member, string) bool) (bool, error) {
+// addRequestedReviewers adds reviewers listed in --add-reviewer (resolving the "default" and
+// "all" sentinels first) and reports whether anything changed. A value that does not match any
+// workspace member is an error: by default (or with --stop-on-error/ErrorProcessing
+// StopOnError) it aborts immediately naming the offending value, so no PUT is sent; with
+// --warn-on-error/WarnOnError or --ignore-errors/IgnoreErrors it is tolerated (warned or
+// silently skipped) and the update proceeds with whichever reviewers were resolved.
+func addRequestedReviewers(ctx context.Context, cmd *cobra.Command, prof *profile.Profile, pullrequest *PullRequest, pullrequestWorkspace *workspace.Workspace, isMember func(workspace.Member, string) bool) (bool, error) {
 	if !cmd.Flag("add-reviewer").Changed || len(updateOptions.AddReviewers) == 0 {
 		return false, nil
 	}
@@ -271,6 +302,8 @@ func addRequestedReviewers(ctx context.Context, cmd *cobra.Command, pullrequest 
 	lgr.Printf("[DEBUG] getting all members from workspace %s", pullrequestWorkspace)
 	members, _ := pullrequestWorkspace.GetMembers(ctx, cmd)
 	lgr.Printf("[DEBUG] found %d members in workspace %s", len(members), pullrequestWorkspace)
+	reviewerValues = expandAllReviewers(reviewerValues, members)
+	var errs []error
 	for _, reviewerNameOrID := range reviewerValues {
 		lgr.Printf("[DEBUG] processing reviewer to add: %s", reviewerNameOrID)
 		matches := core.Filter(members, func(member workspace.Member) bool { return isMember(member, reviewerNameOrID) })
@@ -282,10 +315,25 @@ func addRequestedReviewers(ctx context.Context, cmd *cobra.Command, pullrequest 
 			} else {
 				lgr.Printf("[DEBUG] reviewer %s (%s) is already a reviewer, skipping", matches[0].User.ID, matches[0].User.Nickname)
 			}
-		} else {
-			lgr.Printf("[ERROR] reviewer ID %s is not a member of workspace %s", reviewerNameOrID, pullrequestWorkspace)
-			fmt.Fprintf(os.Stderr, "Reviewer %s is not a member of workspace %s\n", reviewerNameOrID, pullrequestWorkspace)
+			continue
 		}
+		reviewerErr := fmt.Errorf("reviewer %s is not a member of workspace %s", reviewerNameOrID, pullrequestWorkspace)
+		lgr.Printf("[ERROR] %s", reviewerErr)
+		if prof.ShouldStopOnError(cmd) {
+			return false, reviewerErr
+		}
+		errs = append(errs, reviewerErr)
+	}
+	if joined := errors.Join(errs...); joined != nil {
+		if prof.ShouldWarnOnError(cmd) {
+			fmt.Fprintf(os.Stderr, "Failed to resolve these reviewers: %s\n", joined)
+			return updateWanted, nil
+		}
+		if prof.ShouldIgnoreErrors(cmd) {
+			lgr.Printf("[WARN] failed to resolve these reviewers, but ignoring errors: %s", joined)
+			return updateWanted, nil
+		}
+		return false, joined
 	}
 	return updateWanted, nil
 }
