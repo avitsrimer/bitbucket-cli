@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -13,6 +14,13 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 	"github.com/spf13/cobra"
 )
+
+// withStateFlag registers cmd's own "state" flag with the same repeatable EnumSliceFlag shape
+// listCmd registers in init, so a test can call cmd.Flags().Set("state", ...) exactly like pflag
+// would while parsing the real command line.
+func withStateFlag(cmd *cobra.Command) {
+	cmd.Flags().Var(common.NewEnumSliceFlagWithAllAllowed("declined", "merged", "open", "superseded"), "state", "")
+}
 
 func withListOptions(t *testing.T, mutate func()) {
 	t.Helper()
@@ -240,5 +248,248 @@ func TestListProcessSucceedsWithWorkspaceFlagWhenWorkspaceListingIsForbidden(t *
 	}
 	if len(pullrequests) != 2 {
 		t.Fatalf("expected 2 pullrequests, got %d", len(pullrequests))
+	}
+}
+
+// TestListStatesDefaultsWhenFlagRegisteredButNotChanged proves listStates falls back to
+// listDefaultState when cmd's --state flag is registered (so Lookup succeeds) but was never set
+// on the command line, not just when the flag is entirely absent from cmd.
+func TestListStatesDefaultsWhenFlagRegisteredButNotChanged(t *testing.T) {
+	cmd := &cobra.Command{Use: "test"}
+	withStateFlag(cmd)
+
+	got := listStates(cmd)
+	want := []string{listDefaultState}
+	if !slices.Equal(got, want) {
+		t.Errorf("listStates() = %v, want %v", got, want)
+	}
+}
+
+// TestListProcessRepeatableState proves --state can be passed more than once and emits one
+// "state=" query parameter per value, in the order given, on top of the "open" default.
+func TestListProcessRepeatableState(t *testing.T) {
+	withListOptions(t, func() {
+		listOptions.Commit = ""
+		listOptions.Query = ""
+	})
+
+	fixture, err := os.ReadFile("../../testdata/pullrequests.json")
+	if err != nil {
+		t.Fatalf("cannot read testdata: %v", err)
+	}
+
+	var requests []*http.Request
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(fixture)
+	}, false)
+	withStateFlag(cmd)
+	if err := cmd.Flags().Set("state", "open"); err != nil {
+		t.Fatalf("cannot set state flag: %v", err)
+	}
+	if err := cmd.Flags().Set("state", "merged"); err != nil {
+		t.Fatalf("cannot set state flag: %v", err)
+	}
+
+	testutil.CaptureStdout(t, func() {
+		if err := listProcess(cmd, nil); err != nil {
+			t.Fatalf("listProcess() error = %v", err)
+		}
+	})
+
+	if len(requests) != 1 {
+		t.Fatalf("expected exactly 1 request, got %d", len(requests))
+	}
+	got := requests[0].URL.Query()["state"]
+	want := []string{"OPEN", "MERGED"}
+	if !slices.Equal(got, want) {
+		t.Errorf("state query values = %v, want %v", got, want)
+	}
+}
+
+// TestListProcessStateAllExpandsToEveryState proves the legacy "all" value is kept as sugar for
+// every allowed state, rather than being dropped as a breaking change.
+func TestListProcessStateAllExpandsToEveryState(t *testing.T) {
+	withListOptions(t, func() {
+		listOptions.Commit = ""
+		listOptions.Query = ""
+	})
+
+	fixture, err := os.ReadFile("../../testdata/pullrequests.json")
+	if err != nil {
+		t.Fatalf("cannot read testdata: %v", err)
+	}
+
+	var requests []*http.Request
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(fixture)
+	}, false)
+	withStateFlag(cmd)
+	if err := cmd.Flags().Set("state", "all"); err != nil {
+		t.Fatalf("cannot set state flag: %v", err)
+	}
+
+	testutil.CaptureStdout(t, func() {
+		if err := listProcess(cmd, nil); err != nil {
+			t.Fatalf("listProcess() error = %v", err)
+		}
+	})
+
+	if len(requests) != 1 {
+		t.Fatalf("expected exactly 1 request, got %d", len(requests))
+	}
+	got := requests[0].URL.Query()["state"]
+	want := []string{"DECLINED", "MERGED", "OPEN", "SUPERSEDED"}
+	if !slices.Equal(got, want) {
+		t.Errorf("state query values = %v, want %v", got, want)
+	}
+}
+
+// TestStateFlagRejectsInvalidValue proves an unrecognized --state value is rejected at parse
+// time, on the real "pullrequest list" command's own --state flag.
+func TestStateFlagRejectsInvalidValue(t *testing.T) {
+	if err := listCmd.Flags().Set("state", "bogus"); err == nil {
+		t.Fatal("expected an error setting an invalid --state value")
+	}
+}
+
+// TestListProcessSourceDestinationFilters proves --source/--destination emit AND-joined
+// "source.branch.name="/"destination.branch.name=" clauses in the "q=" query parameter.
+func TestListProcessSourceDestinationFilters(t *testing.T) {
+	withListOptions(t, func() {
+		listOptions.Commit = ""
+		listOptions.Query = ""
+	})
+
+	fixture, err := os.ReadFile("../../testdata/pullrequests.json")
+	if err != nil {
+		t.Fatalf("cannot read testdata: %v", err)
+	}
+
+	var requests []*http.Request
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(fixture)
+	}, false)
+	cmd.Flags().String("source", "", "")
+	cmd.Flags().String("destination", "", "")
+	if err := cmd.Flags().Set("source", "feature/x"); err != nil {
+		t.Fatalf("cannot set source flag: %v", err)
+	}
+	if err := cmd.Flags().Set("destination", "master"); err != nil {
+		t.Fatalf("cannot set destination flag: %v", err)
+	}
+
+	testutil.CaptureStdout(t, func() {
+		if err := listProcess(cmd, nil); err != nil {
+			t.Fatalf("listProcess() error = %v", err)
+		}
+	})
+
+	if len(requests) != 1 {
+		t.Fatalf("expected exactly 1 request, got %d", len(requests))
+	}
+	want := `source.branch.name="feature/x" AND destination.branch.name="master"`
+	if got := requests[0].URL.Query().Get("q"); got != want {
+		t.Errorf("q query = %q, want %q", got, want)
+	}
+}
+
+// TestListProcessComposesStateQueryAndBranchFilters proves --state, --query, --source, and
+// --destination all compose into the same request together.
+func TestListProcessComposesStateQueryAndBranchFilters(t *testing.T) {
+	withListOptions(t, func() {
+		listOptions.Commit = ""
+		listOptions.Query = "updated_on > 2025-01-01"
+	})
+
+	fixture, err := os.ReadFile("../../testdata/pullrequests.json")
+	if err != nil {
+		t.Fatalf("cannot read testdata: %v", err)
+	}
+
+	var requests []*http.Request
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(fixture)
+	}, false)
+	withStateFlag(cmd)
+	cmd.Flags().String("source", "", "")
+	cmd.Flags().String("destination", "", "")
+	if err := cmd.Flags().Set("state", "merged"); err != nil {
+		t.Fatalf("cannot set state flag: %v", err)
+	}
+	if err := cmd.Flags().Set("state", "declined"); err != nil {
+		t.Fatalf("cannot set state flag: %v", err)
+	}
+	if err := cmd.Flags().Set("source", "feature/x"); err != nil {
+		t.Fatalf("cannot set source flag: %v", err)
+	}
+	if err := cmd.Flags().Set("destination", "master"); err != nil {
+		t.Fatalf("cannot set destination flag: %v", err)
+	}
+
+	testutil.CaptureStdout(t, func() {
+		if err := listProcess(cmd, nil); err != nil {
+			t.Fatalf("listProcess() error = %v", err)
+		}
+	})
+
+	if len(requests) != 1 {
+		t.Fatalf("expected exactly 1 request, got %d", len(requests))
+	}
+	gotStates := requests[0].URL.Query()["state"]
+	wantStates := []string{"MERGED", "DECLINED"}
+	if !slices.Equal(gotStates, wantStates) {
+		t.Errorf("state query values = %v, want %v", gotStates, wantStates)
+	}
+	wantQ := `updated_on > 2025-01-01 AND source.branch.name="feature/x" AND destination.branch.name="master"`
+	if gotQ := requests[0].URL.Query().Get("q"); gotQ != wantQ {
+		t.Errorf("q query = %q, want %q", gotQ, wantQ)
+	}
+}
+
+// TestListProcessBranchFilterEscapesQuotes proves a branch name containing a double quote or
+// backslash is escaped rather than breaking the emitted "q=" filter's quoting.
+func TestListProcessBranchFilterEscapesQuotes(t *testing.T) {
+	withListOptions(t, func() {
+		listOptions.Commit = ""
+		listOptions.Query = ""
+	})
+
+	fixture, err := os.ReadFile("../../testdata/pullrequests.json")
+	if err != nil {
+		t.Fatalf("cannot read testdata: %v", err)
+	}
+
+	var requests []*http.Request
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(fixture)
+	}, false)
+	cmd.Flags().String("source", "", "")
+	cmd.Flags().String("destination", "", "")
+	if err := cmd.Flags().Set("source", `feature/"quoted"\branch`); err != nil {
+		t.Fatalf("cannot set source flag: %v", err)
+	}
+
+	testutil.CaptureStdout(t, func() {
+		if err := listProcess(cmd, nil); err != nil {
+			t.Fatalf("listProcess() error = %v", err)
+		}
+	})
+
+	if len(requests) != 1 {
+		t.Fatalf("expected exactly 1 request, got %d", len(requests))
+	}
+	want := `source.branch.name="feature/\"quoted\"\\branch"`
+	if got := requests[0].URL.Query().Get("q"); got != want {
+		t.Errorf("q query = %q, want %q", got, want)
 	}
 }
