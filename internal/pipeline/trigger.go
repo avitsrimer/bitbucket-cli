@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -139,21 +140,19 @@ func triggerProcess(cmd *cobra.Command, args []string) error {
 // selecting a custom pipeline definition via --pattern (the only way to trigger a repository's
 // custom pipelines, as opposed to its default/branch pipelines).
 func buildTriggerTarget(cmd *cobra.Command) (target Target, description string, err error) {
-	pullRequestID, _ := cmd.Flags().GetUint64("pullrequest")
-	if pullRequestID != 0 {
-		target = Target{Type: "pipeline_pullrequest_target", PullRequest: &pullRequestReference{Type: "pullrequest", ID: pullRequestID}}
-		description = fmt.Sprintf("pull request #%d", pullRequestID)
+	// cmd.Flags().Changed, not "!= 0": 0 is both --pullrequest's unset zero value and a
+	// (nonsensical) value a caller could actually pass, e.g. a scripted `--pullrequest $PR_ID`
+	// with an empty PR_ID. Branching on the value alone silently fell through to the branch
+	// target whenever an explicit --pullrequest 0 was given, which is worse than just rejecting
+	// it -- there is no pull request #0 to target, so this must be a hard error naming the flag,
+	// not a silent fallback to whatever branch happens to be checked out.
+	if cmd.Flags().Changed("pullrequest") {
+		target, description, err = pullRequestTriggerTarget(cmd)
 	} else {
-		branchName := common.StringFlagValue(cmd, "branch")
-		if branchName == "" {
-			branchName, err = branch.GetCurrentBranch(cmd.Context())
-			if err != nil {
-				return Target{}, "", fmt.Errorf("cannot determine branch to trigger: use --branch or --pullrequest, or run inside a git repository: %w", err)
-			}
-			lgr.Printf("[DEBUG] using current branch: %s", branchName)
-		}
-		target = Target{Type: "pipeline_ref_target", RefType: "branch", RefName: branchName}
-		description = fmt.Sprintf("branch %q", branchName)
+		target, description, err = branchTriggerTarget(cmd)
+	}
+	if err != nil {
+		return Target{}, "", err
 	}
 
 	commitHash := common.StringFlagValue(cmd, "commit")
@@ -166,6 +165,36 @@ func buildTriggerTarget(cmd *cobra.Command) (target Target, description string, 
 		target.Selector = &common.Selector{Type: "custom", Pattern: pattern}
 		description = fmt.Sprintf("%s (custom pipeline %q)", description, pattern)
 	}
+	return target, description, nil
+}
+
+// pullRequestTriggerTarget resolves the Target/description for an explicit --pullrequest,
+// rejecting the value 0: there is no pull request #0, so an explicit 0 (as opposed to the flag
+// being absent entirely, which buildTriggerTarget routes to branchTriggerTarget instead) must be
+// a hard error rather than silently targeting anything else.
+func pullRequestTriggerTarget(cmd *cobra.Command) (target Target, description string, err error) {
+	pullRequestID, _ := cmd.Flags().GetUint64("pullrequest")
+	if pullRequestID == 0 {
+		return Target{}, "", errors.New("argument pullrequest is invalid (value: 0): there is no pull request #0")
+	}
+	target = Target{Type: "pipeline_pullrequest_target", PullRequest: &pullRequestReference{Type: "pullrequest", ID: pullRequestID}}
+	description = fmt.Sprintf("pull request #%d", pullRequestID)
+	return target, description, nil
+}
+
+// branchTriggerTarget resolves the Target/description for a branch reference, defaulting to the
+// current git branch (branch.GetCurrentBranch) when --branch is not set.
+func branchTriggerTarget(cmd *cobra.Command) (target Target, description string, err error) {
+	branchName := common.StringFlagValue(cmd, "branch")
+	if branchName == "" {
+		branchName, err = branch.GetCurrentBranch(cmd.Context())
+		if err != nil {
+			return Target{}, "", fmt.Errorf("cannot determine branch to trigger: use --branch or --pullrequest, or run inside a git repository: %w", err)
+		}
+		lgr.Printf("[DEBUG] using current branch: %s", branchName)
+	}
+	target = Target{Type: "pipeline_ref_target", RefType: "branch", RefName: branchName}
+	description = fmt.Sprintf("branch %q", branchName)
 	return target, description, nil
 }
 

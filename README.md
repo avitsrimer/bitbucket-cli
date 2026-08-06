@@ -133,7 +133,7 @@ bb pullrequest list --columns id,title,state
 bb pullrequest list --columns id --columns title
 ```
 
-`list` commands also support the `--sort` flag to sort the output by a specific column. You can pass a comma-separated list of columns, repeat the flag, or use `all` to sort by all columns. If you do not provide this flag, the default sorting is used.
+`list` commands also support the `--sort` flag to sort the output by a single column. If you do not provide this flag, the command's default -- either a sensible column-based sort, or (`bb pipeline step/pipeline/commit list`) the order Bitbucket's API itself returned -- is used.
 
 ```bash
 bb pullrequest list --sort title
@@ -321,16 +321,22 @@ Profiles support the following authentications:
 op read op://vault/bitbucket/token | bb profile create -n work -u me@corp.com --password-stdin
 ```
 
-`--password-stdin` is mutually exclusive with `--password`, `--access-token-stdin` is mutually exclusive with `--access-token`, and the two `-stdin` flags are mutually exclusive with each other (only one secret can be piped in at a time).
+The OAuth2 client secret has the same convention: `--client-secret-stdin` reads it from stdin instead of `--client-secret`.
 
-If you run `bb profile create` with `-u/--user` set but no password source at all (neither `--password` nor `--password-stdin`), or with none of `--user`, `--client-id`/`--client-secret`, or `--access-token`/`--access-token-stdin` given, `bb` prompts for it interactively instead, with terminal echo disabled:
+`--password-stdin` is mutually exclusive with `--password`, `--access-token-stdin` is mutually exclusive with `--access-token`, `--client-secret-stdin` is mutually exclusive with `--client-secret`, and the three `-stdin` flags are mutually exclusive with each other (only one secret can be piped in at a time).
+
+If you run `bb profile create` with `-u/--user` set but no password source at all (neither `--password` nor `--password-stdin`), `bb` prompts for it interactively instead, with terminal echo disabled -- unless the vault already holds a password for that user (e.g. reused from an earlier profile), in which case that stored password is used and there is no prompt at all:
 
 ```console
 $ bb profile create -n work -u me@corp.com
 Password or API token for me@corp.com:
 ```
 
-`bb profile update` prompts the same way when `-u/--user` is given without a password source. This interactive prompt requires a real terminal; in a non-interactive context (CI, a script, a piped command) `bb` fails fast with an error naming `--password-stdin`/`--access-token-stdin` instead of hanging.
+`bb profile update` prompts the same way when `-u/--user` is given without a password source, and additionally when a password source is given _without_ `-u/--user` on a profile that already has one (rotating a secret never requires retyping `--user`). Both prompts require a real terminal; in a non-interactive context (CI, a script, a piped command) `bb` fails fast with an error naming `--password-stdin`/`--access-token-stdin` instead of hanging.
+
+Creating a profile with none of `--user`, `--client-id`/`--client-secret`, or `--access-token` given at all never prompts and never fails: the profile is created with no credentials on record, deferring resolution to the vault (already populated by another tool, e.g. for CI provisioning) the first time it is actually used, or to a later `bb profile update`. `--no-vault` is the one exception -- it cannot defer to the vault by definition, so it still requires a credential up front.
+
+Switching a profile's credential shape (password, access token, or OAuth2 client) via `bb profile update` clears the other two shapes -- both their value and, if applicable, their vault entry -- so the profile only ever authenticates with the shape you most recently set.
 
 Permission Scopes:
 
@@ -501,7 +507,7 @@ You can list the repositories of a workspace with the `bb repo list` command (al
 bb repo list --workspace myworkspace
 ```
 
-If you do not provide a workspace, the one resolved from `--workspace`/git config/profile default is used. You can narrow the list down to repositories you have a given role in with `--role` (`all`, `owner`, `admin`, `contributor`, `member`; default `owner`):
+If you do not provide a workspace, the one resolved from `--workspace`/git config/profile default is used. You can narrow the list down to repositories you have a given role in with `--role` (`all`, `owner`, `admin`, `contributor`, `member`; default `member`):
 
 ```bash
 bb repo list --role contributor

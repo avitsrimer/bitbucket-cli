@@ -34,7 +34,7 @@ func setupTest(t *testing.T, handler http.HandlerFunc, dryRun bool) *cobra.Comma
 	}
 	cmd.Flags().String("query", "", "")
 	cmd.Flags().StringSlice("columns", []string{}, "")
-	cmd.Flags().String("sort", "build_number", "")
+	cmd.Flags().String("sort", "", "") // no column is marked DefaultSorter; "" mirrors the real listCmd's actual default
 	return cmd
 }
 

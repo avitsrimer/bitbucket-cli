@@ -53,6 +53,32 @@ type ActivityUpdate struct {
 	UpdatedOn         time.Time           `json:"updated_on"`
 }
 
+// MarshalJSON implements the json.Marshaler interface.
+//
+// Activity.MarshalJSON (below) marshals its embedded *ActivityUpdate through the surrogate
+// wrapper unchanged, which would otherwise fall back to time.Time's own zero-value marshaling
+// for CreatedOn/UpdatedOn -- "0001-01-01T00:00:00Z", a year-1 timestamp with no meaning to a
+// caller scripting against it -- on any ActivityUpdate built by hand rather than decoded from a
+// real API response. CreatedOn/UpdatedOn are only formatted (and only included at all, via
+// omitempty) when non-zero, matching the pattern already used by PullRequest/Comment/Resolution.
+func (update ActivityUpdate) MarshalJSON() (data []byte, err error) {
+	type surrogate ActivityUpdate
+
+	data, err = json.Marshal(struct {
+		surrogate
+		CreatedOn *string `json:"created_on,omitempty"`
+		UpdatedOn *string `json:"updated_on,omitempty"`
+	}{
+		surrogate: surrogate(update),
+		CreatedOn: common.FormatOptionalTime(update.CreatedOn),
+		UpdatedOn: common.FormatOptionalTime(update.UpdatedOn),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("cannot marshal activity update to json: %w", err)
+	}
+	return data, nil
+}
+
 var activityColumns = common.Columns[Activity]{
 	{Name: "pull_request", DefaultSorter: true, Compare: func(a, b Activity) bool {
 		return a.PullRequest.ID < b.PullRequest.ID

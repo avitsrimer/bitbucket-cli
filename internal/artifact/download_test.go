@@ -591,3 +591,39 @@ func TestDownloadProcessIgnoreErrorsOnFullSuccessNeverLogsNilJoin(t *testing.T) 
 		t.Errorf("log output = %q, want no \"ignoring errors\" warning when there was nothing to ignore", logged)
 	}
 }
+
+// TestDownloadProcessRejectsEmptyDotAndDotDotName reproduces the FINAL CRITICAL GATE's priority-4
+// finding: repo.GetPath("downloads", url.PathEscape(name)) runs its segments through path.Join,
+// which collapses an empty, ".", or ".." name away instead of erroring -- "" or "." retargeted
+// the request at the downloads *list* endpoint (an authenticated request whose JSON body would
+// then be written to a temp file before the rename failed), and ".." removed "downloads"
+// entirely, hitting the repository resource itself. downloadProcess must reject all three before
+// ever sending a request.
+func TestDownloadProcessRejectsEmptyDotAndDotDotName(t *testing.T) {
+	for _, name := range []string{"", ".", ".."} {
+		t.Run("name="+name, func(t *testing.T) {
+			destDir := t.TempDir()
+			var requestCount int
+			cmd := setupTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, false)
+			if err := cmd.Flags().Set("destination", destDir); err != nil {
+				t.Fatalf("cannot set destination flag: %v", err)
+			}
+
+			err := downloadProcess(cmd, []string{name})
+			if err == nil {
+				t.Fatalf("downloadProcess(%q) error = nil, want an error", name)
+			}
+			if requestCount != 0 {
+				t.Errorf("expected zero HTTP requests for name %q, got %d: it must be rejected before reaching the API", name, requestCount)
+			}
+
+			entries, err := os.ReadDir(destDir)
+			if err != nil {
+				t.Fatalf("cannot read destination directory: %v", err)
+			}
+			if len(entries) != 0 {
+				t.Errorf("destination directory has %d entries, want zero: no temp/downloaded file for a rejected name", len(entries))
+			}
+		})
+	}
+}

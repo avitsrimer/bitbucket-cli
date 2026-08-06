@@ -135,3 +135,26 @@ func TestGetProcessDryRunSkipsPrinting(t *testing.T) {
 		t.Errorf("expected no printed output in dry-run mode, got %q", stdout)
 	}
 }
+
+// TestGetProcessRejectsEmptyDotAndDotDotHash reproduces the FINAL CRITICAL GATE's priority-4
+// finding: repo.GetPath("commits", hash) runs its segments through path.Join, which collapses an
+// empty, ".", or ".." hash away instead of erroring -- "" or "." retargeted the request at the
+// commits *list* endpoint, silently printing the newest commit of the default branch as if the
+// given hash had matched; ".." removed "commits" entirely. getProcess must reject all three
+// before ever calling GetCommitByHash.
+func TestGetProcessRejectsEmptyDotAndDotDotHash(t *testing.T) {
+	for _, hash := range []string{"", ".", ".."} {
+		t.Run("hash="+hash, func(t *testing.T) {
+			var requestCount int
+			cmd := setupTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, false)
+
+			err := getProcess(cmd, []string{hash})
+			if err == nil {
+				t.Fatalf("getProcess(%q) error = nil, want an error", hash)
+			}
+			if requestCount != 0 {
+				t.Errorf("expected zero HTTP requests for hash %q, got %d: it must be rejected before reaching the API", hash, requestCount)
+			}
+		})
+	}
+}

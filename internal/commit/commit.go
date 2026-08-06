@@ -50,6 +50,13 @@ func shortHash(hash string) string {
 	return hash
 }
 
+// Ordering policy: no column here is marked DefaultSorter. BitBucket's commits endpoint returns
+// commits newest-first (the same order `git log` prints); re-sorting that result ascending by
+// date by default (as a prior revision did) silently reversed it to oldest-first with no way to
+// opt back into the fetched order via --sort. Leaving every column here unmarked makes "no
+// default sort, keep the server's own newest-first order" the actual default (see
+// common.SortFlagValue/list.go), while --sort date remains available for an explicit
+// oldest-first read.
 var columns = common.Columns[Commit]{
 	{Name: "hash", DefaultSorter: false, Compare: func(a, b Commit) bool {
 		return strings.ToLower(a.Hash) < strings.ToLower(b.Hash)
@@ -63,7 +70,7 @@ var columns = common.Columns[Commit]{
 	{Name: "message", DefaultSorter: false, Compare: func(a, b Commit) bool {
 		return strings.ToLower(a.Message) < strings.ToLower(b.Message)
 	}},
-	{Name: "date", DefaultSorter: true, Compare: func(a, b Commit) bool {
+	{Name: "date", DefaultSorter: false, Compare: func(a, b Commit) bool {
 		return a.Date.Before(b.Date)
 	}},
 	{Name: "repository", DefaultSorter: false, Compare: func(a, b Commit) bool {
@@ -180,17 +187,21 @@ func (commit Commit) String() string {
 }
 
 // MarshalJSON implements the json.Marshaler interface.
+//
+// Date is only formatted (and only included at all, via omitempty) when non-zero: a Commit built
+// by hand rather than decoded from a real API response otherwise emits time.Time's own zero-value
+// marshaling, "0001-01-01T00:00:00Z", into machine-readable JSON/YAML output.
 func (commit Commit) MarshalJSON() (data []byte, err error) {
 	type surrogate Commit
 
 	data, err = json.Marshal(struct {
 		Type string `json:"type"`
 		surrogate
-		Date string `json:"date"`
+		Date *string `json:"date,omitempty"`
 	}{
 		Type:      commit.GetType(),
 		surrogate: surrogate(commit),
-		Date:      commit.Date.Format(common.JSONTimeFormat),
+		Date:      common.FormatOptionalTime(commit.Date),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("cannot marshal json: %w", err)

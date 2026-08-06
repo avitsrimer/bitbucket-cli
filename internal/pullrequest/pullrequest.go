@@ -127,13 +127,22 @@ func init() {
 //
 // implements common.Tableable
 //
-// Description is deliberately not part of the default column set: a full, potentially
-// multi-paragraph pull request body adds little to a list view already showing Title/source/
-// destination/state, and the table renderer caps every cell at a fixed width (see
-// profile.printTable), so a description column would still print only a fixed-width snippet of
-// it. It remains available on demand via --columns description.
+// GetHeaders is shared by both `pullrequest list` and `pullrequest get`, which need different
+// defaults: Description is deliberately not part of list's default column set (a full,
+// potentially multi-paragraph pull request body adds little to a list view already showing
+// Title/source/destination/state), but a single `pullrequest get` is precisely the one place the
+// body belongs by default -- without this, there was no default table/csv/tsv path to a PR's
+// description at all, only -o json/yaml or an explicit --columns description on `get`. The
+// table renderer still ellipsizes it past profile.maxTableCellWidth like any other free-text
+// column (see profile.freeTextColumnKeys); -o json/yaml/csv/tsv always show it complete.
+// cmd.Name() distinguishes the two commands: getCmd's Use starts with "get", listCmd's with
+// "list".
 func (pullrequest PullRequest) GetHeaders(cmd *cobra.Command) []string {
-	return common.HeadersFromFlag(cmd, "ID", "Title", "source", "destination", "state")
+	defaults := []string{"ID", "Title", "source", "destination", "state"}
+	if cmd != nil && cmd.Name() == "get" {
+		defaults = append(defaults, "description")
+	}
+	return common.HeadersFromFlag(cmd, defaults...)
 }
 
 // GetRow gets the row for a table
@@ -321,17 +330,23 @@ func effectiveDefaultReviewers(ctx context.Context, cmd *cobra.Command, repo *re
 }
 
 // MarshalJSON implements the json.Marshaler interface.
+//
+// CreatedOn/UpdatedOn are only formatted (and only included at all, via omitempty) when non-zero:
+// a PullRequest built by hand (e.g. in a test, or a payload this codebase itself constructs)
+// rather than decoded from a real API response otherwise emits time.Time's own zero-value
+// marshaling, "0001-01-01T00:00:00Z", into machine-readable JSON/YAML output -- a year-1
+// timestamp with no meaning to a caller scripting against it.
 func (pullrequest PullRequest) MarshalJSON() (data []byte, err error) {
 	type surrogate PullRequest
 
 	data, err = json.Marshal(struct {
 		surrogate
-		CreatedOn string `json:"created_on"`
-		UpdatedOn string `json:"updated_on"`
+		CreatedOn *string `json:"created_on,omitempty"`
+		UpdatedOn *string `json:"updated_on,omitempty"`
 	}{
 		surrogate: surrogate(pullrequest),
-		CreatedOn: pullrequest.CreatedOn.Format(common.JSONTimeFormat),
-		UpdatedOn: pullrequest.UpdatedOn.Format(common.JSONTimeFormat),
+		CreatedOn: common.FormatOptionalTime(pullrequest.CreatedOn),
+		UpdatedOn: common.FormatOptionalTime(pullrequest.UpdatedOn),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("cannot marshal pullrequest to json: %w", err)

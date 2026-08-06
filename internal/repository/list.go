@@ -26,9 +26,14 @@ var listOptions struct {
 func init() {
 	Command.AddCommand(listCmd)
 
-	listOptions.Role = common.NewEnumFlag("all", "+owner", "admin", "contributor", "member")
+	// "member" (not "owner") is the default: in a team workspace every repository is
+	// workspace-owned, so role=owner returns nothing and a first-time `bb repo list` prints "No
+	// repository found" even though the caller can see (and, per "member", is a member of) every
+	// one of them. "member" always includes the repositories a personal-workspace user actually
+	// owns too, so this default loses nothing there.
+	listOptions.Role = common.NewEnumFlag("all", "owner", "admin", "contributor", "+member")
 	common.RegisterListFlags(listCmd, columns, "repositories")
-	listCmd.Flags().Var(listOptions.Role, "role", "Role of the user in the repository (all, owner, admin, contributor, member). Default: owner")
+	listCmd.Flags().Var(listOptions.Role, "role", "Role of the user in the repository (all, owner, admin, contributor, member). Default: member")
 	_ = listCmd.RegisterFlagCompletionFunc(listOptions.Role.CompletionFunc("role"))
 	listCmd.SetHelpFunc(common.HideUnsupportedFlags("repository"))
 }

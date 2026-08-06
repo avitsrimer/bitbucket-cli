@@ -3,6 +3,7 @@ package commit
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -10,23 +11,28 @@ import (
 )
 
 // commitOrderDisagreementFixture is shared by TestListProcessSortFlagChangedSorts and
-// TestListProcessDefaultSortsByDate: hash order and date order deliberately disagree (zzzzzzz is
-// EARLIER, aaaaaaa is LATER), so the two tests' expected orderings are each other's reverse --
-// proving --sort actually changes which comparator runs, not just that both tests happen to agree
-// with commit's DefaultSorter (date). A fixture where hash and date order coincide cannot tell
-// "sorted by hash" apart from "sorted by date", so a test built on it would pass even if --sort
-// were silently ignored.
+// TestListProcessDefaultPreservesFetchOrder. With only two commits, hash-ascending order and
+// date-ascending order cannot both differ from the raw fetch order AND from each other -- three
+// items in a 2-element space forces at least two of those three orderings to coincide (pigeonhole)
+// -- so this fixture uses three commits, with hash values and dates chosen as two independent
+// cyclic rotations of the fetch order: fetch order is C1,C2,C3; hash-ascending order is C2,C3,C1;
+// date-ascending order is C3,C1,C2. All three orderings are pairwise distinct, so no test built on
+// this fixture can pass by coincidentally agreeing with the wrong ordering.
 const commitOrderDisagreementFixture = `{"values":[` +
-	`{"type":"commit","hash":"zzzzzzz","message":"zzz","date":"2026-01-01T00:00:00+00:00"},` +
-	`{"type":"commit","hash":"aaaaaaa","message":"aaa","date":"2026-01-02T00:00:00+00:00"}` +
+	`{"type":"commit","hash":"ccc3333","message":"c1","date":"2026-01-02T00:00:00+00:00"},` +
+	`{"type":"commit","hash":"aaa1111","message":"c2","date":"2026-01-03T00:00:00+00:00"},` +
+	`{"type":"commit","hash":"bbb2222","message":"c3","date":"2026-01-01T00:00:00+00:00"}` +
 	`]}`
 
-// TestListProcessDefaultSortsByDate proves the unadorned default (no --sort passed) actually
-// sorts by date ascending -- the column commit.go marks DefaultSorter -- using the same
-// order-disagreement fixture as TestListProcessSortFlagChangedSorts, so the two tests' opposite
-// expected orders demonstrate the comparator genuinely changes with --sort rather than both
-// tests accidentally agreeing with whatever the code happens to do.
-func TestListProcessDefaultSortsByDate(t *testing.T) {
+// TestListProcessDefaultPreservesFetchOrder proves `bb commit list` with --sort not passed
+// preserves BitBucket's own commits-endpoint order (newest first, like `git log`) instead of
+// re-sorting ascending by date: no column in this package's columns table is marked DefaultSorter
+// (see commit.go's own comment), so common.SortFlagValue returns "" and listProcess skips sorting
+// entirely. Using commitOrderDisagreementFixture (rather than a fixture where fetch order and
+// date-ascending order happen to coincide) means a regression that reintroduced date as
+// DefaultSorter would flip this fixture's two commits and fail this assertion, instead of passing
+// by coincidence.
+func TestListProcessDefaultPreservesFetchOrder(t *testing.T) {
 	var requests []*http.Request
 	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r)
@@ -54,8 +60,10 @@ func TestListProcessDefaultSortsByDate(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &commits); err != nil {
 		t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
 	}
-	if len(commits) != 2 || commits[0].Hash != "zzzzzzz" || commits[1].Hash != "aaaaaaa" {
-		t.Errorf("commits = %+v, want sorted by date ascending by default (zzzzzzz, aaaaaaa)", commits)
+	wantOrder := []string{"ccc3333", "aaa1111", "bbb2222"}
+	gotOrder := []string{commits[0].Hash, commits[1].Hash, commits[2].Hash}
+	if len(commits) != 3 || !slices.Equal(gotOrder, wantOrder) {
+		t.Errorf("commits = %v, want the API's own fetch order %v preserved by default, not re-sorted by date", gotOrder, wantOrder)
 	}
 }
 
@@ -89,8 +97,10 @@ func TestListProcessSortFlagChangedSorts(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &commits); err != nil {
 		t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
 	}
-	if len(commits) != 2 || commits[0].Hash != "aaaaaaa" || commits[1].Hash != "zzzzzzz" {
-		t.Errorf("commits = %+v, want sorted by hash ascending (aaaaaaa, zzzzzzz) -- the reverse of the default date order TestListProcessDefaultSortsByDate expects from this same fixture", commits)
+	wantOrder := []string{"aaa1111", "bbb2222", "ccc3333"}
+	gotOrder := []string{commits[0].Hash, commits[1].Hash, commits[2].Hash}
+	if len(commits) != 3 || !slices.Equal(gotOrder, wantOrder) {
+		t.Errorf("commits = %v, want sorted by hash ascending %v", gotOrder, wantOrder)
 	}
 }
 

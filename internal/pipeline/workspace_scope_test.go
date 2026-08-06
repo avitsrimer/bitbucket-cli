@@ -39,7 +39,7 @@ func TestListProcessResolvesRepositoryWithoutWorkspaceRequest(t *testing.T) {
 	cmd.Flags().String("workspace", "", "")
 	cmd.Flags().String("query", "", "")
 	cmd.Flags().StringSlice("columns", []string{}, "")
-	cmd.Flags().String("sort", "build_number", "")
+	cmd.Flags().String("sort", "", "") // no column is marked DefaultSorter; "" mirrors the real listCmd's actual default
 	if err := cmd.Flags().Set("repository", repositorySlug); err != nil {
 		t.Fatalf("cannot set repository flag: %v", err)
 	}

@@ -9,14 +9,16 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 )
 
-// TestListProcessDefaultSortsByID proves the real command's documented default ("--sort string
-// Column to sort by (default \"id\")") actually applies when --sort is not passed: columns marks
-// "id" as its DefaultSorter, and common.SortFlagValue resolves that default from the flag itself,
-// so this must always sort ascending by uuid -- not merely preserve whatever order the API
-// happened to return. The fixture's API order (the larger uuid 22222222... first, then the
-// smaller 11111111...) is deliberately reversed from the expected sorted order, so the two orders
-// can never be confused.
-func TestListProcessDefaultSortsByID(t *testing.T) {
+// TestListProcessDefaultPreservesExecutionOrder proves `bb pipeline step list` with --sort not
+// passed preserves the API's own execution order (setup, then each script step in the order they
+// ran, then teardown) instead of re-sorting by "id": a step's uuid has no inherent order, so a
+// prior revision marking it DefaultSorter scrambled every step list into random uuid order with
+// no --sort value that could restore it. No column in this package's columns table is marked
+// DefaultSorter (see step.go's own comment), so common.SortFlagValue returns "" and listProcess
+// skips sorting entirely. The fixture's API order (the larger uuid 22222222... first, then the
+// smaller 11111111...) is deliberately the reverse of ascending-uuid order, so a regression back
+// to sorting by id would flip these two steps and fail this assertion.
+func TestListProcessDefaultPreservesExecutionOrder(t *testing.T) {
 	var requests []*http.Request
 	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r)
@@ -48,8 +50,8 @@ func TestListProcessDefaultSortsByID(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &steps); err != nil {
 		t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
 	}
-	if len(steps) != 2 || steps[0].Name != "a-step" || steps[1].Name != "b-step" {
-		t.Errorf("steps = %+v, want sorted by id ascending (a-step's 11111111..., then b-step's 22222222...) by default, not the API's raw order", steps)
+	if len(steps) != 2 || steps[0].Name != "b-step" || steps[1].Name != "a-step" {
+		t.Errorf("steps = %+v, want the API's own execution order (b-step, a-step) preserved by default, not re-sorted by id", steps)
 	}
 }
 

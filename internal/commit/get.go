@@ -47,6 +47,14 @@ func getProcess(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("cannot get latest commit: %w", err)
 		}
 	} else {
+		// A hash of "", ".", or ".." must be rejected outright: repo.GetPath("commits", hash)
+		// runs the segments through path.Join, which collapses any of these three away instead
+		// of erroring, silently retargeting the request at a *different* endpoint (the commits
+		// list, for an empty/"." hash) that then succeeds and prints the newest commit as if the
+		// given hash had matched.
+		if validateErr := common.ValidatePathIdentifier("commit-hash", args[0]); validateErr != nil {
+			return fmt.Errorf("cannot get commit: %w", validateErr)
+		}
 		target, err = GetCommitByHash(cmd.Context(), cmd, args[0])
 		if err != nil {
 			return fmt.Errorf("cannot get commit %s: %w", args[0], err)

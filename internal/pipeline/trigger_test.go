@@ -425,3 +425,64 @@ func chdirForTest(t *testing.T, dir string) {
 		}
 	})
 }
+
+// TestTriggerProcessExplicitPullRequestZeroErrors reproduces the FINAL CRITICAL GATE's priority-5
+// finding: buildTriggerTarget used to branch on "pullRequestID != 0", so an explicit
+// `--pullrequest 0` (e.g. a scripted `--pullrequest $PR_ID` with an empty PR_ID) silently fell
+// through to the branch target instead of erroring -- POSTing against the current branch when
+// the caller clearly meant to target a pull request. It must be a hard error naming the flag
+// instead, and no request may be sent.
+func TestTriggerProcessExplicitPullRequestZeroErrors(t *testing.T) {
+	var requestCount int
+	cmd := setupTriggerTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, false)
+	if err := cmd.Flags().Set("pullrequest", "0"); err != nil {
+		t.Fatalf("cannot set --pullrequest: %v", err)
+	}
+	if err := cmd.Flags().Set("force", "true"); err != nil {
+		t.Fatalf("cannot set --force: %v", err)
+	}
+
+	err := triggerProcess(cmd, nil)
+	if err == nil {
+		t.Fatal("triggerProcess() expected an error for an explicit --pullrequest 0, got nil")
+	}
+	if !strings.Contains(err.Error(), "pullrequest") {
+		t.Errorf("error = %q, want it to name the pullrequest argument", err.Error())
+	}
+	if requestCount != 0 {
+		t.Errorf("expected no HTTP request, got %d", requestCount)
+	}
+}
+
+// TestTriggerProcessUnsetPullRequestFallsBackToBranch proves the unset default (--pullrequest
+// never passed, still carrying its zero value) is unaffected by the fix above: it must still
+// fall back to the branch target exactly as before, not be mistaken for an explicit 0.
+func TestTriggerProcessUnsetPullRequestFallsBackToBranch(t *testing.T) {
+	var body []byte
+	cmd := setupTriggerTest(t, func(w http.ResponseWriter, r *http.Request) {
+		body, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(pipelineTriggeredResponse))
+	}, false)
+	// --pullrequest is deliberately left unset here.
+	if err := cmd.Flags().Set("branch", "main"); err != nil {
+		t.Fatalf("cannot set --branch: %v", err)
+	}
+	if err := cmd.Flags().Set("force", "true"); err != nil {
+		t.Fatalf("cannot set --force: %v", err)
+	}
+
+	testutil.CaptureStdout(t, func() {
+		if err := triggerProcess(cmd, nil); err != nil {
+			t.Fatalf("triggerProcess() error = %v", err)
+		}
+	})
+
+	var sent triggerBody
+	if err := json.Unmarshal(body, &sent); err != nil {
+		t.Fatalf("cannot unmarshal POST body: %v", err)
+	}
+	if sent.Target.Type != "pipeline_ref_target" || sent.Target.RefName != "main" {
+		t.Errorf("target = %+v, want a branch target for main", sent.Target)
+	}
+}

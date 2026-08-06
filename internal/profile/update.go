@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"slices"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/go-pkgz/lgr"
@@ -117,6 +118,10 @@ func updateProcess(cmd *cobra.Command, args []string) (err error) {
 	}
 
 	applyUpdateOverrides()
+
+	if validationErr := validateEnumFlagOverrides(cmd); validationErr != nil {
+		return validationErr
+	}
 
 	lgr.Printf("[DEBUG] loading profile %s (valid names: %v)", args[0], Profiles.Names())
 	profile, found := Profiles.Find(args[0])
@@ -367,6 +372,40 @@ func resolveUpdateSecretInput(cmd *cobra.Command, profile *Profile) error {
 			return err
 		}
 		updateOptions.Password = secret
+	}
+	return nil
+}
+
+// validateEnumFlagOverrides validates --default-workspace/--default-project against their live
+// allowed-value lists when either flag was explicitly given on this command line.
+//
+// EnumFlag.Set deliberately skips this at parse time for a dynamic, AllowedFunc-backed flag (see
+// its own doc comment in common/flags.go): resolving the candidate list costs a network call
+// whose privilege scope (read:workspace, in this case) has nothing to do with most commands that
+// happen to carry a --workspace-shaped flag. That reasoning does not carry over to `profile
+// update --default-workspace`/`--default-project` specifically: here the workspace/project *is*
+// the thing being set, not an incidental value for some other operation, so paying for the
+// read:workspace-scoped call to validate it is exactly proportionate -- and skipping it, as a
+// prior revision did, let a typo persist silently into the config file, only to resurface later
+// as a confusing 404 from some unrelated command.
+func validateEnumFlagOverrides(cmd *cobra.Command) error {
+	if cmd.Flags().Changed("default-workspace") {
+		allowed, err := getWorkspaceSlugs(cmd.Context(), cmd, nil, "")
+		if err != nil {
+			return fmt.Errorf("cannot validate default workspace: %w", err)
+		}
+		if value := updateOptions.DefaultWorkspace.String(); !slices.Contains(allowed, value) {
+			return fmt.Errorf("argument defaultWorkspace is invalid (value: %s)", value)
+		}
+	}
+	if cmd.Flags().Changed("default-project") {
+		allowed, err := getProjectKeys(cmd.Context(), cmd, nil, "")
+		if err != nil {
+			return fmt.Errorf("cannot validate default project: %w", err)
+		}
+		if value := updateOptions.DefaultProject.String(); !slices.Contains(allowed, value) {
+			return fmt.Errorf("argument defaultProject is invalid (value: %s)", value)
+		}
 	}
 	return nil
 }
