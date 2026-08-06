@@ -13,7 +13,7 @@ import (
 
 func TestPullRequestGetHeadersDefault(t *testing.T) {
 	target := pullrequest.PullRequest{}
-	assert.Equal(t, []string{"ID", "Title", "Description", "source", "destination", "state"}, target.GetHeaders(nil))
+	assert.Equal(t, []string{"ID", "Title", "source", "destination", "state"}, target.GetHeaders(nil))
 }
 
 func TestPullRequestGetRow(t *testing.T) {
@@ -105,7 +105,7 @@ func TestPullRequestsTableables(t *testing.T) {
 	}
 
 	assert.Equal(t, 2, target.Size())
-	assert.Equal(t, []string{"ID", "Title", "Description", "source", "destination", "state"}, target.GetHeaders(nil))
+	assert.Equal(t, []string{"ID", "Title", "source", "destination", "state"}, target.GetHeaders(nil))
 	assert.Equal(t, []string{"1", "First"}, target.GetRowAt(0, []string{"id", "title"}))
 	assert.Equal(t, []string{"2", "Second"}, target.GetRowAt(1, []string{"id", "title"}))
 	assert.Empty(t, target.GetRowAt(-1, []string{"id"}))

@@ -126,13 +126,19 @@ func init() {
 // GetHeaders gets the header for a table
 //
 // implements common.Tableable
+//
+// Description is deliberately not part of the default column set: a full, potentially
+// multi-paragraph pull request body adds little to a list view already showing Title/source/
+// destination/state, and the table renderer truncates whatever cell content there is a hard cap
+// (see profile.printTable), so a description column here would still print only a fixed-width
+// snippet of it. It remains available on demand via --columns description.
 func (pullrequest PullRequest) GetHeaders(cmd *cobra.Command) []string {
 	if cmd != nil && cmd.Flag("columns") != nil && cmd.Flag("columns").Changed {
 		if columns, err := cmd.Flags().GetStringSlice("columns"); err == nil {
 			return core.Map(columns, func(column string) string { return strings.ReplaceAll(column, "_", " ") })
 		}
 	}
-	return []string{"ID", "Title", "Description", "source", "destination", "state"}
+	return []string{"ID", "Title", "source", "destination", "state"}
 }
 
 // GetRow gets the row for a table

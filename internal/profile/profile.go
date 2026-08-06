@@ -560,7 +560,7 @@ func (profile Profile) printTable(cmd *cobra.Command, payload any) error {
 		headers := actual.GetHeaders(cmd)
 		table.SetHeader(headers)
 		table.SetAutoWrapText(false)
-		table.Append(actual.GetRow(headers))
+		table.Append(truncateTableRow(actual.GetRow(headers)))
 	case common.Tableables:
 		lgr.Printf("[DEBUG] payload is a slice of %d elements", actual.Size())
 		if actual.Size() > 0 {
@@ -568,7 +568,7 @@ func (profile Profile) printTable(cmd *cobra.Command, payload any) error {
 			table.SetHeader(headers)
 			table.SetAutoWrapText(false)
 			for i := range actual.Size() {
-				table.Append(actual.GetRowAt(i, headers))
+				table.Append(truncateTableRow(actual.GetRowAt(i, headers)))
 			}
 		}
 	default:
@@ -576,6 +576,46 @@ func (profile Profile) printTable(cmd *cobra.Command, payload any) error {
 	}
 	table.Render()
 	return nil
+}
+
+// maxTableCellWidth caps how many runes of a single cell's content the human-facing table
+// renderer will show before cutting it off with an ellipsis. A Tableable's GetRow/GetRowAt is
+// shared with printDelimited (csv/tsv) and read directly by json/yaml via the untouched payload,
+// so this cap is applied here, once, on the already-rendered row slice, rather than inside any
+// GetRow/GetRowAt implementation: printTable is the only caller of truncateTableRow, which keeps
+// every other output format -- csv, tsv, json, yaml -- exactly as complete as the underlying data,
+// for scripting.
+//
+// A single fixed cap (deliberately not derived from the terminal's actual width via $COLUMNS or
+// an stty call, both of which would add real complexity for a cosmetic table-only concern) is the
+// smallest change that keeps the default table readable regardless of terminal size or whether
+// stdout is a TTY.
+const maxTableCellWidth = 80
+
+// truncateTableRow returns a copy of row with every cell cut down to maxTableCellWidth runes (see
+// truncateCell), so one long free-text value -- a multi-paragraph pull request description, a
+// comment body, a commit message -- can no longer blow a table's column, and so every other
+// column, out to an unreadable width.
+func truncateTableRow(row []string) []string {
+	truncated := make([]string, len(row))
+	for i, cell := range row {
+		truncated[i] = truncateCell(cell)
+	}
+	return truncated
+}
+
+// truncateCell collapses cell's internal whitespace (including embedded newlines, so a
+// multi-paragraph value renders as one table line instead of expanding the row across as many
+// lines as it has paragraphs) down to single spaces, then cuts the result to maxTableCellWidth
+// runes, replacing the final rune with an ellipsis when a cut was needed. Rune count, not byte
+// count, is what is compared against the cap, so multi-byte UTF-8 characters are never split.
+func truncateCell(cell string) string {
+	flattened := strings.Join(strings.Fields(cell), " ")
+	runes := []rune(flattened)
+	if len(runes) <= maxTableCellWidth {
+		return flattened
+	}
+	return string(runes[:maxTableCellWidth-1]) + "…"
 }
 
 // Validate validates a Profile
