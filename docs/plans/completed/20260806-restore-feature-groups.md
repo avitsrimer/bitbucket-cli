@@ -438,7 +438,7 @@ Every task below must apply these while porting — a mechanical translation rei
    7 query filters as its own explicit scope decision in Task 2): artifact's upstream `list` only
    ever had the one simple `q=` passthrough, matching `pipeline list`'s own kept `--query`.
 
-### Task 6: Docs + acceptance (PR) — PR #TBD (merged)
+### Task 6: Docs + acceptance (PR) — PR #29 (merged)
 
 **Files:**
 - Modify: `README.md`, `CLAUDE.md`; move this plan to `docs/plans/completed/`
