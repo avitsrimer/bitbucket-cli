@@ -94,11 +94,11 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 
 	updateWanted := applySimpleFieldUpdates(cmd, &pullrequest)
 
-	pullrequestWorkspace, err := destinationWorkspace(cmd.Context(), cmd, &pullrequest, repository)
+	workspaceSlug, err := destinationWorkspaceSlug(cmd.Context(), cmd, &pullrequest, repository)
 	if err != nil {
 		return err
 	}
-	lgr.Printf("[DEBUG] pullrequest workspace: %s", pullrequestWorkspace)
+	lgr.Printf("[DEBUG] pullrequest workspace: %s", workspaceSlug)
 
 	removed, err := removeRequestedReviewers(cmd.Context(), cmd, profile, &pullrequest)
 	if err != nil {
@@ -108,7 +108,7 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 		updateWanted = true
 	}
 
-	added, err := addRequestedReviewers(cmd.Context(), cmd, profile, &pullrequest, pullrequestWorkspace)
+	added, err := addRequestedReviewers(cmd.Context(), cmd, profile, &pullrequest, workspaceSlug)
 	if err != nil {
 		return err
 	}
@@ -173,24 +173,26 @@ func applySimpleFieldUpdates(cmd *cobra.Command, pullrequest *PullRequest) bool 
 	return updateWanted
 }
 
-// destinationWorkspace resolves the workspace that owns pr's destination repository, falling back
-// to repo's own workspace when pr carries no destination repository.
-func destinationWorkspace(ctx context.Context, cmd *cobra.Command, pr *PullRequest, repo *repository.Repository) (*workspace.Workspace, error) {
-	var pullrequestWorkspace *workspace.Workspace
+// destinationWorkspaceSlug resolves the workspace slug that owns pr's destination repository,
+// falling back to repo's own workspace when pr carries no destination repository. It never
+// fetches a Workspace object: Repository.GetWorkspaceSlug resolves the slug from the repository's
+// own data or the --workspace flag/git remote/profile default, none of which call the API.
+func destinationWorkspaceSlug(ctx context.Context, cmd *cobra.Command, pr *PullRequest, repo *repository.Repository) (string, error) {
+	var workspaceSlug string
 	var err error
 	if pr.Destination.Repository != nil {
 		lgr.Printf("[DEBUG] getting workspace of pullrequest destination repository %s", pr.Destination.Repository.FullName)
 		lgr.Printf("[DEBUG] pullrequest destination repository details")
-		pullrequestWorkspace, err = pr.Destination.Repository.GetWorkspace(ctx, cmd)
+		workspaceSlug, err = pr.Destination.Repository.GetWorkspaceSlug(ctx, cmd)
 	} else {
 		lgr.Printf("[DEBUG] getting current workspace")
-		pullrequestWorkspace, err = repo.GetWorkspace(ctx, cmd)
+		workspaceSlug, err = repo.GetWorkspaceSlug(ctx, cmd)
 	}
 	if err != nil {
 		lgr.Printf("[ERROR] failed to get workspace of pullrequest destination repository: %v", err)
-		return nil, fmt.Errorf("failed to get workspace of pullrequest destination repository: %w", err)
+		return "", fmt.Errorf("failed to get workspace of pullrequest destination repository: %w", err)
 	}
-	return pullrequestWorkspace, nil
+	return workspaceSlug, nil
 }
 
 // removeRequestedReviewers removes reviewers listed in --remove-reviewer from pullrequest and
@@ -259,7 +261,7 @@ func resolveDefaultReviewers(ctx context.Context, cmd *cobra.Command, pullreques
 // StopOnError) it aborts immediately naming the offending value, so no PUT is sent; with
 // --warn-on-error/WarnOnError or --ignore-errors/IgnoreErrors it is tolerated (warned or
 // silently skipped) and the update proceeds with whichever reviewers were resolved.
-func addRequestedReviewers(ctx context.Context, cmd *cobra.Command, currentProfile *profile.Profile, pullrequest *PullRequest, pullrequestWorkspace *workspace.Workspace) (bool, error) {
+func addRequestedReviewers(ctx context.Context, cmd *cobra.Command, currentProfile *profile.Profile, pullrequest *PullRequest, workspaceSlug string) (bool, error) {
 	if !cmd.Flag("add-reviewer").Changed || len(updateOptions.AddReviewers) == 0 {
 		return false, nil
 	}
@@ -274,9 +276,9 @@ func addRequestedReviewers(ctx context.Context, cmd *cobra.Command, currentProfi
 	}
 
 	updateWanted := false
-	lgr.Printf("[DEBUG] getting all members from workspace %s", pullrequestWorkspace)
-	members, membersErr := pullrequestWorkspace.GetMembers(ctx, cmd)
-	lgr.Printf("[DEBUG] found %d members in workspace %s", len(members), pullrequestWorkspace)
+	lgr.Printf("[DEBUG] getting all members from workspace %s", workspaceSlug)
+	members, membersErr := workspace.Workspace{Slug: workspaceSlug}.GetMembers(ctx, cmd)
+	lgr.Printf("[DEBUG] found %d members in workspace %s", len(members), workspaceSlug)
 	reviewerValues, err := expandAllReviewers(reviewerValues, members, membersErr)
 	if err != nil {
 		return false, err
@@ -295,7 +297,7 @@ func addRequestedReviewers(ctx context.Context, cmd *cobra.Command, currentProfi
 			}
 			continue
 		}
-		reviewerErr := fmt.Errorf("reviewer %s is not a member of workspace %s", reviewerNameOrID, pullrequestWorkspace)
+		reviewerErr := fmt.Errorf("reviewer %s is not a member of workspace %s", reviewerNameOrID, workspaceSlug)
 		lgr.Printf("[ERROR] %s", reviewerErr)
 		if currentProfile.ShouldStopOnError(cmd) {
 			return false, reviewerErr

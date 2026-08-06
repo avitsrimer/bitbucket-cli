@@ -268,22 +268,27 @@ func GetRepository(ctx context.Context, cmd *cobra.Command) (repository *Reposit
 
 // GetRepositoryBySlugOrID gets a repository by its slug name
 //
-// If the slug is in the format "workspace/repository", the workspace is used to get the repository.
+// If the slug is in the format "workspace/repository", the workspace segment is used directly as
+// the workspace slug.
 //
-// Otherwise, the workspace is determined by the git config or the default workspace in the profile.
+// Otherwise, the workspace slug is determined by the --workspace flag, the git config, or the
+// default workspace in the profile (see workspace.GetWorkspaceName). Neither branch fetches a
+// Workspace object: the caller already supplied the workspace as a string, and a live
+// GET /workspaces/{slug} would demand the read:workspace scope for a value nothing here needs to
+// read back.
 func GetRepositoryBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID string) (repository *Repository, err error) {
-	var ws *workspace.Workspace
+	var workspaceSlug string
 
 	if components := strings.Split(slugOrID, "/"); len(components) == 2 {
 		lgr.Printf("[DEBUG] repository slug %s contains a workspace, extracting workspace and repository name", slugOrID)
+		workspaceSlug = components[0]
 		slugOrID = components[1]
-		ws, err = workspace.GetWorkspaceBySlugOrID(ctx, cmd, components[0])
 	} else {
 		lgr.Printf("[DEBUG] repository slug %s does not contain a workspace, using git config or default workspace", slugOrID)
-		ws, err = workspace.GetWorkspace(ctx, cmd)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("cannot get workspace: %w", err)
+		workspaceSlug, err = workspace.GetWorkspaceName(ctx, cmd)
+		if err != nil {
+			return nil, fmt.Errorf("cannot get workspace: %w", err)
+		}
 	}
 
 	// In case we got a real UUID, get the Bitbucket UUID
@@ -291,12 +296,12 @@ func GetRepositoryBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID s
 		slugOrID = parsedID.String()
 	}
 
-	if repository, err = RepositoryCache.Get(fmt.Sprintf("%s/%s", ws.Slug, slugOrID)); err == nil {
-		lgr.Printf("[DEBUG] repository %s/%s found in cache", ws.Slug, slugOrID)
+	if repository, err = RepositoryCache.Get(fmt.Sprintf("%s/%s", workspaceSlug, slugOrID)); err == nil {
+		lgr.Printf("[DEBUG] repository %s/%s found in cache", workspaceSlug, slugOrID)
 		return repository, nil
 	}
 
-	lgr.Printf("[DEBUG] getting repository %s in workspace %s", slugOrID, ws.Slug)
+	lgr.Printf("[DEBUG] getting repository %s in workspace %s", slugOrID, workspaceSlug)
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
 		return nil, fmt.Errorf("cannot get profile: %w", err)
@@ -304,16 +309,16 @@ func GetRepositoryBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID s
 
 	err = profile.Get(
 		ctx,
-		fmt.Sprintf("/repositories/%s/%s", ws.Slug, slugOrID),
+		fmt.Sprintf("/repositories/%s/%s", workspaceSlug, slugOrID),
 		&repository,
 	)
 	if err != nil {
 		return repository, fmt.Errorf("cannot get resource: %w", err)
 	}
 	if repository == nil {
-		return nil, fmt.Errorf("received an empty response for repository %s/%s", ws.Slug, slugOrID)
+		return nil, fmt.Errorf("received an empty response for repository %s/%s", workspaceSlug, slugOrID)
 	}
-	_ = RepositoryCache.Set(fmt.Sprintf("%s/%s", ws.Slug, slugOrID), *repository)
+	_ = RepositoryCache.Set(fmt.Sprintf("%s/%s", workspaceSlug, slugOrID), *repository)
 	return repository, nil
 }
 
@@ -324,10 +329,9 @@ func GetRepositoryBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID s
 // whenever it splits cleanly. repository.Slug alone cannot be trusted here: BitBucket omits
 // "slug" on a pullrequest's source/destination repository, so Validate backfills Slug = Name,
 // which 404s building this path for any repository whose display name differs from its slug
-// ("My Repo" vs "my-repo"). Falling back to GetWorkspace -- a live GET /workspaces/{slug} that
-// RAT/repo-scoped tokens typically cannot reach -- is reserved for the rare case FullName isn't
-// in the "{workspace}/{repo}" shape (e.g. a Repository built by hand rather than decoded from the
-// API).
+// ("My Repo" vs "my-repo"). When FullName isn't in the "{workspace}/{repo}" shape (e.g. a
+// Repository built by hand rather than decoded from the API), GetWorkspaceSlug supplies the
+// workspace segment instead, with no API call.
 func (repository Repository) GetEffectiveDefaultReviewers(ctx context.Context, cmd *cobra.Command) (reviewers []project.Reviewer, err error) {
 	workspaceSlug, repositorySlug, err := repository.effectiveReviewersPathSegments(ctx, cmd)
 	if err != nil {
@@ -339,41 +343,39 @@ func (repository Repository) GetEffectiveDefaultReviewers(ctx context.Context, c
 
 // effectiveReviewersPathSegments resolves the workspace slug and repository slug used to build
 // GetEffectiveDefaultReviewers' request path. See that method's comment for why FullName is
-// preferred over repository.Slug/GetWorkspace.
+// preferred over repository.Slug/GetWorkspaceSlug.
 func (repository Repository) effectiveReviewersPathSegments(ctx context.Context, cmd *cobra.Command) (workspaceSlug, repositorySlug string, err error) {
 	if components := strings.SplitN(repository.FullName, "/", 2); len(components) == 2 && components[0] != "" && components[1] != "" {
 		return components[0], components[1], nil
 	}
-	ws, err := repository.GetWorkspace(ctx, cmd)
+	workspaceSlug, err = repository.GetWorkspaceSlug(ctx, cmd)
 	if err != nil {
 		return "", "", fmt.Errorf("cannot get workspace: %w", err)
 	}
-	return ws.Slug, repository.Slug, nil
+	return workspaceSlug, repository.Slug, nil
 }
 
-// GetWorkspace gets the workspace of the repository
-func (repository Repository) GetWorkspace(ctx context.Context, cmd *cobra.Command) (*workspace.Workspace, error) {
-	if repository.Workspace != nil && !repository.Workspace.ID.IsNil() && repository.Workspace.Slug != "" {
-		lgr.Printf("[DEBUG] getting workspace of repository %s/%s from cache", repository.Workspace.Slug, repository.Slug)
-		return repository.Workspace, nil
+// GetWorkspaceSlug gets the workspace slug of the repository without ever fetching a Workspace
+// object: repository.Workspace.Slug when it is already populated (the API's own response for this
+// repository already carried it -- no extra request), the workspace segment of FullName when it
+// splits cleanly into "{workspace}/{repo}", or otherwise the --workspace flag/git-remote/
+// profile-default workspace slug (see workspace.GetWorkspaceName). None of these read paths call
+// the BitBucket API, so none of them need the read:workspace scope.
+func (repository Repository) GetWorkspaceSlug(ctx context.Context, cmd *cobra.Command) (string, error) {
+	if repository.Workspace != nil && repository.Workspace.Slug != "" {
+		return repository.Workspace.Slug, nil
 	}
 
-	if repository.FullName != "" {
+	if components := strings.Split(repository.FullName, "/"); len(components) == 2 && components[0] != "" {
 		lgr.Printf("[DEBUG] getting workspace of repository %s/%s from full name", repository.FullName, repository.Slug)
-		components := strings.Split(repository.FullName, "/")
-		if len(components) == 2 {
-			ws, err := workspace.GetWorkspaceBySlugOrID(ctx, cmd, components[0])
-			if err != nil {
-				return nil, fmt.Errorf("cannot get workspace: %w", err)
-			}
-			return ws, nil
-		}
+		return components[0], nil
 	}
-	ws, err := workspace.GetWorkspace(ctx, cmd)
+
+	workspaceSlug, err := workspace.GetWorkspaceName(ctx, cmd)
 	if err != nil {
-		return nil, fmt.Errorf("cannot get workspace: %w", err)
+		return "", fmt.Errorf("cannot get workspace: %w", err)
 	}
-	return ws, nil
+	return workspaceSlug, nil
 }
 
 // Validate validates a Repository

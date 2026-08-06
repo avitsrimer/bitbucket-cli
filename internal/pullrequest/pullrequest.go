@@ -219,7 +219,9 @@ func GetPullRequestIDFromArgs(ctx context.Context, cmd *cobra.Command, repositor
 	return args[0], nil
 }
 
-// GetReviewerNicknames gets the reviewer nicknames for the current Workspace
+// GetReviewerNicknames gets the reviewer nicknames for the current Workspace. The workspace slug
+// comes from workspace.GetWorkspaceName (no API call); only GetMembers itself reaches the API,
+// scoped to the slug the caller already supplied.
 func GetReviewerNicknames(ctx context.Context, cmd *cobra.Command, args []string, toComplete string) (nicknames []string, err error) {
 	if cmd == nil {
 		fmt.Fprintln(os.Stderr, "cmd is nil")
@@ -227,13 +229,13 @@ func GetReviewerNicknames(ctx context.Context, cmd *cobra.Command, args []string
 	}
 
 	lgr.Printf("[DEBUG] getting reviewer nicknames for profile %s", profile.Current)
-	pullrequestWorkspace, err := workspace.GetWorkspace(ctx, cmd)
+	workspaceSlug, err := workspace.GetWorkspaceName(ctx, cmd)
 	if err != nil {
 		lgr.Printf("[ERROR] failed to get repository: %v", err)
 		return []string{}, fmt.Errorf("cannot get workspace: %w", err)
 	}
-	lgr.Printf("[DEBUG] getting members of workspace %s", pullrequestWorkspace)
-	members, _ := pullrequestWorkspace.GetMembers(ctx, cmd)
+	lgr.Printf("[DEBUG] getting members of workspace %s", workspaceSlug)
+	members, _ := workspace.Workspace{Slug: workspaceSlug}.GetMembers(ctx, cmd)
 	nicknames = core.Map(members, func(member workspace.Member) string { return member.User.Nickname })
 	core.Sort(nicknames, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
 	return common.FilterValidArgs(nicknames, args, toComplete), nil
