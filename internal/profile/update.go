@@ -46,10 +46,12 @@ func init() {
 	}
 	updateCmd.Flags().StringVarP(&updateOptions.User, "user", "u", "", "User's name of the profile")
 	updateCmd.Flags().StringVar(&updateOptions.Password, "password", "", "Password of the profile")
+	updateCmd.Flags().Bool("password-stdin", false, "Read the password from stdin instead of --password, so it never appears in shell history.")
 	updateCmd.Flags().StringVar(&updateOptions.ClientID, "client-id", "", "Client ID of the profile")
 	updateCmd.Flags().StringVar(&updateOptions.ClientSecret, "client-secret", "", "Client Secret of the profile")
 	updateCmd.Flags().Uint16Var(&updateOptions.CallbackPort, "callback-port", 0, "Callback port to use for OAuth2 authentication. If not set, a random port will be used.")
 	updateCmd.Flags().StringVar(&updateOptions.AccessToken, "access-token", "", "Access Token of the profile")
+	updateCmd.Flags().Bool("access-token-stdin", false, "Read the access token from stdin instead of --access-token, so it never appears in shell history.")
 	updateCmd.Flags().BoolVar(&updateOptions.ToVault, "to-vault", false, "Store credentials in the vault. This will remove any credentials from the profile and store them in the vault. If the vault key is not provided, it will use the existing vault key of the profile or the default vault key if not set.")
 	updateCmd.Flags().BoolVar(&updateOptions.NoVault, "no-vault", false, "Do not use a vault for storing credentials")
 	updateCmd.Flags().Var(updateOptions.DefaultWorkspace, "default-workspace", "Default workspace of the profile")
@@ -65,15 +67,23 @@ func init() {
 	updateCmd.Flags().IntVar(&updateOptions.DefaultPageLength, "default-page-length", 0, "Default number of items per page to retrieve from Bitbucket (Default: 50).")
 	updateCmd.Flags().Var(&updateOptions.ErrorProcessing, "error-processing", "Error processing (StopOnError, WarnOnError, IgnoreErrors).")
 	updateCmd.Flags().BoolVar(&updateOptions.Progress, "progress", false, "Show progress during upload/download operations.")
-	updateCmd.MarkFlagsRequiredTogether("user", "password")
 	updateCmd.MarkFlagsRequiredTogether("client-id", "client-secret")
-	updateCmd.MarkFlagsMutuallyExclusive("user", "client-id", "access-token")
+	// "user" is deliberately not required-together with "password"/"password-stdin" here: --user
+	// given alone is valid and triggers an interactive, no-echo password prompt instead (see
+	// resolveUpdateSecretInput). requireUserForPasswordSource enforces the other direction: a
+	// password source given without --user is still rejected.
+	updateCmd.MarkFlagsMutuallyExclusive("user", "client-id", "access-token", "access-token-stdin")
+	updateCmd.MarkFlagsMutuallyExclusive("password", "password-stdin")
+	updateCmd.MarkFlagsMutuallyExclusive("access-token", "access-token-stdin")
+	updateCmd.MarkFlagsMutuallyExclusive("password-stdin", "access-token-stdin")
 	updateCmd.MarkFlagsMutuallyExclusive("to-vault", "no-vault")
 	updateCmd.MarkFlagsMutuallyExclusive("to-vault", "access-token")
+	updateCmd.MarkFlagsMutuallyExclusive("to-vault", "access-token-stdin")
 	updateCmd.MarkFlagsMutuallyExclusive("to-vault", "client-id")
 	updateCmd.MarkFlagsMutuallyExclusive("to-vault", "client-secret")
 	updateCmd.MarkFlagsMutuallyExclusive("to-vault", "user")
 	updateCmd.MarkFlagsMutuallyExclusive("to-vault", "password")
+	updateCmd.MarkFlagsMutuallyExclusive("to-vault", "password-stdin")
 	_ = updateCmd.MarkFlagFilename("default-ssh-key-file")
 	_ = updateCmd.RegisterFlagCompletionFunc(updateOptions.DefaultWorkspace.CompletionFunc("default-workspace"))
 	_ = updateCmd.RegisterFlagCompletionFunc(updateOptions.DefaultProject.CompletionFunc("default-project"))
@@ -98,6 +108,13 @@ func updateProcess(cmd *cobra.Command, args []string) (err error) {
 	}
 
 	applyUpdateOverrides()
+
+	// Resolved before Validate/WhatIf so --dry-run still prompts/reads stdin for the secret: a dry
+	// run needs the value structurally to validate the command line, it only skips the vault
+	// write and the actual profile update below.
+	if secretErr := resolveUpdateSecretInput(cmd); secretErr != nil {
+		return secretErr
+	}
 
 	lgr.Printf("[DEBUG] loading profile %s (valid names: %v)", args[0], Profiles.Names())
 	profile, found := Profiles.Find(args[0])
@@ -157,6 +174,8 @@ func resolveCredentialOwner(cmd *cobra.Command, flagName, current, updated strin
 // resolveProfileCredentials moves existing plain-text credentials into the vault when requested,
 // then stores any credential values changed on the command line into the vault when in use
 func resolveProfileCredentials(cmd *cobra.Command, profile *Profile) error {
+	state := readSecretFlagState(cmd)
+
 	// 1. move any credentials still stored in plain text into the vault, when requested
 	if updateOptions.ToVault {
 		updateOptions.NoVault = false
@@ -184,24 +203,57 @@ func resolveProfileCredentials(cmd *cobra.Command, profile *Profile) error {
 	}
 
 	// 4. an access token is keyed in the vault by the profile's name: a rename that does not also
-	// set a new --access-token would otherwise leave its vault entry stranded under the old name,
-	// unreachable (loadAccessToken looks it up under the new name) and unreclaimable (profile
-	// delete only purges the vault entry under the profile's current name). Migrate it across the
-	// rename before anything below saves the profile under its new name.
-	if !updateOptions.NoVault && cmd.Flag("name").Changed && updateOptions.Name != "" && updateOptions.Name != profile.Name && !cmd.Flag("access-token").Changed {
+	// set a new --access-token/--access-token-stdin would otherwise leave its vault entry stranded
+	// under the old name, unreachable (loadAccessToken looks it up under the new name) and
+	// unreclaimable (profile delete only purges the vault entry under the profile's current name).
+	// Migrate it across the rename before anything below saves the profile under its new name.
+	if !updateOptions.NoVault && cmd.Flag("name").Changed && updateOptions.Name != "" && updateOptions.Name != profile.Name && !state.accessTokenSourceGiven() {
 		migrateAccessTokenOnRename(profile, updateOptions.VaultKey, profile.Name, updateOptions.Name)
 	}
 
-	// 5. resolve and store each of the three secrets: client secret, password, access token
+	// 5. resolve and store each of the three secrets: client secret, password, access token.
+	// Password/access token additionally count as "given" when they came from --password-stdin/
+	// --access-token-stdin, or (password only) an interactive prompt resolveUpdateSecretInput
+	// already ran before this -- both leave the flag itself un-Changed, but updateOptions.Password/
+	// AccessToken holds a freshly provided value all the same.
 	clientID := resolveCredentialOwner(cmd, "client-id", profile.ClientID, updateOptions.ClientID)
-	updateOptions.ClientSecret = storeCredentialIfChanged(cmd, "client-secret", "client secret", updateOptions.VaultKey, clientID, updateOptions.ClientSecret)
+	updateOptions.ClientSecret = storeCredentialIfChanged(state.clientSecret, "client secret", updateOptions.VaultKey, clientID, updateOptions.ClientSecret)
 
 	user := resolveCredentialOwner(cmd, "user", profile.User, updateOptions.User)
-	updateOptions.Password = storeCredentialIfChanged(cmd, "password", "password", updateOptions.VaultKey, user, updateOptions.Password)
+	updateOptions.Password = storeCredentialIfChanged(state.user, "password", updateOptions.VaultKey, user, updateOptions.Password)
 
 	name := resolveCredentialOwner(cmd, "name", profile.Name, updateOptions.Name)
-	updateOptions.AccessToken = storeCredentialIfChanged(cmd, "access-token", "access token", updateOptions.VaultKey, name, updateOptions.AccessToken)
+	updateOptions.AccessToken = storeCredentialIfChanged(state.accessTokenSourceGiven(), "access token", updateOptions.VaultKey, name, updateOptions.AccessToken)
 
+	return nil
+}
+
+// resolveUpdateSecretInput fills in updateOptions.Password from whichever secret source the
+// command line asked for: --password-stdin, or (when --user was given with no password source)
+// an interactive, no-echo terminal prompt. --access-token-stdin needs no such resolution here --
+// it names the source directly and unambiguously, so applyStdinSecrets alone is enough. Unlike
+// `profile create`, an update with no credential flags at all (e.g. `profile update foo
+// --description ...`) never prompts: it is a legitimate, common update to fields that have nothing
+// to do with credentials.
+//
+// It runs before Validate/WhatIf so the prompt/stdin read always happens, even under --dry-run;
+// resolveProfileCredentials (the vault write) stays gated behind WhatIf as before.
+func resolveUpdateSecretInput(cmd *cobra.Command) error {
+	state := readSecretFlagState(cmd)
+	if err := requireUserForPasswordSource(state); err != nil {
+		return err
+	}
+	if err := applyStdinSecrets(cmd, state, &updateOptions.Password, &updateOptions.AccessToken); err != nil {
+		return err
+	}
+
+	if state.user && !state.passwordSourceGiven() {
+		secret, err := promptForSecret(cmd, updateOptions.User)
+		if err != nil {
+			return err
+		}
+		updateOptions.Password = secret
+	}
 	return nil
 }
 
@@ -276,10 +328,11 @@ func migrateAccessTokenOnRename(profile *Profile, vaultKey, oldName, newName str
 	lgr.Printf("[DEBUG] migrated access token in the vault from %s to %s", oldName, newName)
 }
 
-// storeCredentialIfChanged stores secret in the vault when flagName changed on the command line and
-// the vault is in use; it returns the secret to keep in memory (cleared once stored successfully)
-func storeCredentialIfChanged(cmd *cobra.Command, flagName, kind, vaultKey, username, secret string) string {
-	if !cmd.Flag(flagName).Changed || secret == "" || updateOptions.NoVault {
+// storeCredentialIfChanged stores secret in the vault when changed is true (the caller's signal
+// that a fresh value for this secret was given, by whichever of its flags/prompt applies) and the
+// vault is in use; it returns the secret to keep in memory (cleared once stored successfully)
+func storeCredentialIfChanged(changed bool, kind, vaultKey, username, secret string) string {
+	if !changed || secret == "" || updateOptions.NoVault {
 		return secret
 	}
 	if err := updateOptions.SetCredentialInVault(vaultKey, username, secret); err != nil {

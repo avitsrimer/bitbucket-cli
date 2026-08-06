@@ -51,9 +51,11 @@ func newIsolatedUpdateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&updateOptions.VaultKey, "vault-key", "", "")
 	cmd.Flags().StringVarP(&updateOptions.User, "user", "u", "", "")
 	cmd.Flags().StringVar(&updateOptions.Password, "password", "", "")
+	cmd.Flags().Bool("password-stdin", false, "")
 	cmd.Flags().StringVar(&updateOptions.ClientID, "client-id", "", "")
 	cmd.Flags().StringVar(&updateOptions.ClientSecret, "client-secret", "", "")
 	cmd.Flags().StringVar(&updateOptions.AccessToken, "access-token", "", "")
+	cmd.Flags().Bool("access-token-stdin", false, "")
 	cmd.Flags().BoolVar(&updateOptions.ToVault, "to-vault", false, "")
 	cmd.Flags().BoolVar(&updateOptions.NoVault, "no-vault", false, "")
 	cmd.Flags().IntVar(&updateOptions.DefaultPageLength, "default-page-length", 0, "")
@@ -63,6 +65,10 @@ func newIsolatedUpdateCmd() *cobra.Command {
 	cmd.Flags().String("config", "", "")
 	cmd.Flags().String("output", "", "")
 	cmd.Flags().Bool("dry-run", false, "")
+	cmd.MarkFlagsMutuallyExclusive("user", "client-id", "access-token", "access-token-stdin")
+	cmd.MarkFlagsMutuallyExclusive("password", "password-stdin")
+	cmd.MarkFlagsMutuallyExclusive("access-token", "access-token-stdin")
+	cmd.MarkFlagsMutuallyExclusive("password-stdin", "access-token-stdin")
 	return cmd
 }
 

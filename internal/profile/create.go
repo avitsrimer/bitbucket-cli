@@ -43,10 +43,12 @@ func init() {
 	createCmd.Flags().BoolVar(&createOptions.NoVault, "no-vault", false, "Do not store credentials in the vault. This will store them in plain text in the configuration file.")
 	createCmd.Flags().StringVarP(&createOptions.User, "user", "u", "", "User's name of the profile")
 	createCmd.Flags().StringVar(&createOptions.Password, "password", "", "Password of the profile")
+	createCmd.Flags().Bool("password-stdin", false, "Read the password from stdin instead of --password, so it never appears in shell history.")
 	createCmd.Flags().StringVar(&createOptions.ClientID, "client-id", "", "Client ID of the profile")
 	createCmd.Flags().StringVar(&createOptions.ClientSecret, "client-secret", "", "Client Secret of the profile")
 	createCmd.Flags().Uint16Var(&createOptions.CallbackPort, "callback-port", 0, "Port to listen to for the Authorization Code Grant")
 	createCmd.Flags().StringVar(&createOptions.AccessToken, "access-token", "", "Access Token of the profile")
+	createCmd.Flags().Bool("access-token-stdin", false, "Read the access token from stdin instead of --access-token, so it never appears in shell history.")
 	createCmd.Flags().StringVar(&createOptions.DefaultWorkspace, "default-workspace", "", "Default workspace of the profile")
 	createCmd.Flags().StringVar(&createOptions.DefaultProject, "default-project", "", "Default project of the profile")
 	createCmd.Flags().Var(createOptions.CloneProtocol, "clone-protocol", "Default protocol to use for cloning repositories. Default is git, can be https, git, or ssh")
@@ -62,9 +64,15 @@ func init() {
 	createCmd.Flags().BoolVar(&createOptions.Progress, "progress", false, "Show progress during upload/download operations.")
 	_ = createCmd.MarkFlagRequired("name")
 	_ = createCmd.MarkFlagFilename("default-ssh-key-file")
-	createCmd.MarkFlagsRequiredTogether("user", "password")
 	createCmd.MarkFlagsRequiredTogether("client-id", "client-secret")
-	createCmd.MarkFlagsMutuallyExclusive("user", "client-id", "access-token")
+	// "user" is deliberately not required-together with "password"/"password-stdin" here: --user
+	// given alone is valid and triggers an interactive, no-echo password prompt instead (see
+	// resolveCreateSecretInput). requireUserForPasswordSource enforces the other direction: a
+	// password source given without --user is still rejected.
+	createCmd.MarkFlagsMutuallyExclusive("user", "client-id", "access-token", "access-token-stdin")
+	createCmd.MarkFlagsMutuallyExclusive("password", "password-stdin")
+	createCmd.MarkFlagsMutuallyExclusive("access-token", "access-token-stdin")
+	createCmd.MarkFlagsMutuallyExclusive("password-stdin", "access-token-stdin")
 	if runtime.GOOS != "windows" {
 		createCmd.MarkFlagsMutuallyExclusive("vault-key", "no-vault")
 	}
@@ -83,6 +91,13 @@ func createProcess(cmd *cobra.Command, args []string) (err error) {
 	}
 
 	applyCreateOverrides()
+
+	// Resolved before Validate/WhatIf so --dry-run still prompts/reads stdin for the secret: a dry
+	// run needs the value structurally to validate the command line, it only skips the vault
+	// write and the actual profile creation below.
+	if secretErr := resolveCreateSecretInput(cmd); secretErr != nil {
+		return secretErr
+	}
 
 	lgr.Printf("[DEBUG] creating profile %s", createOptions.Name)
 	err = createOptions.Validate()
@@ -126,6 +141,40 @@ func applyCreateOverrides() {
 	if createOptions.CloneProtocol.String() != "" {
 		createOptions.Profile.CloneProtocol = createOptions.CloneProtocol.String()
 	}
+}
+
+// resolveCreateSecretInput fills in createOptions.Password/AccessToken from whichever secret
+// source the command line asked for: --password-stdin/--access-token-stdin, or (when --user was
+// given with no password source, or when no credential of any kind was given at all) an
+// interactive, no-echo terminal prompt. It runs before Validate/WhatIf so the prompt/stdin read
+// always happens, even under --dry-run; resolveCreateSecrets (the vault write) stays gated behind
+// WhatIf as before.
+func resolveCreateSecretInput(cmd *cobra.Command) error {
+	state := readSecretFlagState(cmd)
+	if err := requireUserForPasswordSource(state); err != nil {
+		return err
+	}
+	if err := applyStdinSecrets(cmd, state, &createOptions.Password, &createOptions.AccessToken); err != nil {
+		return err
+	}
+
+	switch {
+	case state.user && !state.passwordSourceGiven():
+		secret, err := promptForSecret(cmd, createOptions.User)
+		if err != nil {
+			return err
+		}
+		createOptions.Password = secret
+	case !state.anyCredentialGiven():
+		// No identity flag at all: fall back to an access token keyed by the profile's own name,
+		// matching resolveCreateSecrets' own vault key choice for --access-token below.
+		secret, err := promptForSecret(cmd, createOptions.Name)
+		if err != nil {
+			return err
+		}
+		createOptions.AccessToken = secret
+	}
+	return nil
 }
 
 // resolveCreateSecrets stores the client secret/password/access token in the vault if provided,

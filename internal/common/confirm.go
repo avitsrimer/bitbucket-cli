@@ -35,10 +35,8 @@ func Confirm(cmd *cobra.Command, prompt string) (proceed bool, err error) {
 	}
 
 	in := cmd.InOrStdin()
-	if in == os.Stdin {
-		if info, statErr := os.Stdin.Stat(); statErr == nil && info.Mode()&os.ModeCharDevice == 0 {
-			return false, fmt.Errorf("%s: input is not a terminal, use --force to skip confirmation", prompt)
-		}
+	if in == os.Stdin && !StdinIsInteractive(cmd) {
+		return false, fmt.Errorf("%s: input is not a terminal, use --force to skip confirmation", prompt)
 	}
 
 	fmt.Fprintf(os.Stderr, "%s [y/N] ", prompt)

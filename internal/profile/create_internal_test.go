@@ -30,12 +30,17 @@ func newIsolatedCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&createOptions.VaultKey, "vault-key", "bitbucket-cli", "")
 	cmd.Flags().StringVar(&createOptions.User, "user", "", "")
 	cmd.Flags().StringVar(&createOptions.Password, "password", "", "")
+	cmd.Flags().Bool("password-stdin", false, "")
 	cmd.Flags().StringVar(&createOptions.AccessToken, "access-token", "", "")
+	cmd.Flags().Bool("access-token-stdin", false, "")
 	cmd.Flags().String("profile", "", "")
 	cmd.Flags().String("config", "", "")
+	cmd.Flags().Bool("dry-run", false, "")
 	cmd.MarkFlagsRequiredTogether("client-id", "client-secret")
-	cmd.MarkFlagsRequiredTogether("user", "password")
-	cmd.MarkFlagsMutuallyExclusive("user", "client-id", "access-token")
+	cmd.MarkFlagsMutuallyExclusive("user", "client-id", "access-token", "access-token-stdin")
+	cmd.MarkFlagsMutuallyExclusive("password", "password-stdin")
+	cmd.MarkFlagsMutuallyExclusive("access-token", "access-token-stdin")
+	cmd.MarkFlagsMutuallyExclusive("password-stdin", "access-token-stdin")
 	return cmd
 }
 
