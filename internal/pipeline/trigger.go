@@ -135,7 +135,7 @@ func triggerProcess(cmd *cobra.Command, args []string) error {
 func buildTriggerTarget(cmd *cobra.Command) (target Target, description string, err error) {
 	pullRequestID, _ := cmd.Flags().GetUint64("pullrequest")
 	if pullRequestID != 0 {
-		target = Target{Type: "pipeline_pullrequest_target", PullRequestID: pullRequestID}
+		target = Target{Type: "pipeline_pullrequest_target", PullRequest: &pullRequestReference{Type: "pullrequest", ID: pullRequestID}}
 		description = fmt.Sprintf("pull request #%d", pullRequestID)
 	} else {
 		branchName, _ := cmd.Flags().GetString("branch")

@@ -18,9 +18,6 @@ var listCmd = &cobra.Command{
 }
 
 var listOptions struct {
-	Query   string
-	Include []string
-	Exclude []string
 	Columns *common.EnumSliceFlag
 	SortBy  *common.EnumFlag
 }
@@ -29,9 +26,12 @@ func init() {
 	Command.AddCommand(listCmd)
 
 	listOptions.Columns, listOptions.SortBy = common.RegisterListFlags(listCmd, columns, "commits")
-	listCmd.Flags().StringVar(&listOptions.Query, "query", "", "Query string to filter commits")
-	listCmd.Flags().StringSliceVar(&listOptions.Include, "include", []string{}, "List of commit hashes/branches to include")
-	listCmd.Flags().StringSliceVar(&listOptions.Exclude, "exclude", []string{}, "List of commit hashes/branches to exclude")
+	// --query/--include/--exclude have no package-level destination: GetCommits reads them
+	// directly off the passed cmd (see commitsQuery), so bound variables here would only ever be
+	// write-only state.
+	listCmd.Flags().String("query", "", "Query string to filter commits")
+	listCmd.Flags().StringSlice("include", []string{}, "List of commit hashes/branches to include")
+	listCmd.Flags().StringSlice("exclude", []string{}, "List of commit hashes/branches to exclude")
 }
 
 func listProcess(cmd *cobra.Command, args []string) error {

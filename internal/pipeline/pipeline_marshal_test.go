@@ -69,8 +69,8 @@ func TestPipelineMarshalUnmarshalRoundTrip(t *testing.T) {
 
 // TestPipelineUnmarshalPullRequestTarget proves a pull-request-shaped target unmarshals into the
 // flat Target correctly: Source/Destination/Commit come straight from the top-level fields, and
-// PullRequestID is extracted from the nested "pullrequest" object (the only piece of it this fork
-// keeps -- see Target's doc comment).
+// PullRequest is the nested "pullrequest" object (only its id is kept -- see Target's doc
+// comment).
 func TestPipelineUnmarshalPullRequestTarget(t *testing.T) {
 	var p Pipeline
 	if err := json.Unmarshal(loadTestData(t, "pipeline-pullrequest.json"), &p); err != nil {
@@ -89,8 +89,8 @@ func TestPipelineUnmarshalPullRequestTarget(t *testing.T) {
 	if p.Target.Commit == nil || p.Target.Commit.Hash != "3c80cde6b371" {
 		t.Errorf("Target.Commit = %+v, want hash 3c80cde6b371", p.Target.Commit)
 	}
-	if p.Target.PullRequestID != 62 {
-		t.Errorf("Target.PullRequestID = %d, want 62", p.Target.PullRequestID)
+	if p.Target.PullRequest == nil || p.Target.PullRequest.ID != 62 {
+		t.Errorf("Target.PullRequest = %+v, want id 62", p.Target.PullRequest)
 	}
 	if p.State.Result == nil || p.State.Result.Name != "FAILED" {
 		t.Errorf("State.Result = %+v, want FAILED", p.State.Result)
@@ -120,7 +120,7 @@ func TestTargetMarshalReferenceTarget(t *testing.T) {
 }
 
 func TestTargetMarshalPullRequestTarget(t *testing.T) {
-	target := Target{Type: "pipeline_pullrequest_target", Source: "release", Destination: "main", PullRequestID: 62}
+	target := Target{Type: "pipeline_pullrequest_target", Source: "release", Destination: "main", PullRequest: &pullRequestReference{Type: "pullrequest", ID: 62}}
 
 	data, err := json.Marshal(target)
 	if err != nil {

@@ -20,7 +20,6 @@ var listCmd = &cobra.Command{
 }
 
 var listOptions struct {
-	Query   string
 	Columns *common.EnumSliceFlag
 	SortBy  *common.EnumFlag
 }
@@ -29,7 +28,9 @@ func init() {
 	Command.AddCommand(listCmd)
 
 	listOptions.Columns, listOptions.SortBy = common.RegisterListFlags(listCmd, columns, "artifacts")
-	listCmd.Flags().StringVar(&listOptions.Query, "query", "", "Query string to filter artifacts")
+	// --query has no package-level destination: listProcess reads it directly off cmd below, so a
+	// bound variable here would only ever be write-only state.
+	listCmd.Flags().String("query", "", "Query string to filter artifacts")
 }
 
 func listProcess(cmd *cobra.Command, args []string) error {
@@ -44,7 +45,7 @@ func listProcess(cmd *cobra.Command, args []string) error {
 	}
 
 	uriPath := repo.GetPath("downloads")
-	if query := queryFlagValue(cmd); query != "" {
+	if query, _ := cmd.Flags().GetString("query"); query != "" {
 		uriPath += "?q=" + url.QueryEscape(query)
 	}
 
@@ -63,20 +64,4 @@ func listProcess(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot print result: %w", err)
 	}
 	return nil
-}
-
-// queryFlagValue reads cmd's own --query flag directly (rather than the package-level
-// listOptions.Query, which is only ever populated on the real listCmd instance), so listProcess
-// behaves the same whether cmd is listCmd itself or a standalone test command carrying its own
-// --query flag.
-func queryFlagValue(cmd *cobra.Command) string {
-	flag := cmd.Flag("query")
-	if flag == nil || !flag.Changed {
-		return ""
-	}
-	value, err := cmd.Flags().GetString("query")
-	if err != nil {
-		return ""
-	}
-	return value
 }

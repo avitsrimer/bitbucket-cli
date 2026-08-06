@@ -19,5 +19,5 @@ func init() {
 }
 
 func reportProcess(cmd *cobra.Command, args []string) error {
-	return rawStepOutput(cmd, args, []string{"test_reports"}, "test report")
+	return rawStepOutput(cmd, args[0], "test report", "test_reports")
 }

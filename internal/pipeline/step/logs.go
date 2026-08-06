@@ -20,5 +20,5 @@ func init() {
 }
 
 func logsProcess(cmd *cobra.Command, args []string) error {
-	return rawStepOutput(cmd, args, []string{"log"}, "logs")
+	return rawStepOutput(cmd, args[0], "logs", "log")
 }

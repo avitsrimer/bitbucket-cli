@@ -239,7 +239,7 @@ func TestTriggerProcessPullRequestTarget(t *testing.T) {
 	if err := json.Unmarshal(body, &sent); err != nil {
 		t.Fatalf("cannot unmarshal POST body: %v", err)
 	}
-	if sent.Target.Type != "pipeline_pullrequest_target" || sent.Target.PullRequestID != 62 {
+	if sent.Target.Type != "pipeline_pullrequest_target" || sent.Target.PullRequest == nil || sent.Target.PullRequest.ID != 62 {
 		t.Errorf("target = %+v, want type pipeline_pullrequest_target with pull request id 62", sent.Target)
 	}
 }
