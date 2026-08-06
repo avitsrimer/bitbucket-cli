@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
-	"github.com/gildas/go-core"
 	"github.com/spf13/cobra"
 )
 
@@ -141,12 +140,7 @@ func (step Step) GetType() string {
 //
 // implements common.Tableable
 func (step Step) GetHeaders(cmd *cobra.Command) []string {
-	if cmd != nil && cmd.Flag("columns") != nil && cmd.Flag("columns").Changed {
-		if values, err := cmd.Flags().GetStringSlice("columns"); err == nil {
-			return core.Map(values, func(column string) string { return strings.ReplaceAll(column, "_", " ") })
-		}
-	}
-	return []string{"ID", "Name", "State", "Duration", "Image"}
+	return common.HeadersFromFlag(cmd, "ID", "Name", "State", "Duration", "Image")
 }
 
 // GetRow gets the row for a table
@@ -168,36 +162,18 @@ func (step Step) GetRow(headers []string) []string {
 		case "duration":
 			row = append(row, step.Duration.String())
 		case "started_on":
-			row = append(row, step.startedOnCell())
+			row = append(row, common.TimeCell(step.StartedOn))
 		case "completed_on":
-			row = append(row, step.completedOnCell())
+			row = append(row, common.TimeCell(step.CompletedOn))
 		case "run_number":
 			row = append(row, strconv.FormatUint(step.RunNumber, 10))
 		case "max_time":
 			row = append(row, step.MaxTime.String())
 		default:
-			row = append(row, " ")
+			row = append(row, common.EmptyCell)
 		}
 	}
 	return row
-}
-
-// startedOnCell returns StartedOn formatted with common.TableTimeFormat, or " " when it is zero
-// (a step that has not started yet has no start time).
-func (step Step) startedOnCell() string {
-	if step.StartedOn.IsZero() {
-		return " "
-	}
-	return step.StartedOn.Format(common.TableTimeFormat)
-}
-
-// completedOnCell returns CompletedOn formatted with common.TableTimeFormat, or " " when it is
-// zero (a step still running has no completion time).
-func (step Step) completedOnCell() string {
-	if step.CompletedOn.IsZero() {
-		return " "
-	}
-	return step.CompletedOn.Format(common.TableTimeFormat)
 }
 
 // String gets a string representation of this step

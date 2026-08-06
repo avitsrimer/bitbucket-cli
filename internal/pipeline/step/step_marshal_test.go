@@ -86,8 +86,8 @@ func TestStepMarshalUnmarshalRoundTrip(t *testing.T) {
 		t.Fatalf("cannot marshal step: %v", err)
 	}
 
-	// the marshaled JSON must carry "started_on", never a "created_on" left over from upstream's
-	// bug, since nothing in Step ever reads a "created_on" key back on unmarshal.
+	// the marshaled JSON must carry "started_on", never "created_on", since nothing in Step ever
+	// reads a "created_on" key back on unmarshal.
 	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
 		t.Fatalf("cannot unmarshal marshaled step into a map: %v", err)

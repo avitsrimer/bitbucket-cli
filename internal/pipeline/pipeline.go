@@ -10,7 +10,6 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/pipeline/step"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
-	"github.com/gildas/go-core"
 	"github.com/spf13/cobra"
 )
 
@@ -104,12 +103,7 @@ func (pipeline Pipeline) GetType() string {
 //
 // implements common.Tableable
 func (pipeline Pipeline) GetHeaders(cmd *cobra.Command) []string {
-	if cmd != nil && cmd.Flag("columns") != nil && cmd.Flag("columns").Changed {
-		if values, err := cmd.Flags().GetStringSlice("columns"); err == nil {
-			return core.Map(values, func(column string) string { return strings.ReplaceAll(column, "_", " ") })
-		}
-	}
-	return []string{"Build Number", "State", "Branch", "Creator", "Duration", "Created On"}
+	return common.HeadersFromFlag(cmd, "Build Number", "State", "Branch", "Creator", "Duration", "Created On")
 }
 
 // GetRow gets the row for a table
@@ -133,31 +127,14 @@ func (pipeline Pipeline) GetRow(headers []string) []string {
 		case "duration":
 			row = append(row, pipeline.Duration.String())
 		case "created_on":
-			row = append(row, pipeline.createdOnCell())
+			row = append(row, common.TimeCell(pipeline.CreatedOn))
 		case "completed_on":
-			row = append(row, pipeline.completedOnCell())
+			row = append(row, common.TimeCell(pipeline.CompletedOn))
 		default:
-			row = append(row, " ")
+			row = append(row, common.EmptyCell)
 		}
 	}
 	return row
-}
-
-// completedOnCell returns CompletedOn formatted with common.TableTimeFormat, or " " when it is
-// zero (a pipeline still in progress has no completion time).
-func (pipeline Pipeline) completedOnCell() string {
-	if pipeline.CompletedOn.IsZero() {
-		return " "
-	}
-	return pipeline.CompletedOn.Format(common.TableTimeFormat)
-}
-
-// createdOnCell returns CreatedOn formatted with common.TableTimeFormat, or " " when it is zero.
-func (pipeline Pipeline) createdOnCell() string {
-	if pipeline.CreatedOn.IsZero() {
-		return " "
-	}
-	return pipeline.CreatedOn.Format(common.TableTimeFormat)
 }
 
 // String gets a string representation of this pipeline

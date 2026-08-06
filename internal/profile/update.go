@@ -34,8 +34,8 @@ var updateOptions struct {
 func init() {
 	Command.AddCommand(updateCmd)
 
-	updateOptions.DefaultWorkspace = common.NewEnumFlagWithFunc(updateCmd, "", getWorkspaceSlugs)
-	updateOptions.DefaultProject = common.NewEnumFlagWithFunc(updateCmd, "", getProjectKeys)
+	updateOptions.DefaultWorkspace = common.NewEnumFlagWithFunc("", getWorkspaceSlugs)
+	updateOptions.DefaultProject = common.NewEnumFlagWithFunc("", getProjectKeys)
 	updateOptions.OutputFormat = common.NewEnumFlag("json", "yaml", "table", "csv", "tsv")
 	updateOptions.CloneProtocol = common.NewEnumFlag("+git", "https", "ssh")
 	updateCmd.Flags().StringVarP(&updateOptions.Name, "name", "n", "", "Name of the profile")

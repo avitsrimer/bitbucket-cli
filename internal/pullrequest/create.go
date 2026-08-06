@@ -49,8 +49,8 @@ var createOptions struct {
 func init() {
 	Command.AddCommand(createCmd)
 
-	createOptions.Source = common.NewEnumFlagWithFunc(createCmd, "", branch.GetBranchNames)
-	createOptions.Destination = common.NewEnumFlagWithFunc(createCmd, "", branch.GetBranchNames)
+	createOptions.Source = common.NewEnumFlagWithFunc("", branch.GetBranchNames)
+	createOptions.Destination = common.NewEnumFlagWithFunc("", branch.GetBranchNames)
 
 	createCmd.Flags().StringVar(&createOptions.Title, "title", "", "Title of the pullrequest")
 	createCmd.Flags().StringVar(&createOptions.Description, "description", "", "Description of the pullrequest")
@@ -147,7 +147,7 @@ func resolveCreateDefaultReviewers(ctx context.Context, cmd *cobra.Command, repo
 // with --warn-on-error/WarnOnError or --ignore-errors/IgnoreErrors it is tolerated (warned or
 // silently skipped) and the pullrequest is created with only the resolved reviewers.
 func resolveExplicitReviewers(ctx context.Context, cmd *cobra.Command, currentProfile *profile.Profile, repository *repository.Repository, values []string) ([]user.User, error) {
-	members, membersErr := repository.Workspace.GetMembers(ctx, cmd)
+	members, membersErr := workspace.GetMembers(ctx, cmd, repository.Workspace.Slug)
 	values, err := expandAllReviewers(values, members, membersErr)
 	if err != nil {
 		return nil, err
@@ -178,8 +178,8 @@ func resolveExplicitReviewers(ctx context.Context, cmd *cobra.Command, currentPr
 		}
 		errs = append(errs, reviewerErr)
 	}
-	if err := tolerateReviewerErrors(cmd, currentProfile, errs, "resolve these reviewers"); err != nil {
-		return nil, err
+	if err := common.TolerateErrors(cmd, currentProfile, errs, "resolve these reviewers"); err != nil {
+		return nil, err //nolint:wrapcheck // TolerateErrors returns the same joined error verbatim (or nil); wrapping would prefix it with redundant noise
 	}
 	return reviewers, nil
 }

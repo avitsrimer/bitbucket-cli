@@ -23,9 +23,9 @@ func TestPipelineGetHeadersDefault(t *testing.T) {
 
 // TestPipelineGetRowCoversEveryColumn iterates columns.Columns() (the single source of truth, not
 // a hand-written header list) and requires every declared column to produce its real value instead
-// of falling through to GetRow's default " " arm. This also proves the upstream duplicate
-// "creator" column entry was deduped: a second entry would not change this test's outcome, but a
-// leftover duplicate would fail `go vet`/tests elsewhere if columns.Columns() ever grew a repeat.
+// of falling through to GetRow's default " " arm. Each column name in the table is unique: a
+// duplicate entry would not change this test's outcome, but would fail `go vet`/tests elsewhere if
+// columns.Columns() ever grew a repeat.
 func TestPipelineGetRowCoversEveryColumn(t *testing.T) {
 	id, err := common.ParseUUID("{a1b2c3d4-e5f6-7890-abcd-ef1234567890}")
 	if err != nil {

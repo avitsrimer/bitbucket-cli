@@ -3,7 +3,7 @@
 // captures the global lgr logger. Because this package itself imports internal/repository,
 // internal/user, and internal/workspace, only packages *outside* that trio (and outside anything
 // they import) can import it without a cycle -- currently the pullrequest command tree and its
-// comment/task/common subpackages, the user package, and the restored artifact, branch, commit,
+// comment/task/common subpackages, the user package, and the artifact, branch, commit,
 // pipeline, pipeline/step, and pipeline/common packages. internal/repository and
 // internal/workspace's own tests, which cannot import it, instead duplicate the specific helpers
 // they need in a local helpers_test.go (e.g. internal/repository/helpers_test.go); their external

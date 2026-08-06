@@ -22,7 +22,6 @@ type EnumFlag struct {
 	Allowed     []string
 	AllowedFunc AllowedFunc
 	Value       string
-	cmd         *cobra.Command
 }
 
 // NewEnumFlag creates an EnumFlag from a fixed list of allowed values.
@@ -50,12 +49,9 @@ func NewEnumFlag(allowed ...string) *EnumFlag {
 }
 
 // NewEnumFlagWithFunc creates an EnumFlag whose allowed values are resolved by allowedFunc
-// the first time the flag is set or completed.
-func NewEnumFlagWithFunc(cmd *cobra.Command, defaultValue string, allowedFunc AllowedFunc) *EnumFlag {
-	if cmd == nil {
-		panic("cobra.Command cmd cannot be nil")
-	}
-	return &EnumFlag{AllowedFunc: allowedFunc, Value: defaultValue, cmd: cmd}
+// the first time the flag is completed.
+func NewEnumFlagWithFunc(defaultValue string, allowedFunc AllowedFunc) *EnumFlag {
+	return &EnumFlag{AllowedFunc: allowedFunc, Value: defaultValue}
 }
 
 // Type returns the type of the flag.
@@ -109,7 +105,7 @@ func (flag *EnumFlag) CompletionFunc(flagName string) (string, func(*cobra.Comma
 			if err != nil {
 				return []string{}, cobra.ShellCompDirectiveError
 			}
-			flag.Allowed = allowed
+			return allowed, cobra.ShellCompDirectiveDefault
 		}
 		return flag.Allowed, cobra.ShellCompDirectiveDefault
 	}

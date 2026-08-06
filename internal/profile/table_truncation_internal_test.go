@@ -48,59 +48,67 @@ func newTruncationCmd(t *testing.T, output string) *cobra.Command {
 	return cmd
 }
 
-// TestTruncateCellLeavesShortValueUnchanged proves the cap never touches a value already under
-// it.
-func TestTruncateCellLeavesShortValueUnchanged(t *testing.T) {
-	const short = "short value"
-	if got := truncateCell(short); got != short {
-		t.Errorf("truncateCell(%q) = %q, want it unchanged", short, got)
+// TestTruncateCell proves the cap leaves a short value unchanged, cuts a long value to exactly
+// maxTableCellWidth runes with the final rune replaced by a single ellipsis, and collapses a
+// multi-paragraph value into a single table line instead of expanding the row across as many
+// lines as it has paragraphs.
+func TestTruncateCell(t *testing.T) {
+	long := strings.Repeat("a", maxTableCellWidth+4920) // a 5000-char cell must be ellipsized
+	wantLong := strings.Repeat("a", maxTableCellWidth-1) + "…"
+
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"leaves a short value unchanged", "short value", "short value"},
+		{"ellipsizes a long value to exactly maxTableCellWidth runes", long, wantLong},
+		{"collapses embedded newlines into a single line", "first paragraph.\n\nsecond paragraph.", "first paragraph. second paragraph."},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := truncateCell(test.in); got != test.want {
+				t.Errorf("truncateCell(%q) = %q, want %q", test.in, got, test.want)
+			}
+		})
 	}
 }
 
-// TestTruncateCellEllipsizesLongValue proves a value over the cap is cut to exactly
-// maxTableCellWidth runes, with the final rune replaced by a single ellipsis.
-func TestTruncateCellEllipsizesLongValue(t *testing.T) {
-	long := strings.Repeat("a", maxTableCellWidth+4920) // matches the 5000-char field report repro
-	got := truncateCell(long)
-
-	runes := []rune(got)
-	if len(runes) != maxTableCellWidth {
-		t.Fatalf("truncateCell() result is %d runes long, want exactly %d", len(runes), maxTableCellWidth)
+// TestTruncateTableRow proves truncateTableRow applies the cap cell-by-cell, leaving cells under
+// the cap untouched and cutting cells over it to exactly maxTableCellWidth runes.
+func TestTruncateTableRow(t *testing.T) {
+	tests := []struct {
+		name      string
+		row       []string
+		wantWidth []int // -1 means "unchanged", any other value is the exact wanted rune count
+	}{
+		{"every cell already short", []string{"short", "also short"}, []int{-1, -1}},
+		{"a mix of short and over-the-cap cells", []string{"short", strings.Repeat("x", maxTableCellWidth+10)}, []int{-1, maxTableCellWidth}},
 	}
-	want := strings.Repeat("a", maxTableCellWidth-1) + "…"
-	if got != want {
-		t.Errorf("truncateCell() = %q, want %q", got, want)
-	}
-}
 
-// TestTruncateCellCollapsesEmbeddedNewlines proves a multi-paragraph value renders as a single
-// table line instead of expanding the row across as many lines as it has paragraphs.
-func TestTruncateCellCollapsesEmbeddedNewlines(t *testing.T) {
-	got := truncateCell("first paragraph.\n\nsecond paragraph.")
-	want := "first paragraph. second paragraph."
-	if got != want {
-		t.Errorf("truncateCell() = %q, want %q", got, want)
-	}
-}
-
-// TestTruncateTableRowTruncatesEveryCellIndependently proves truncateTableRow applies the cap
-// cell-by-cell, leaving cells under the cap untouched.
-func TestTruncateTableRowTruncatesEveryCellIndependently(t *testing.T) {
-	row := []string{"short", strings.Repeat("x", maxTableCellWidth+10)}
-	got := truncateTableRow(row)
-
-	if got[0] != "short" {
-		t.Errorf("truncateTableRow()[0] = %q, want it unchanged", got[0])
-	}
-	if n := utf8.RuneCountInString(got[1]); n != maxTableCellWidth {
-		t.Errorf("truncateTableRow()[1] is %d runes long, want exactly %d", n, maxTableCellWidth)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := truncateTableRow(test.row)
+			for i, wantWidth := range test.wantWidth {
+				if wantWidth == -1 {
+					if got[i] != test.row[i] {
+						t.Errorf("truncateTableRow()[%d] = %q, want it unchanged (%q)", i, got[i], test.row[i])
+					}
+					continue
+				}
+				if n := utf8.RuneCountInString(got[i]); n != wantWidth {
+					t.Errorf("truncateTableRow()[%d] is %d runes long, want exactly %d", i, n, wantWidth)
+				}
+			}
+		})
 	}
 }
 
-// TestPrintTableTruncatesLongCellAndCapsEveryRenderedLine reproduces field report FR-4: a table
-// cell built from a 5000-character description must not blow the rendered table out to an
-// unreadable width. It must be ellipsized, and no line printTable renders may exceed a bounded
-// width (the cap itself plus tablewriter's own border/padding overhead).
+// TestPrintTableTruncatesLongCellAndCapsEveryRenderedLine proves a table cell built from a
+// 5000-character description does not blow the rendered table out to an unreadable width: it
+// must be ellipsized, and no line printTable renders may exceed a bounded width (the cap itself
+// plus tablewriter's own border/padding overhead).
 func TestPrintTableTruncatesLongCellAndCapsEveryRenderedLine(t *testing.T) {
 	longDescription := strings.Repeat("a", 5000)
 	fixture := truncationFixtureRow{ID: 1, Description: longDescription}

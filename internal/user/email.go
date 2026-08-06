@@ -4,10 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
-	"github.com/gildas/go-core"
 	"github.com/spf13/cobra"
 )
 
@@ -29,12 +27,7 @@ func (email Email) GetType() string {
 //
 // implements common.Tableable
 func (email Email) GetHeaders(cmd *cobra.Command) []string {
-	if cmd != nil && cmd.Flag("columns") != nil && cmd.Flag("columns").Changed {
-		if columns, err := cmd.Flags().GetStringSlice("columns"); err == nil {
-			return core.Map(columns, func(column string) string { return strings.ReplaceAll(column, "_", " ") })
-		}
-	}
-	return []string{"Email", "Is Primary", "Is Confirmed"}
+	return common.HeadersFromFlag(cmd, "Email", "Is Primary", "Is Confirmed")
 }
 
 // GetRow gets the row for a table

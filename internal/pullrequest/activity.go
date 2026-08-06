@@ -12,7 +12,6 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/pullrequest/comment"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
-	"github.com/gildas/go-core"
 	"github.com/spf13/cobra"
 )
 
@@ -140,12 +139,7 @@ var activityColumns = common.Columns[Activity]{
 //
 // implements common.Tableable
 func (activity Activity) GetHeaders(cmd *cobra.Command) []string {
-	if cmd != nil && cmd.Flag("columns") != nil && cmd.Flag("columns").Changed {
-		if columns, err := cmd.Flags().GetStringSlice("columns"); err == nil {
-			return core.Map(columns, func(column string) string { return strings.ReplaceAll(column, "_", " ") })
-		}
-	}
-	return []string{"Date", "Approved", "State", "User"}
+	return common.HeadersFromFlag(cmd, "Date", "Approved", "State", "User")
 }
 
 // GetRow gets the row for a table
@@ -175,7 +169,7 @@ func (activity Activity) GetRow(headers []string) []string {
 		case "pull_request":
 			row = append(row, strconv.FormatUint(activity.PullRequest.ID, 10))
 		case "date":
-			row = append(row, activityDate.Format(common.TableTimeFormat))
+			row = append(row, common.TimeCell(activityDate))
 		case "approved":
 			row = append(row, strconv.FormatBool(approval))
 		case "description":
@@ -193,37 +187,33 @@ func (activity Activity) GetRow(headers []string) []string {
 		case "destination":
 			row = append(row, activity.updateField(func(update *ActivityUpdate) string {
 				if update.Destination.Repository == nil {
-					return " "
+					return common.EmptyCell
 				}
 				return update.Destination.Repository.Name
 			}))
 		case "source":
 			row = append(row, activity.updateField(func(update *ActivityUpdate) string {
 				if update.Source.Repository == nil {
-					return " "
+					return common.EmptyCell
 				}
 				return update.Source.Repository.Name
 			}))
 		case "created_on", "created":
-			row = append(row, activity.updateField(func(update *ActivityUpdate) string { return update.CreatedOn.Format(common.TableTimeFormat) }))
+			row = append(row, activity.updateField(func(update *ActivityUpdate) string { return common.TimeCell(update.CreatedOn) }))
 		case "updated_on", "updated":
-			row = append(row, activity.updateField(func(update *ActivityUpdate) string {
-				if update.UpdatedOn.IsZero() {
-					return " "
-				}
-				return update.UpdatedOn.Format(common.TableTimeFormat)
-			}))
+			row = append(row, activity.updateField(func(update *ActivityUpdate) string { return common.TimeCell(update.UpdatedOn) }))
 		default:
-			row = append(row, " ")
+			row = append(row, common.EmptyCell)
 		}
 	}
 	return row
 }
 
-// updateField returns " " when activity has no Update, otherwise the value returned by get
+// updateField returns common.EmptyCell when activity has no Update, otherwise the value returned
+// by get.
 func (activity Activity) updateField(get func(*ActivityUpdate) string) string {
 	if activity.Update == nil {
-		return " "
+		return common.EmptyCell
 	}
 	return get(activity.Update)
 }

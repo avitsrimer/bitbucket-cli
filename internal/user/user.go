@@ -10,7 +10,6 @@ import (
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
-	"github.com/gildas/go-core"
 	"github.com/go-pkgz/lgr"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -82,12 +81,7 @@ func (user User) GetName() string {
 //
 // implements common.Tableable
 func (user User) GetHeaders(cmd *cobra.Command) []string {
-	if cmd != nil && cmd.Flag("columns") != nil && cmd.Flag("columns").Changed {
-		if columns, err := cmd.Flags().GetStringSlice("columns"); err == nil {
-			return core.Map(columns, func(column string) string { return strings.ReplaceAll(column, "_", " ") })
-		}
-	}
-	return []string{"ID", "Username", "Name"}
+	return common.HeadersFromFlag(cmd, "ID", "Username", "Name")
 }
 
 // GetRow gets the row for a table

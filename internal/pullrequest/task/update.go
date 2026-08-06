@@ -38,7 +38,7 @@ var updateOptions struct {
 func init() {
 	Command.AddCommand(updateCmd)
 
-	updateOptions.PullRequestID = common.NewEnumFlagWithFunc(updateCmd, "", prcommon.GetPullRequestIDs)
+	updateOptions.PullRequestID = common.NewEnumFlagWithFunc("", prcommon.GetPullRequestIDs)
 	updateOptions.State = common.NewEnumFlag("RESOLVED", "UNRESOLVED")
 	updateCmd.Flags().Var(updateOptions.PullRequestID, "pullrequest", "Pullrequest to update tasks to")
 	updateCmd.Flags().StringVar(&updateOptions.Content, "content", "", "Updated content of the task")

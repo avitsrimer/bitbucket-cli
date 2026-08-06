@@ -106,7 +106,7 @@ func triggerProcess(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot confirm pipeline trigger: %w", err)
 	}
 	if !proceed {
-		fmt.Println("Trigger cancelled")
+		fmt.Println("Trigger canceled")
 		return nil
 	}
 
@@ -131,8 +131,8 @@ func triggerProcess(cmd *cobra.Command, args []string) error {
 
 // buildTriggerTarget resolves the flat Target payload and a human-readable description of it from
 // cmd's own --branch/--commit/--pullrequest/--pattern flags (read directly off cmd, not a
-// package-level variable, so triggerProcess behaves identically whether cmd is the real triggerCmd
-// or a standalone test command carrying its own flags -- mirrors list.go's queryFlagValue). A pull
+// package-level variable, per CLAUDE.md's flag-reading rule, so triggerProcess behaves identically
+// whether cmd is the real triggerCmd or a standalone test command carrying its own flags). A pull
 // request target takes the pull request id alone (BitBucket derives its source/destination/commit
 // server-side); otherwise the target is a branch reference, defaulting to the current git branch
 // (branch.GetCurrentBranch) when --branch is not set, optionally pinned to --commit and/or

@@ -5,7 +5,6 @@ import (
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
-	"github.com/gildas/go-core"
 	"github.com/spf13/cobra"
 )
 
@@ -35,12 +34,7 @@ var memberColumns = common.Columns[Member]{
 //
 // implements common.Tableable
 func (member Member) GetHeaders(cmd *cobra.Command) []string {
-	if cmd != nil && cmd.Flag("columns") != nil && cmd.Flag("columns").Changed {
-		if values, err := cmd.Flags().GetStringSlice("columns"); err == nil {
-			return core.Map(values, func(column string) string { return strings.ReplaceAll(column, "_", " ") })
-		}
-	}
-	return []string{"ID", "Name", "Workspace"}
+	return common.HeadersFromFlag(cmd, "ID", "Name", "Workspace")
 }
 
 // GetRow gets the row for a table

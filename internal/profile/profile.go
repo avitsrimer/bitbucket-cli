@@ -203,12 +203,7 @@ func GetProfileFromCommand(context context.Context, cmd *cobra.Command) (profile
 //
 // implements common.Tableable
 func (profile Profile) GetHeaders(cmd *cobra.Command) []string {
-	if cmd != nil && cmd.Flag("columns") != nil && cmd.Flag("columns").Changed {
-		if columns, err := cmd.Flags().GetStringSlice("columns"); err == nil {
-			return core.Map(columns, func(column string) string { return strings.ReplaceAll(column, "_", " ") })
-		}
-	}
-	return []string{"Name", "Description", "Default", "User", "ClientID", "AccessToken"}
+	return common.HeadersFromFlag(cmd, "Name", "Description", "Default", "User", "ClientID", "AccessToken")
 }
 
 // GetRow gets the row for a table

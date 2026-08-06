@@ -34,10 +34,10 @@ func pipelineValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]
 	return common.FilterValidArgs(ids, args, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
-// pipelineFlagValue reads cmd's own --pipeline value directly (rather than a package-level
-// destination), mirroring pipeline/list.go's queryFlagValue: every RunE function in this package
-// reads its flags off the passed cmd, so behavior is identical whether cmd is the real command or
-// a standalone test double carrying its own --pipeline flag.
+// pipelineFlagValue reads cmd's own --pipeline value directly, per CLAUDE.md's flag-reading rule:
+// every RunE function in this package reads its flags off the passed cmd, so behavior is
+// identical whether cmd is the real command or a standalone test double carrying its own
+// --pipeline flag.
 func pipelineFlagValue(cmd *cobra.Command) string {
 	value, _ := cmd.Flags().GetString("pipeline")
 	return value

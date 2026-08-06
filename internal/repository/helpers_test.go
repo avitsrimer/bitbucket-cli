@@ -54,7 +54,8 @@ func runTests(m *testing.M) int {
 
 // setupTest points the profile client at a fresh httptest server, primes WorkspaceCache with
 // testWorkspaceSlug, and returns a standalone command carrying the flags this package's RunE
-// functions read: profile, output, dry-run, repository, workspace, role, page-length, limit, sort.
+// functions read: profile, output, dry-run, repository, workspace, role, page-length, limit,
+// sort, protocol, ssh-key-file.
 // profileName must be unique across the test binary so entries left behind by one test's
 // profile.Profiles append never leak into another.
 func setupTest(t *testing.T, profileName string, handler http.HandlerFunc, dryRun bool) *cobra.Command {
@@ -92,6 +93,8 @@ func setupTest(t *testing.T, profileName string, handler http.HandlerFunc, dryRu
 	cmd.Flags().Int("page-length", 0, "")
 	cmd.Flags().Int("limit", 0, "")
 	cmd.Flags().String("sort", "name", "")
+	cmd.Flags().String("protocol", "", "")
+	cmd.Flags().String("ssh-key-file", "", "")
 	return cmd
 }
 

@@ -9,12 +9,11 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 )
 
-// TestListProcessResolvesRepositoryWithoutWorkspaceRequest is field report FR-3's end-to-end
-// regression test for "bb pipeline list --repository <slug> --workspace <slug>": unlike
-// setupTest, this does not call testutil.PrimeFixtureCaches, so a regression that fell back to
-// fetching a Workspace object cannot silently pass by resolving from the cache instead of the
-// network, and any request to /workspaces/{slug} fails with the exact scope error the field
-// report reproduced.
+// TestListProcessResolvesRepositoryWithoutWorkspaceRequest proves "bb pipeline list --repository
+// <slug> --workspace <slug>": unlike setupTest, this does not call testutil.PrimeFixtureCaches,
+// so a regression that fell back to fetching a Workspace object cannot silently pass by
+// resolving from the cache instead of the network, and any request to /workspaces/{slug} fails
+// with the exact scope-denial error a token lacking read:workspace gets back.
 func TestListProcessResolvesRepositoryWithoutWorkspaceRequest(t *testing.T) {
 	const workspaceSlug = "fr3-pipeline-ws"
 	const repositorySlug = "fr3-pipeline-repo"
@@ -22,14 +21,7 @@ func TestListProcessResolvesRepositoryWithoutWorkspaceRequest(t *testing.T) {
 	pipelinesPath := repositoryPath + "/pipelines"
 
 	var requests []*http.Request
-	cmd := testutil.SetupProfile(t, "fr3-pipeline-list", func(w http.ResponseWriter, r *http.Request) {
-		requests = append(requests, r)
-		if strings.Contains(r.URL.Path, "/workspaces/") {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			_, _ = w.Write([]byte(`{"type":"error","error":{"message":"Your credentials lack one or more required privilege scopes. (required: read:workspace:bitbucket)"}}`))
-			return
-		}
+	deniedHandler := testutil.WorkspaceScopeDeniedHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case repositoryPath:
@@ -39,6 +31,10 @@ func TestListProcessResolvesRepositoryWithoutWorkspaceRequest(t *testing.T) {
 		default:
 			t.Errorf("unexpected request to %s", r.URL.Path)
 		}
+	})
+	cmd := testutil.SetupProfile(t, "fr3-pipeline-list", func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		deniedHandler(w, r)
 	})
 	cmd.Flags().String("workspace", "", "")
 	cmd.Flags().String("query", "", "")

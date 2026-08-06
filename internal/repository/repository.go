@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"path"
 	"strconv"
 	"strings"
@@ -16,7 +17,6 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/remote"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
 	"github.com/avitsrimer/bitbucket-cli/internal/workspace"
-	"github.com/gildas/go-core"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -130,12 +130,7 @@ func (repository Repository) GetType() string {
 //
 // implements common.Tableable
 func (repository Repository) GetHeaders(cmd *cobra.Command) []string {
-	if cmd != nil && cmd.Flag("columns") != nil && cmd.Flag("columns").Changed {
-		if values, err := cmd.Flags().GetStringSlice("columns"); err == nil {
-			return core.Map(values, func(column string) string { return strings.ReplaceAll(column, "_", " ") })
-		}
-	}
-	return []string{"Name", "Full Name", "Slug", "Workspace"}
+	return common.HeadersFromFlag(cmd, "Name", "Full Name", "Slug", "Workspace")
 }
 
 // GetRow gets the row for a table
@@ -187,46 +182,28 @@ func (repository Repository) getCell(key string) string {
 	case "parent":
 		return repository.parentFullName()
 	case "created_on":
-		return repository.createdOnCell()
+		return common.TimeCell(repository.CreatedOn)
 	case "updated_on":
-		return repository.updatedOnCell()
+		return common.TimeCell(repository.UpdatedOn)
 	default:
-		return " "
+		return common.EmptyCell
 	}
 }
 
-// workspaceName returns the repository's workspace name, or " " when Workspace is nil.
+// workspaceName returns the repository's workspace name, or common.EmptyCell when Workspace is nil.
 func (repository Repository) workspaceName() string {
 	if repository.Workspace == nil {
-		return " "
+		return common.EmptyCell
 	}
 	return repository.Workspace.Name
 }
 
-// parentFullName returns the repository's parent's full name, or " " when Parent is nil.
+// parentFullName returns the repository's parent's full name, or common.EmptyCell when Parent is nil.
 func (repository Repository) parentFullName() string {
 	if repository.Parent == nil {
-		return " "
+		return common.EmptyCell
 	}
 	return repository.Parent.FullName
-}
-
-// updatedOnCell returns UpdatedOn formatted with common.TableTimeFormat, or " " when it is zero.
-func (repository Repository) updatedOnCell() string {
-	if repository.UpdatedOn.IsZero() {
-		return " "
-	}
-	return repository.UpdatedOn.Format(common.TableTimeFormat)
-}
-
-// createdOnCell returns CreatedOn formatted with common.TableTimeFormat, or " " when it is zero.
-// Bitbucket omits created_on on the trimmed Repository objects nested in other payloads (the
-// same reason updatedOnCell exists), so a zero value must not render as a year-1 timestamp.
-func (repository Repository) createdOnCell() string {
-	if repository.CreatedOn.IsZero() {
-		return " "
-	}
-	return repository.CreatedOn.Format(common.TableTimeFormat)
 }
 
 // GetPath gets the API path of the repository
@@ -307,9 +284,14 @@ func GetRepositoryBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID s
 		return nil, fmt.Errorf("cannot get profile: %w", err)
 	}
 
+	// workspaceSlug and slugOrID are caller/user-supplied identifiers (a "workspace/repository"
+	// argument, a git remote, or a profile default), so both are escaped before being
+	// interpolated into the request path: resolveRequestURL splits on "?", so an unescaped
+	// segment containing one would silently truncate the path and turn the remainder into a
+	// query string.
 	err = profile.Get(
 		ctx,
-		fmt.Sprintf("/repositories/%s/%s", workspaceSlug, slugOrID),
+		fmt.Sprintf("/repositories/%s/%s", url.PathEscape(workspaceSlug), url.PathEscape(slugOrID)),
 		&repository,
 	)
 	if err != nil {
@@ -345,14 +327,25 @@ func (repository Repository) GetEffectiveDefaultReviewers(ctx context.Context, c
 // GetEffectiveDefaultReviewers' request path. See that method's comment for why FullName is
 // preferred over repository.Slug/GetWorkspaceSlug.
 func (repository Repository) effectiveReviewersPathSegments(ctx context.Context, cmd *cobra.Command) (workspaceSlug, repositorySlug string, err error) {
-	if components := strings.SplitN(repository.FullName, "/", 2); len(components) == 2 && components[0] != "" && components[1] != "" {
-		return components[0], components[1], nil
+	if fullNameWorkspace, fullNameRepository, ok := splitFullName(repository.FullName); ok {
+		return fullNameWorkspace, fullNameRepository, nil
 	}
 	workspaceSlug, err = repository.GetWorkspaceSlug(ctx, cmd)
 	if err != nil {
 		return "", "", fmt.Errorf("cannot get workspace: %w", err)
 	}
 	return workspaceSlug, repository.Slug, nil
+}
+
+// splitFullName splits fullName ("{workspace_slug}/{repository_slug}", the shape BitBucket
+// always sends) into its two segments, reporting ok=false when it does not split cleanly into
+// exactly two non-empty parts.
+func splitFullName(fullName string) (workspaceSlug, repositorySlug string, ok bool) {
+	components := strings.SplitN(fullName, "/", 2)
+	if len(components) != 2 || components[0] == "" || components[1] == "" {
+		return "", "", false
+	}
+	return components[0], components[1], true
 }
 
 // GetWorkspaceSlug gets the workspace slug of the repository without ever fetching a Workspace
@@ -366,9 +359,9 @@ func (repository Repository) GetWorkspaceSlug(ctx context.Context, cmd *cobra.Co
 		return repository.Workspace.Slug, nil
 	}
 
-	if components := strings.Split(repository.FullName, "/"); len(components) == 2 && components[0] != "" {
+	if workspaceSlug, _, ok := splitFullName(repository.FullName); ok {
 		lgr.Printf("[DEBUG] getting workspace of repository %s/%s from full name", repository.FullName, repository.Slug)
-		return components[0], nil
+		return workspaceSlug, nil
 	}
 
 	workspaceSlug, err := workspace.GetWorkspaceName(ctx, cmd)

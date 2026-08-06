@@ -26,7 +26,7 @@ var reopenOptions struct {
 func init() {
 	Command.AddCommand(reopenCmd)
 
-	reopenOptions.PullRequestID = common.NewEnumFlagWithFunc(reopenCmd, "", prcommon.GetPullRequestIDs)
+	reopenOptions.PullRequestID = common.NewEnumFlagWithFunc("", prcommon.GetPullRequestIDs)
 	reopenCmd.Flags().Var(reopenOptions.PullRequestID, "pullrequest", "Pullrequest to reopen comments from")
 	_ = reopenCmd.MarkFlagRequired("pullrequest")
 	_ = reopenCmd.RegisterFlagCompletionFunc(reopenOptions.PullRequestID.CompletionFunc("pullrequest"))

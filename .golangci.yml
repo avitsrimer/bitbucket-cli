@@ -83,12 +83,8 @@ linters:
     govet:
       enable:
         - shadow
-    lll:
-      line-length: 140
     misspell:
       locale: US
-      ignore-rules:
-        - cancelled # Jenkins wire field/term; kept as-is for API compatibility
     revive:
       rules:
         - name: early-return
@@ -100,9 +96,6 @@ linters:
   exclusions:
     generated: lax
     rules:
-      - linters:
-          - golint
-        text: should have a package comment, unless it's in another file for this package
       - linters:
           - gocritic
         text: "exitAfterDefer:"

@@ -22,10 +22,8 @@ func TestStepGetHeadersDefault(t *testing.T) {
 
 // TestStepGetRowCoversEveryColumn iterates columns.Columns() (the single source of truth, not a
 // hand-written header list) and requires every declared column to produce its real value instead
-// of falling through to GetRow's default " " arm. This proves the three-way columns/GetRow/
-// GetHeaders disagreement from upstream is fixed: "name" is now a real column, and "started_on"/
-// "completed_on"/"run_number"/"max_time" (present in upstream's GetRow but absent from its columns
-// table) are all declared here too. "logs-command" is gone entirely, along with the feature.
+// of falling through to GetRow's default " " arm: columns, GetRow, and GetHeaders agree that
+// "name", "started_on", "completed_on", "run_number", and "max_time" are all real columns.
 func TestStepGetRowCoversEveryColumn(t *testing.T) {
 	id, err := common.ParseUUID("{cec5beef-dead-deed-bead-5ae1bedd9ada}")
 	if err != nil {

@@ -67,9 +67,8 @@ func TestEnumFlagSet(t *testing.T) {
 		// even for a command that only needs read:repository against an explicitly named
 		// repository). Set must never invoke it: an explicitly supplied value is accepted as-is
 		// and left for the server to reject if wrong.
-		cmd := &cobra.Command{Use: "test"}
 		var calls int
-		flag := NewEnumFlagWithFunc(cmd, "", func(context.Context, *cobra.Command, []string, string) ([]string, error) {
+		flag := NewEnumFlagWithFunc("", func(context.Context, *cobra.Command, []string, string) ([]string, error) {
 			calls++
 			return []string{"alpha", "beta"}, nil
 		})
@@ -82,9 +81,8 @@ func TestEnumFlagSet(t *testing.T) {
 	})
 
 	t.Run("still accepts an explicit value even when AllowedFunc would fail", func(t *testing.T) {
-		cmd := &cobra.Command{Use: "test"}
 		var calls int
-		flag := NewEnumFlagWithFunc(cmd, "", func(context.Context, *cobra.Command, []string, string) ([]string, error) {
+		flag := NewEnumFlagWithFunc("", func(context.Context, *cobra.Command, []string, string) ([]string, error) {
 			calls++
 			return nil, errors.New("workspace lookup failed: insufficient scope")
 		})
@@ -94,12 +92,6 @@ func TestEnumFlagSet(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "beta", flag.Value)
 		assert.Equal(t, 0, calls, "AllowedFunc must not be called by Set on a dynamic flag")
-	})
-}
-
-func TestNewEnumFlagWithFuncPanicsOnNilCommand(t *testing.T) {
-	assert.Panics(t, func() {
-		NewEnumFlagWithFunc(nil, "", nil)
 	})
 }
 
@@ -118,7 +110,7 @@ func TestEnumFlagCompletionFunc(t *testing.T) {
 
 	t.Run("resolves values dynamically via AllowedFunc", func(t *testing.T) {
 		cmd := &cobra.Command{Use: "test"}
-		flag := NewEnumFlagWithFunc(cmd, "", func(context.Context, *cobra.Command, []string, string) ([]string, error) {
+		flag := NewEnumFlagWithFunc("", func(context.Context, *cobra.Command, []string, string) ([]string, error) {
 			return []string{"dynamic-one", "dynamic-two"}, nil
 		})
 
@@ -131,7 +123,7 @@ func TestEnumFlagCompletionFunc(t *testing.T) {
 
 	t.Run("returns an error directive when AllowedFunc fails", func(t *testing.T) {
 		cmd := &cobra.Command{Use: "test"}
-		flag := NewEnumFlagWithFunc(cmd, "", func(context.Context, *cobra.Command, []string, string) ([]string, error) {
+		flag := NewEnumFlagWithFunc("", func(context.Context, *cobra.Command, []string, string) ([]string, error) {
 			return nil, errors.New("boom")
 		})
 

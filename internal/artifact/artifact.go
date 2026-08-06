@@ -49,12 +49,7 @@ var columns = common.Columns[Artifact]{
 //
 // implements common.Tableable
 func (artifact Artifact) GetHeaders(cmd *cobra.Command) []string {
-	if cmd != nil && cmd.Flag("columns") != nil && cmd.Flag("columns").Changed {
-		if values, err := cmd.Flags().GetStringSlice("columns"); err == nil {
-			return core.Map(values, func(column string) string { return strings.ReplaceAll(column, "_", " ") })
-		}
-	}
-	return []string{"Name", "Size", "Downloads", "Owner"}
+	return common.HeadersFromFlag(cmd, "Name", "Size", "Downloads", "Owner")
 }
 
 // GetRow gets the row for a table

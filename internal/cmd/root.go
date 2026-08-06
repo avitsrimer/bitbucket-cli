@@ -60,7 +60,7 @@ func init() {
 	configDir, _ := os.UserConfigDir()
 
 	// Global flags
-	CmdOptions.Workspace = common.NewEnumFlagWithFunc(RootCmd, "", workspace.GetWorkspaceAllowedSlugs)
+	CmdOptions.Workspace = common.NewEnumFlagWithFunc("", workspace.GetWorkspaceAllowedSlugs)
 	CmdOptions.OutputFormat = common.EnumFlag{Allowed: []string{"csv", "json", "yaml", "table", "tsv"}, Value: core.GetEnvAsString("BB_OUTPUT_FORMAT", "")}
 	RootCmd.PersistentFlags().String("config", core.GetEnvAsString("BB_CONFIG", ""), "config file, also read from BB_CONFIG (default is "+filepath.Join(configDir, "bitbucket", "config-cli.yml")+")")
 	RootCmd.PersistentFlags().StringP("profile", "p", core.GetEnvAsString("BB_PROFILE", ""), "Profile to use. Overrides the default profile")

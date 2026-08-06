@@ -17,15 +17,10 @@ var listCmd = &cobra.Command{
 	RunE:  listProcess,
 }
 
-var listOptions struct {
-	Columns *common.EnumSliceFlag
-	SortBy  *common.EnumFlag
-}
-
 func init() {
 	Command.AddCommand(listCmd)
 
-	listOptions.Columns, listOptions.SortBy = common.RegisterListFlags(listCmd, columns, "branches")
+	common.RegisterListFlags(listCmd, columns, "branches")
 	// --query has no package-level destination: GetBranches reads it directly off the passed cmd
 	// (see branchesQuery), so a bound variable here would only ever be write-only state.
 	listCmd.Flags().String("query", "", "Query string to filter branches")

@@ -48,9 +48,10 @@ func setupNoCacheTest(t *testing.T, profileName string, handler http.HandlerFunc
 	return cmd
 }
 
-// forbidWorkspaceGet403s any request whose path contains "/workspaces/" with the exact scope
-// error field report FR-3 reproduced ("required: read:workspace"), while recording every request
-// so a test can assert none of them ever landed here.
+// forbidWorkspaceGet 403s any request whose path contains "/workspaces/" with the exact scope
+// error a token lacking read:workspace gets back, while recording every request so a test can
+// assert none of them ever landed here. Duplicated from testutil.WorkspaceScopeDeniedHandler:
+// this package cannot import internal/testutil (see setupNoCacheTest's comment for the cycle).
 func forbidWorkspaceGet(t *testing.T, requests *[]*http.Request, onOtherRequest http.HandlerFunc) http.HandlerFunc {
 	t.Helper()
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -74,8 +75,8 @@ func assertNoWorkspaceGetRequests(t *testing.T, requests []*http.Request) {
 	}
 }
 
-// TestGetRepositoryBySlugOrIDExplicitPrefixNeverFetchesWorkspace is field report FR-3's
-// regression test for "bb repo get <workspace>/<repository>": the explicit "workspace/repo" form
+// TestGetRepositoryBySlugOrIDExplicitPrefixNeverFetchesWorkspace proves "bb repo get
+// <workspace>/<repository>": the explicit "workspace/repo" form
 // already carries the workspace slug the caller typed, so resolving the repository must never
 // fetch a Workspace object for it, even when WorkspaceCache holds nothing and /workspaces/{slug}
 // answers 403.

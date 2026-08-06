@@ -99,7 +99,7 @@ func (suite *CommitSuite) TestCommitReferenceGetShortHashEmptyHash() {
 // TestLongHashSorterComparesHash proves the "longhash" column's Compare sorts by Hash, matching
 // its purpose as a hash-based sorter exposed via "bb pr commits --sort longhash".
 func (suite *CommitSuite) TestLongHashSorterComparesHash() {
-	compare := commit.Commit{}.GetColumnDefinitions().SortBy("longhash")
+	compare := commit.Columns().SortBy("longhash")
 
 	a := commit.Commit{Hash: "aaaaaaa", Message: "zzz message"}
 	b := commit.Commit{Hash: "bbbbbbb", Message: "aaa message"}

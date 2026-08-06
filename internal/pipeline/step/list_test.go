@@ -88,8 +88,7 @@ func TestListProcessSortFlagChangedSorts(t *testing.T) {
 	}
 }
 
-// TestListProcessNoResults proves an empty list prints "No step found" on stdout, fixing
-// upstream's copy-paste "No comment found".
+// TestListProcessNoResults proves an empty list prints "No step found" on stdout.
 func TestListProcessNoResults(t *testing.T) {
 	var requests []*http.Request
 	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {

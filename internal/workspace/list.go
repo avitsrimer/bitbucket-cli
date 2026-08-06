@@ -17,15 +17,10 @@ var listCmd = &cobra.Command{
 	RunE:  listProcess,
 }
 
-var listOptions struct {
-	Columns *common.EnumSliceFlag
-	SortBy  *common.EnumFlag
-}
-
 func init() {
 	Command.AddCommand(listCmd)
 
-	listOptions.Columns, listOptions.SortBy = common.RegisterListFlags(listCmd, columns, "workspaces")
+	common.RegisterListFlags(listCmd, columns, "workspaces")
 }
 
 func listProcess(cmd *cobra.Command, args []string) error {

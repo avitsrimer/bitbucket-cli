@@ -38,7 +38,7 @@ func stopProcess(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot confirm pipeline stop: %w", err)
 	}
 	if !proceed {
-		fmt.Println("Stop cancelled")
+		fmt.Println("Stop canceled")
 		return nil
 	}
 

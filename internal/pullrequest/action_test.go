@@ -33,6 +33,10 @@ func setupTestNamed(t *testing.T, profileName string, handler http.HandlerFunc, 
 
 	testutil.PrimeFixtureCaches(t)
 	cmd := testutil.SetupProfile(t, profileName, handler)
+	// "id" mirrors columns' own DefaultSorter mark, the same default the real listCmd's --sort
+	// flag carries (see common.RegisterListFlags), so listProcess sorts identically here and on
+	// the real command when --sort is never passed.
+	cmd.Flags().String("sort", "id", "")
 	if dryRun {
 		_ = cmd.Flags().Set("dry-run", "true")
 	}

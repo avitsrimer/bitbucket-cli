@@ -10,25 +10,31 @@ import (
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
-	"github.com/avitsrimer/bitbucket-cli/internal/workspace"
+	"github.com/spf13/cobra"
 )
 
-// setCloneProtocolForTest overrides the package-level cloneOptions.Protocol.Value (the real
-// --protocol flag is bound to it via cobra) and restores the original value once the test ends.
-func setCloneProtocolForTest(t *testing.T, value string) {
+// setCloneProtocolForTest sets cmd's own --protocol flag, the same way cloneProcess reads it
+// (cmd.Flags().GetString("protocol")), so a test drives cloneProcess exactly as a real invocation
+// would. An empty value leaves the flag unset (the EnumFlag backing --protocol only accepts one
+// of cloneProtocols, so Set("") itself would error) -- unset is exactly what an empty value means
+// here: --protocol was never passed.
+func setCloneProtocolForTest(t *testing.T, cmd *cobra.Command, value string) {
 	t.Helper()
-	original := cloneOptions.Protocol.Value
-	cloneOptions.Protocol.Value = value
-	t.Cleanup(func() { cloneOptions.Protocol.Value = original })
+	if value == "" {
+		return
+	}
+	if err := cmd.Flags().Set("protocol", value); err != nil {
+		t.Fatalf("cannot set protocol flag: %v", err)
+	}
 }
 
-// setCloneSSHKeyFileForTest overrides the package-level cloneOptions.SSHKeyFilename and restores
-// the original value once the test ends.
-func setCloneSSHKeyFileForTest(t *testing.T, value string) {
+// setCloneSSHKeyFileForTest sets cmd's own --ssh-key-file flag, the same way cloneProcess reads
+// it (cmd.Flags().GetString("ssh-key-file")).
+func setCloneSSHKeyFileForTest(t *testing.T, cmd *cobra.Command, value string) {
 	t.Helper()
-	original := cloneOptions.SSHKeyFilename
-	cloneOptions.SSHKeyFilename = value
-	t.Cleanup(func() { cloneOptions.SSHKeyFilename = original })
+	if err := cmd.Flags().Set("ssh-key-file", value); err != nil {
+		t.Fatalf("cannot set ssh-key-file flag: %v", err)
+	}
 }
 
 // setupGitShim replaces the "git" binary resolved via PATH with a fake script that records its
@@ -117,7 +123,7 @@ func TestCloneProcessArgvAndProtocolPrecedence(t *testing.T) {
 			cmd := setupTest(t, "repository-clone-precedence-"+slug, failIfCalled(t), false)
 			primeRepositoryForClone(t, slug)
 
-			setCloneProtocolForTest(t, tt.flagProtocol)
+			setCloneProtocolForTest(t, cmd, tt.flagProtocol)
 			profile.Current.CloneProtocol = tt.profileProtocol
 			t.Cleanup(func() { profile.Current.CloneProtocol = "" })
 
@@ -140,7 +146,7 @@ func TestCloneProcessDestinationDefaultsToSlug(t *testing.T) {
 	argvFile, _ := setupGitShim(t)
 	cmd := setupTest(t, "repository-clone-destination-default", failIfCalled(t), false)
 	primeRepositoryForClone(t, slug)
-	setCloneProtocolForTest(t, "")
+	setCloneProtocolForTest(t, cmd, "")
 
 	if err := cloneProcess(cmd, []string{slug}); err != nil {
 		t.Fatalf("cloneProcess() error = %v", err)
@@ -160,7 +166,7 @@ func TestCloneProcessExplicitDestination(t *testing.T) {
 	argvFile, _ := setupGitShim(t)
 	cmd := setupTest(t, "repository-clone-explicit-destination", failIfCalled(t), false)
 	primeRepositoryForClone(t, slug)
-	setCloneProtocolForTest(t, "")
+	setCloneProtocolForTest(t, cmd, "")
 
 	if err := cloneProcess(cmd, []string{slug, destination}); err != nil {
 		t.Fatalf("cloneProcess() error = %v", err)
@@ -180,8 +186,8 @@ func TestCloneProcessSetsGitSSHCommandWhenKeyFileConfigured(t *testing.T) {
 	_, sshFile := setupGitShim(t)
 	cmd := setupTest(t, "repository-clone-ssh-key", failIfCalled(t), false)
 	primeRepositoryForClone(t, slug)
-	setCloneProtocolForTest(t, "ssh")
-	setCloneSSHKeyFileForTest(t, keyFile)
+	setCloneProtocolForTest(t, cmd, "ssh")
+	setCloneSSHKeyFileForTest(t, cmd, keyFile)
 
 	if err := cloneProcess(cmd, []string{slug}); err != nil {
 		t.Fatalf("cloneProcess() error = %v", err)
@@ -253,8 +259,8 @@ func TestCloneProcessSetsGitSSHCommandWithSpaceInKeyPath(t *testing.T) {
 	_, sshFile := setupGitShim(t)
 	cmd := setupTest(t, "repository-clone-ssh-key-space", failIfCalled(t), false)
 	primeRepositoryForClone(t, slug)
-	setCloneProtocolForTest(t, "ssh")
-	setCloneSSHKeyFileForTest(t, keyFile)
+	setCloneProtocolForTest(t, cmd, "ssh")
+	setCloneSSHKeyFileForTest(t, cmd, keyFile)
 
 	if err := cloneProcess(cmd, []string{slug}); err != nil {
 		t.Fatalf("cloneProcess() error = %v", err)
@@ -272,8 +278,8 @@ func TestCloneProcessSetsGitSSHCommandWithSemicolonInKeyPath(t *testing.T) {
 	_, sshFile := setupGitShim(t)
 	cmd := setupTest(t, "repository-clone-ssh-key-semicolon", failIfCalled(t), false)
 	primeRepositoryForClone(t, slug)
-	setCloneProtocolForTest(t, "ssh")
-	setCloneSSHKeyFileForTest(t, keyFile)
+	setCloneProtocolForTest(t, cmd, "ssh")
+	setCloneSSHKeyFileForTest(t, cmd, keyFile)
 
 	if err := cloneProcess(cmd, []string{slug}); err != nil {
 		t.Fatalf("cloneProcess() error = %v", err)
@@ -289,8 +295,8 @@ func TestCloneProcessNoGitSSHCommandForHTTPS(t *testing.T) {
 	_, sshFile := setupGitShim(t)
 	cmd := setupTest(t, "repository-clone-https-no-ssh-command", failIfCalled(t), false)
 	primeRepositoryForClone(t, slug)
-	setCloneProtocolForTest(t, "https")
-	setCloneSSHKeyFileForTest(t, keyFile)
+	setCloneProtocolForTest(t, cmd, "https")
+	setCloneSSHKeyFileForTest(t, cmd, keyFile)
 
 	if err := cloneProcess(cmd, []string{slug}); err != nil {
 		t.Fatalf("cloneProcess() error = %v", err)
@@ -310,7 +316,7 @@ func TestCloneProcessDestinationTrimsGitSuffix(t *testing.T) {
 	argvFile, _ := setupGitShim(t)
 	cmd := setupTest(t, "repository-clone-destination-trim", failIfCalled(t), false)
 	primeRepositoryForClone(t, slug)
-	setCloneProtocolForTest(t, "")
+	setCloneProtocolForTest(t, cmd, "")
 
 	if err := cloneProcess(cmd, []string{slug}); err != nil {
 		t.Fatalf("cloneProcess() error = %v", err)
@@ -329,8 +335,8 @@ func TestCloneProcessNoGitSSHCommandWhenNoKeyFileConfigured(t *testing.T) {
 	_, sshFile := setupGitShim(t)
 	cmd := setupTest(t, "repository-clone-no-ssh-key", failIfCalled(t), false)
 	primeRepositoryForClone(t, slug)
-	setCloneProtocolForTest(t, "")
-	setCloneSSHKeyFileForTest(t, "")
+	setCloneProtocolForTest(t, cmd, "")
+	setCloneSSHKeyFileForTest(t, cmd, "")
 
 	if err := cloneProcess(cmd, []string{slug}); err != nil {
 		t.Fatalf("cloneProcess() error = %v", err)
@@ -350,7 +356,7 @@ func TestCloneProcessPropagatesGitFailure(t *testing.T) {
 	t.Setenv("GIT_SHIM_EXIT_CODE", "7")
 	cmd := setupTest(t, "repository-clone-git-failure", failIfCalled(t), false)
 	primeRepositoryForClone(t, slug)
-	setCloneProtocolForTest(t, "")
+	setCloneProtocolForTest(t, cmd, "")
 
 	err := cloneProcess(cmd, []string{slug})
 	if err == nil {
@@ -374,7 +380,7 @@ func TestCloneProcessDryRunDoesNotInvokeGit(t *testing.T) {
 
 	cmd := setupTest(t, "repository-clone-dry-run", failIfCalled(t), true)
 	primeRepositoryForClone(t, slug)
-	setCloneProtocolForTest(t, "")
+	setCloneProtocolForTest(t, cmd, "")
 
 	if err := cloneProcess(cmd, []string{slug}); err != nil {
 		t.Fatalf("cloneProcess() error = %v", err)
@@ -396,7 +402,7 @@ func TestCloneProcessNeverLogsUserinfo(t *testing.T) {
 	setupGitShim(t)
 	cmd := setupTest(t, "repository-clone-userinfo", failIfCalled(t), false)
 	primeRepositoryForClone(t, slug)
-	setCloneProtocolForTest(t, "https")
+	setCloneProtocolForTest(t, cmd, "https")
 
 	profile.Current.CloneUser = cloneUser
 	t.Cleanup(func() { profile.Current.CloneUser = "" })
@@ -503,38 +509,6 @@ func TestResolveSSHKeyFilename(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestRepositoryWorkspaceSlug(t *testing.T) {
-	t.Run("from embedded workspace", func(t *testing.T) {
-		ws := workspace.Workspace{Slug: "embedded-ws"}
-		repo := &Repository{Slug: "repo", FullName: "ignored/repo", Workspace: &ws}
-		got, err := repositoryWorkspaceSlug(repo)
-		if err != nil {
-			t.Fatalf("repositoryWorkspaceSlug() error = %v", err)
-		}
-		if got != ws.Slug {
-			t.Errorf("repositoryWorkspaceSlug() = %q, want %q", got, ws.Slug)
-		}
-	})
-
-	t.Run("from full name when workspace missing", func(t *testing.T) {
-		repo := &Repository{Slug: "repo", FullName: "acme/repo"}
-		got, err := repositoryWorkspaceSlug(repo)
-		if err != nil {
-			t.Fatalf("repositoryWorkspaceSlug() error = %v", err)
-		}
-		if got != "acme" {
-			t.Errorf("repositoryWorkspaceSlug() = %q, want %q", got, "acme")
-		}
-	})
-
-	t.Run("error when neither available", func(t *testing.T) {
-		repo := &Repository{Slug: "repo"}
-		if _, err := repositoryWorkspaceSlug(repo); err == nil {
-			t.Error("repositoryWorkspaceSlug() expected an error, got nil")
-		}
-	})
 }
 
 // readLines reads path and splits it into lines, dropping a single trailing empty line produced

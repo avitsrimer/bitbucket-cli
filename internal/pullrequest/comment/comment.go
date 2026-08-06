@@ -78,7 +78,7 @@ func (o commentEditOptions) payload(cmd *cobra.Command) (CommentPayload, error) 
 
 // registerCommentEditFlags registers the flags shared by the create and update commands
 func registerCommentEditFlags(cmd *cobra.Command, options *commentEditOptions, commentHelp, pullrequestHelp string) {
-	options.PullRequestID = common.NewEnumFlagWithFunc(cmd, "", prcommon.GetPullRequestIDs)
+	options.PullRequestID = common.NewEnumFlagWithFunc("", prcommon.GetPullRequestIDs)
 	cmd.Flags().Var(options.PullRequestID, "pullrequest", pullrequestHelp)
 	cmd.Flags().StringVar(&options.Comment, "comment", "", commentHelp)
 	cmd.Flags().StringVar(&options.File, "file", "", "File to comment on")
@@ -177,12 +177,7 @@ var columns = common.Columns[Comment]{
 //
 // implements common.Tableable
 func (comment Comment) GetHeaders(cmd *cobra.Command) []string {
-	if cmd != nil && cmd.Flag("columns") != nil && cmd.Flag("columns").Changed {
-		if columns, err := cmd.Flags().GetStringSlice("columns"); err == nil {
-			return core.Map(columns, func(column string) string { return strings.ReplaceAll(column, "_", " ") })
-		}
-	}
-	return []string{"ID", "Created On", "Updated On", "File", "User", "Content"}
+	return common.HeadersFromFlag(cmd, "ID", "Created On", "Updated On", "File", "User", "Content")
 }
 
 // GetRow gets the row for a table
@@ -196,13 +191,9 @@ func (comment Comment) GetRow(headers []string) []string {
 		case "id":
 			row = append(row, strconv.Itoa(comment.ID))
 		case "created_on", "created":
-			row = append(row, comment.CreatedOn.Format(common.TableTimeFormat))
+			row = append(row, common.TimeCell(comment.CreatedOn))
 		case "updated_on", "updated":
-			if !comment.UpdatedOn.IsZero() {
-				row = append(row, comment.UpdatedOn.Format(common.TableTimeFormat))
-			} else {
-				row = append(row, "N/A")
-			}
+			row = append(row, common.TimeCell(comment.UpdatedOn))
 		case "file":
 			if comment.Anchor != nil {
 				row = append(row, comment.Anchor.String())
@@ -236,10 +227,10 @@ func (comment Comment) GetRow(headers []string) []string {
 			if comment.PullRequest != nil {
 				row = append(row, fmt.Sprintf("%s (%d)", comment.PullRequest.Title, comment.PullRequest.ID))
 			} else {
-				row = append(row, " ")
+				row = append(row, common.EmptyCell)
 			}
 		default:
-			row = append(row, " ")
+			row = append(row, common.EmptyCell)
 		}
 	}
 	return row
@@ -263,7 +254,7 @@ func (resolution Resolution) MarshalJSON() (data []byte, err error) {
 
 	var createdOn *string
 	if !resolution.CreatedOn.IsZero() {
-		formatted := resolution.CreatedOn.Format(time.RFC3339)
+		formatted := resolution.CreatedOn.Format(common.JSONTimeFormat)
 		createdOn = &formatted
 	}
 
@@ -290,8 +281,8 @@ func (comment Comment) MarshalJSON() (data []byte, err error) {
 		UpdatedOn string `json:"updated_on"`
 	}{
 		surrogate: surrogate(comment),
-		CreatedOn: comment.CreatedOn.Format(time.RFC3339),
-		UpdatedOn: comment.UpdatedOn.Format(time.RFC3339),
+		CreatedOn: comment.CreatedOn.Format(common.JSONTimeFormat),
+		UpdatedOn: comment.UpdatedOn.Format(common.JSONTimeFormat),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("cannot marshal comment to json: %w", err)
