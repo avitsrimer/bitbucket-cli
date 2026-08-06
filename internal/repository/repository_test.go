@@ -32,6 +32,26 @@ func TestRepositoryGetPath(t *testing.T) {
 	}
 }
 
+// TestRepositoryGetPathNeverPanicsOnNilWorkspace proves GetPath does not dereference a nil
+// Workspace: BitBucket omits "workspace" on a trimmed nested Repository payload (e.g. a pull
+// request's source/destination repository), and GetPath is reached by nearly every
+// repository-scoped command, so a panic here is a regression that reaches almost the entire CLI.
+func TestRepositoryGetPathNeverPanicsOnNilWorkspace(t *testing.T) {
+	t.Run("falls back to FullName's workspace segment when Workspace is nil", func(t *testing.T) {
+		target := Repository{Slug: "bb", FullName: "acme/bb"}
+		if got := target.GetPath("pullrequests", "42"); got != "/repositories/acme/bb/pullrequests/42" {
+			t.Errorf("GetPath() = %q, want %q", got, "/repositories/acme/bb/pullrequests/42")
+		}
+	})
+
+	t.Run("degrades to an empty workspace segment instead of panicking when nothing resolves it", func(t *testing.T) {
+		target := Repository{Slug: "bb"}
+		if got := target.GetPath("pullrequests"); got != "/repositories/bb/pullrequests" {
+			t.Errorf("GetPath() = %q, want %q", got, "/repositories/bb/pullrequests")
+		}
+	})
+}
+
 // TestRepositoryGetWorkspaceSlugNeverCallsTheNetwork proves each of GetWorkspaceSlug's three
 // resolution branches (embedded Workspace, FullName split, --workspace flag fallback) never
 // reaches out to the network: cmd here carries no profile at all, so any code path that tried to

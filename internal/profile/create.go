@@ -46,6 +46,7 @@ func init() {
 	createCmd.Flags().Bool("password-stdin", false, "Read the password from stdin instead of --password, so it never appears in shell history.")
 	createCmd.Flags().StringVar(&createOptions.ClientID, "client-id", "", "Client ID of the profile")
 	createCmd.Flags().StringVar(&createOptions.ClientSecret, "client-secret", "", "Client Secret of the profile")
+	createCmd.Flags().Bool("client-secret-stdin", false, "Read the OAuth2 client secret from stdin instead of --client-secret, so it never appears in shell history.")
 	createCmd.Flags().Uint16Var(&createOptions.CallbackPort, "callback-port", 0, "Port to listen to for the Authorization Code Grant")
 	createCmd.Flags().StringVar(&createOptions.AccessToken, "access-token", "", "Access Token of the profile")
 	createCmd.Flags().Bool("access-token-stdin", false, "Read the access token from stdin instead of --access-token, so it never appears in shell history.")
@@ -64,7 +65,12 @@ func init() {
 	createCmd.Flags().BoolVar(&createOptions.Progress, "progress", false, "Show progress during upload/download operations.")
 	_ = createCmd.MarkFlagRequired("name")
 	_ = createCmd.MarkFlagFilename("default-ssh-key-file")
-	createCmd.MarkFlagsRequiredTogether("client-id", "client-secret")
+	// "client-id" is deliberately not required-together with "client-secret" here: cobra's
+	// MarkFlagsRequiredTogether only recognizes one fixed pair, which would force the client
+	// secret onto the command line even though --client-secret-stdin exists precisely so it need
+	// not be. requireClientIDForSecretSource enforces the same pairing, accepting either secret
+	// source.
+	//
 	// "user" is deliberately not required-together with "password"/"password-stdin" here: --user
 	// given alone is valid and triggers an interactive, no-echo password prompt instead (see
 	// resolveCreateSecretInput). requireUserForPasswordSource enforces the other direction: a
@@ -72,7 +78,10 @@ func init() {
 	createCmd.MarkFlagsMutuallyExclusive("user", "client-id", "access-token", "access-token-stdin")
 	createCmd.MarkFlagsMutuallyExclusive("password", "password-stdin")
 	createCmd.MarkFlagsMutuallyExclusive("access-token", "access-token-stdin")
+	createCmd.MarkFlagsMutuallyExclusive("client-secret", "client-secret-stdin")
 	createCmd.MarkFlagsMutuallyExclusive("password-stdin", "access-token-stdin")
+	createCmd.MarkFlagsMutuallyExclusive("password-stdin", "client-secret-stdin")
+	createCmd.MarkFlagsMutuallyExclusive("access-token-stdin", "client-secret-stdin")
 	if runtime.GOOS != "windows" {
 		createCmd.MarkFlagsMutuallyExclusive("vault-key", "no-vault")
 	}
@@ -92,13 +101,6 @@ func createProcess(cmd *cobra.Command, args []string) (err error) {
 
 	applyCreateOverrides()
 
-	// Resolved before Validate/WhatIf so --dry-run still prompts/reads stdin for the secret: a dry
-	// run needs the value structurally to validate the command line, it only skips the vault
-	// write and the actual profile creation below.
-	if secretErr := resolveCreateSecretInput(cmd); secretErr != nil {
-		return secretErr
-	}
-
 	lgr.Printf("[DEBUG] creating profile %s", createOptions.Name)
 	err = createOptions.Validate()
 	if err != nil {
@@ -106,6 +108,15 @@ func createProcess(cmd *cobra.Command, args []string) (err error) {
 	}
 	if _, found := Profiles.Find(createOptions.Name); found {
 		return fmt.Errorf("profile %s already exists", createOptions.Name)
+	}
+
+	// Resolved after the duplicate-name/Validate checks above (so a doomed `profile create`
+	// never prompts/reads stdin for a secret only to then fail on an unrelated problem) but still
+	// before WhatIf, so --dry-run still prompts/reads stdin for the secret: a dry run needs the
+	// value structurally to validate the command line, it only skips the vault write and the
+	// actual profile creation below.
+	if secretErr := resolveCreateSecretInput(cmd); secretErr != nil {
+		return secretErr
 	}
 
 	if !common.WhatIf(cmd, "Creating profile %s", createOptions.Name) {
@@ -143,38 +154,57 @@ func applyCreateOverrides() {
 	}
 }
 
-// resolveCreateSecretInput fills in createOptions.Password/AccessToken from whichever secret
-// source the command line asked for: --password-stdin/--access-token-stdin, or (when --user was
-// given with no password source, or when no credential of any kind was given at all) an
-// interactive, no-echo terminal prompt. It runs before Validate/WhatIf so the prompt/stdin read
-// always happens, even under --dry-run; resolveCreateSecrets (the vault write) stays gated behind
-// WhatIf as before.
+// resolveCreateSecretInput fills in createOptions.Password/AccessToken/ClientSecret from
+// whichever secret source the command line asked for: --password-stdin/--access-token-stdin/
+// --client-secret-stdin, or (when --user was given with no password source, and the vault does
+// not already hold one for that user) an interactive, no-echo terminal prompt. It runs after the
+// duplicate-name/Validate checks but still before WhatIf, so the prompt/stdin read always happens
+// (even under --dry-run) but never for a command line already known to fail; resolveCreateSecrets
+// (the vault write) stays gated behind WhatIf as before.
+//
+// Deliberately does NOT prompt when no credential flag of any kind was given at all: a profile
+// created with zero credentials is a legitimate, supported flow (e.g. vault-preseeded/CI
+// provisioning, where the secret is stored in the vault by another tool and resolved on demand
+// the first time the profile is actually used, or a later `profile update` fills it in) --
+// resolveCreateSecrets below already validates that a --no-vault profile cannot be saved with no
+// secret, and LoadSecrets reports a clean error at first use otherwise.
 func resolveCreateSecretInput(cmd *cobra.Command) error {
 	state := readSecretFlagState(cmd)
-	if err := requireUserForPasswordSource(state); err != nil {
+	if err := requireUserForPasswordSource(state, false); err != nil {
 		return err
 	}
-	if err := applyStdinSecrets(cmd, state, &createOptions.Password, &createOptions.AccessToken); err != nil {
+	if err := requireClientIDForSecretSource(state); err != nil {
+		return err
+	}
+	if err := applyStdinSecrets(cmd, state, &createOptions.Password, &createOptions.AccessToken, &createOptions.ClientSecret); err != nil {
 		return err
 	}
 
-	switch {
-	case state.user && !state.passwordSourceGiven():
+	if state.user && !state.passwordSourceGiven() && !createOptions.NoVault && hasVaultCredential(createOptions.VaultKey, createOptions.User) {
+		// The vault already holds a password for this user (e.g. reused from an earlier
+		// profile): resolveCreateSecrets' own vault branch loads it below, so prompting here
+		// would only overwrite that entry with a freshly typed value nobody asked to change.
+		lgr.Printf("[DEBUG] password for %s already in the vault, skipping the interactive prompt", createOptions.User)
+		return nil
+	}
+	if state.user && !state.passwordSourceGiven() {
 		secret, err := promptForSecret(cmd, createOptions.User)
 		if err != nil {
 			return err
 		}
 		createOptions.Password = secret
-	case !state.anyCredentialGiven():
-		// No identity flag at all: fall back to an access token keyed by the profile's own name,
-		// matching resolveCreateSecrets' own vault key choice for --access-token below.
-		secret, err := promptForSecret(cmd, createOptions.Name)
-		if err != nil {
-			return err
-		}
-		createOptions.AccessToken = secret
 	}
 	return nil
+}
+
+// hasVaultCredential reports whether the vault already holds a credential for username under
+// vaultKey, without ever creating or modifying an entry.
+func hasVaultCredential(vaultKey, username string) bool {
+	if username == "" {
+		return false
+	}
+	_, err := createOptions.GetCredentialFromVault(vaultKey, username)
+	return err == nil
 }
 
 // resolveCreateSecrets stores the client secret/password/access token in the vault if provided,

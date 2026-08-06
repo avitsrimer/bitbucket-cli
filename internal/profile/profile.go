@@ -202,8 +202,15 @@ func GetProfileFromCommand(context context.Context, cmd *cobra.Command) (profile
 // GetHeaders gets the header for a table
 //
 // implements common.Tableable
+//
+// AccessToken is deliberately not part of the default column set: unlike User/ClientID (which
+// name who a profile authenticates as, not a secret), a profile's access token is one of its
+// three secret fields, and printing it in a plain `bb profile list`/`bb profile get` table -- with
+// no --dry-run, no piping, no obvious reason to expect a secret onscreen -- is exactly the kind of
+// leak forDisplay's masking exists to prevent. It remains available on demand via --columns
+// accesstoken, still masked (see GetRow's "accesstoken" case).
 func (profile Profile) GetHeaders(cmd *cobra.Command) []string {
-	return common.HeadersFromFlag(cmd, "Name", "Description", "Default", "User", "ClientID", "AccessToken")
+	return common.HeadersFromFlag(cmd, "Name", "Description", "Default", "User", "ClientID")
 }
 
 // GetRow gets the row for a table
@@ -770,6 +777,32 @@ func (profile Profile) forSave() profileForSave {
 		saved.Password = ""
 	}
 	return profileForSave{Profile: saved}
+}
+
+// secretMask replaces a secret value forDisplay masks, in any output format.
+const secretMask = "********"
+
+// forDisplay returns a copy of profile with all three secret fields (Password, ClientSecret,
+// AccessToken) unconditionally replaced by secretMask when set, regardless of their provenance
+// (freshly given on the command line/stdin/prompt, or loaded from the vault). Unlike forSave,
+// which only blanks vault-provenance secrets for persistence, this masks every secret every time:
+// it is for confirmation output after a mutation (`profile update`), where the point is confirming
+// the mutation happened, not echoing a secret the caller went out of their way to keep out of
+// shell history/scrollback via --password-stdin/--access-token-stdin. `profile get`/`profile list
+// -o json/yaml` intentionally still show the real secret on request (see MarshalJSON's doc
+// comment); forDisplay is deliberately not used there.
+func (profile Profile) forDisplay() Profile {
+	displayed := profile
+	if displayed.Password != "" {
+		displayed.Password = secretMask
+	}
+	if displayed.ClientSecret != "" {
+		displayed.ClientSecret = secretMask
+	}
+	if displayed.AccessToken != "" {
+		displayed.AccessToken = secretMask
+	}
+	return displayed
 }
 
 // UnmarshalYAML implements yaml.Unmarshaler.

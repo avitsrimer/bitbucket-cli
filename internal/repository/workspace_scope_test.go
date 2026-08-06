@@ -189,3 +189,72 @@ func TestGetRepositoryBySlugOrIDWorkspaceFlagFallbackNeverFetchesWorkspace(t *te
 		t.Errorf("expected exactly 1 request to %s, got %d", repositoryPath, repositoryRequests)
 	}
 }
+
+// TestGetRepositoryBySlugOrIDRejectsEmptyComponents proves a "workspace/repository" argument with
+// an empty component (e.g. "/foo" or "foo/") is rejected outright instead of silently retargeting
+// the request: path.Join/JoinPath collapse the resulting double slash ("/repositories//foo"),
+// landing on the *list repositories in workspace "foo"* endpoint instead of erroring, which
+// previously surfaced as a confusing "cannot unmarshal repository" error instead of a clean
+// "argument ... is missing".
+func TestGetRepositoryBySlugOrIDRejectsEmptyComponents(t *testing.T) {
+	tests := []struct {
+		name     string
+		slugOrID string
+		wantErr  string
+	}{
+		{name: "empty workspace component", slugOrID: "/foo", wantErr: "workspace"},
+		{name: "empty repository component", slugOrID: "foo/", wantErr: "repository"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var requests []*http.Request
+			cmd := setupNoCacheTest(t, "fr11-empty-component-"+test.name, func(w http.ResponseWriter, r *http.Request) {
+				requests = append(requests, r)
+				t.Errorf("unexpected request to %s: an empty component must be rejected before any request is sent", r.URL.Path)
+			})
+
+			_, err := GetRepositoryBySlugOrID(t.Context(), cmd, test.slugOrID)
+			if err == nil {
+				t.Fatal("GetRepositoryBySlugOrID() expected an error for an empty component, got nil")
+			}
+			if !strings.Contains(err.Error(), test.wantErr) {
+				t.Errorf("GetRepositoryBySlugOrID() error = %q, want it to mention %q", err.Error(), test.wantErr)
+			}
+			if len(requests) != 0 {
+				t.Errorf("expected zero requests, got %d", len(requests))
+			}
+		})
+	}
+}
+
+// TestGetRepositoryBySlugOrIDNormalizesWorkspaceUUID proves a bare (unbraced) UUID given as the
+// workspace segment of a "workspace/repository" argument is normalized to BitBucket's canonical
+// braced form before it is sent, the same normalization the repository segment already received:
+// without it, "--workspace <bare-uuid>" 404s while the braced form works, an asymmetry with no
+// reason to exist.
+func TestGetRepositoryBySlugOrIDNormalizesWorkspaceUUID(t *testing.T) {
+	const bareWorkspaceUUID = "33333333-3333-3333-3333-333333333333"
+	const canonicalWorkspaceUUID = "{33333333-3333-3333-3333-333333333333}"
+	const repositorySlug = "fr11-uuid-repo"
+	repositoryPath := "/2.0/repositories/" + canonicalWorkspaceUUID + "/" + repositorySlug
+
+	var requests []*http.Request
+	cmd := setupNoCacheTest(t, "fr11-workspace-uuid", forbidWorkspaceGet(t, &requests, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case repositoryPath:
+			_, _ = w.Write([]byte(`{"type":"repository","uuid":"{55555555-5555-5555-5555-555555555555}","name":"FR11","full_name":"acme/` + repositorySlug + `","slug":"` + repositorySlug + `"}`))
+		default:
+			t.Errorf("unexpected request to %s", r.URL.Path)
+		}
+	}))
+
+	repo, err := GetRepositoryBySlugOrID(t.Context(), cmd, bareWorkspaceUUID+"/"+repositorySlug)
+	if err != nil {
+		t.Fatalf("GetRepositoryBySlugOrID() error = %v, want the bare workspace UUID normalized to its canonical braced form", err)
+	}
+	if repo.Slug != repositorySlug {
+		t.Errorf("repo.Slug = %q, want %q", repo.Slug, repositorySlug)
+	}
+}
