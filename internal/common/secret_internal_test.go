@@ -42,7 +42,7 @@ func TestReadSecretReadsAndTrims(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			withFakeControllingTTY(t, fakeTTY{strings.NewReader(tc.ttyContent)}, nil)
 
-			secret, err := ReadSecret("Password:")
+			secret, err := ReadSecret("Password:", "use --password-stdin or --access-token-stdin instead")
 			if err != nil {
 				t.Fatalf("ReadSecret() error = %v, want nil", err)
 			}
@@ -56,7 +56,7 @@ func TestReadSecretReadsAndTrims(t *testing.T) {
 func TestReadSecretRejectsAnEmptyLine(t *testing.T) {
 	withFakeControllingTTY(t, fakeTTY{strings.NewReader("\n")}, nil)
 
-	_, err := ReadSecret("Password:")
+	_, err := ReadSecret("Password:", "use --password-stdin or --access-token-stdin instead")
 	if err == nil {
 		t.Fatal("ReadSecret() error = nil, want an error for an empty line")
 	}
@@ -68,7 +68,7 @@ func TestReadSecretRejectsAnEmptyLine(t *testing.T) {
 func TestReadSecretErrorsWhenNoControllingTTYIsAvailable(t *testing.T) {
 	withFakeControllingTTY(t, nil, errors.New("no such device or address"))
 
-	_, err := ReadSecret("Password:")
+	_, err := ReadSecret("Password:", "use --password-stdin or --access-token-stdin instead")
 	if err == nil {
 		t.Fatal("ReadSecret() error = nil, want an error when no controlling terminal is available")
 	}

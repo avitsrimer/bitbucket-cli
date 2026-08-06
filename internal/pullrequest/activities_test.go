@@ -2,7 +2,6 @@ package pullrequest_test
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"reflect"
 	"strings"
@@ -59,15 +58,7 @@ func (suite *ActivitySuite) LoadTestData(filename string) []byte {
 	return data
 }
 
-func (suite *ActivitySuite) UnmarshalData(filename string, v any) error {
-	data := suite.LoadTestData(filename)
-	if err := json.Unmarshal(data, v); err != nil {
-		return fmt.Errorf("cannot unmarshal test data: %w", err)
-	}
-	return nil
-}
-
-// *****************************************************************************
+// ***********************************************************************
 
 func (suite *ActivitySuite) TestCanUnmarshalApproval() {
 	payload := suite.LoadTestData("activity-approval.json")

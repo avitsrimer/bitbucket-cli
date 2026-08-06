@@ -40,7 +40,7 @@ func listProcess(cmd *cobra.Command, args []string) error {
 	}
 
 	uriPath := repo.GetPath("downloads")
-	if query, _ := cmd.Flags().GetString("query"); query != "" {
+	if query := common.StringFlagValue(cmd, "query"); query != "" {
 		uriPath += "?q=" + url.QueryEscape(query)
 	}
 

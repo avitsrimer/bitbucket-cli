@@ -518,29 +518,49 @@ func (profile Profile) printYAML(payload any) error {
 	return nil
 }
 
+// tableableRows extracts headers and rows out of payload, which must implement common.Tableable
+// (exactly one row) or common.Tableables (zero or more rows) -- the row-extraction logic
+// printTable and printDelimited both need before rendering it in their own format. headers is
+// nil when payload is an empty Tableables, the signal both callers use to skip writing headers
+// for a genuinely empty list.
+func tableableRows(cmd *cobra.Command, payload any) (headers []string, rows [][]string, err error) {
+	switch actual := payload.(type) {
+	case common.Tableable:
+		headers = actual.GetHeaders(cmd)
+		rows = [][]string{actual.GetRow(headers)}
+	case common.Tableables:
+		lgr.Printf("[DEBUG] payload is a slice of %d elements", actual.Size())
+		if actual.Size() > 0 {
+			headers = actual.GetHeaders(cmd)
+			rows = make([][]string, actual.Size())
+			for i := range actual.Size() {
+				rows[i] = actual.GetRowAt(i, headers)
+			}
+		}
+	default:
+		return nil, nil, errors.New("argument payload is invalid: not a tableable")
+	}
+	return headers, rows, nil
+}
+
 // printDelimited prints the given payload to the console as delimiter-separated values
 func (profile Profile) printDelimited(cmd *cobra.Command, payload any, comma rune) error {
 	lgr.Printf("[DEBUG] printing payload as delimited text (comma=%q)", comma)
+	headers, rows, err := tableableRows(cmd, payload)
+	if err != nil {
+		return err
+	}
+
 	writer := csv.NewWriter(os.Stdout)
 	writer.Comma = comma
 	defer writer.Flush()
 
-	switch actual := payload.(type) {
-	case common.Tableable:
-		headers := actual.GetHeaders(cmd)
-		_ = writer.Write(headers)
-		_ = writer.Write(actual.GetRow(headers))
-	case common.Tableables:
-		lgr.Printf("[DEBUG] payload is a slice of %d elements", actual.Size())
-		if actual.Size() > 0 {
-			headers := actual.GetHeaders(cmd)
-			_ = writer.Write(headers)
-			for i := range actual.Size() {
-				_ = writer.Write(actual.GetRowAt(i, headers))
-			}
-		}
-	default:
-		return errors.New("argument payload is invalid: not a tableable")
+	if headers == nil {
+		return nil
+	}
+	_ = writer.Write(headers)
+	for _, row := range rows {
+		_ = writer.Write(row)
 	}
 	return nil
 }
@@ -548,26 +568,18 @@ func (profile Profile) printDelimited(cmd *cobra.Command, payload any, comma run
 // printTable prints the given payload to the console as a table
 func (profile Profile) printTable(cmd *cobra.Command, payload any) error {
 	lgr.Printf("[DEBUG] printing payload as table")
-	table := tablewriter.NewWriter(os.Stdout)
+	headers, rows, err := tableableRows(cmd, payload)
+	if err != nil {
+		return err
+	}
 
-	switch actual := payload.(type) {
-	case common.Tableable:
-		headers := actual.GetHeaders(cmd)
+	table := tablewriter.NewWriter(os.Stdout)
+	if headers != nil {
 		table.SetHeader(headers)
 		table.SetAutoWrapText(false)
-		table.Append(truncateTableRow(actual.GetRow(headers)))
-	case common.Tableables:
-		lgr.Printf("[DEBUG] payload is a slice of %d elements", actual.Size())
-		if actual.Size() > 0 {
-			headers := actual.GetHeaders(cmd)
-			table.SetHeader(headers)
-			table.SetAutoWrapText(false)
-			for i := range actual.Size() {
-				table.Append(truncateTableRow(actual.GetRowAt(i, headers)))
-			}
+		for _, row := range rows {
+			table.Append(truncateTableRow(row))
 		}
-	default:
-		return errors.New("argument payload is invalid: not a tableable")
 	}
 	table.Render()
 	return nil

@@ -1,9 +1,6 @@
 package common_test
 
 import (
-	"encoding/json"
-	"fmt"
-	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -33,22 +30,6 @@ func (suite *CommonSuite) TearDownSuite() {
 	if suite.T().Failed() {
 		suite.T().Log("At least one test failed, we are not cleaning")
 	}
-}
-
-func (suite *CommonSuite) LoadTestData(filename string) []byte {
-	data, err := os.ReadFile("../../testdata/" + filename)
-	if err != nil {
-		suite.T().Fatal(err)
-	}
-	return data
-}
-
-func (suite *CommonSuite) UnmarshalData(filename string, v any) error {
-	data := suite.LoadTestData(filename)
-	if err := json.Unmarshal(data, v); err != nil {
-		return fmt.Errorf("cannot unmarshal test data: %w", err)
-	}
-	return nil
 }
 
 // *****************************************************************************

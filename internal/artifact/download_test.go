@@ -363,8 +363,8 @@ func TestDownloadOneOverwritePreservesExistingMode(t *testing.T) {
 }
 
 // TestDownloadOneNewFileIsNotOwnerOnlyMode proves a newly downloaded artifact (no pre-existing
-// file at the destination) does not keep os.CreateTemp's owner-only 0600: it should land at the
-// normal 0666-minus-umask a fresh file would otherwise get.
+// file at the destination) does not keep os.CreateTemp's owner-only 0600: it should land at
+// defaultNewFileMode (0644) instead.
 func TestDownloadOneNewFileIsNotOwnerOnlyMode(t *testing.T) {
 	destDir := t.TempDir()
 	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
@@ -382,8 +382,8 @@ func TestDownloadOneNewFileIsNotOwnerOnlyMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot stat downloaded file: %v", err)
 	}
-	if got := info.Mode().Perm(); got == 0o600 {
-		t.Errorf("mode = %v, want a normal (umask-adjusted) file mode, not os.CreateTemp's owner-only 0600", got)
+	if got := info.Mode().Perm(); got != defaultNewFileMode {
+		t.Errorf("mode = %v, want defaultNewFileMode (%v), not os.CreateTemp's owner-only 0600", got, defaultNewFileMode)
 	}
 }
 
