@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"slices"
-	"strings"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/branch"
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
@@ -96,29 +94,13 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 
 	updateWanted := applySimpleFieldUpdates(cmd, &pullrequest)
 
-	var pullrequestWorkspace *workspace.Workspace
-	if pullrequest.Destination.Repository != nil {
-		lgr.Printf("[DEBUG] getting workspace of pullrequest destination repository %s", pullrequest.Destination.Repository.FullName)
-		lgr.Printf("[DEBUG] pullrequest destination repository details")
-		pullrequestWorkspace, err = pullrequest.Destination.Repository.GetWorkspace(cmd.Context(), cmd)
-	} else {
-		lgr.Printf("[DEBUG] getting current workspace")
-		pullrequestWorkspace, err = repository.GetWorkspace(cmd.Context(), cmd)
-	}
+	pullrequestWorkspace, err := destinationWorkspace(cmd.Context(), cmd, &pullrequest, repository)
 	if err != nil {
-		lgr.Printf("[ERROR] failed to get workspace of pullrequest destination repository: %v", err)
-		return fmt.Errorf("failed to get workspace of pullrequest destination repository: %w", err)
+		return err
 	}
 	lgr.Printf("[DEBUG] pullrequest workspace: %s", pullrequestWorkspace)
 
-	isMember := func(member workspace.Member, id string) bool {
-		if parsedID, uuidErr := common.ParseUUID(id); uuidErr == nil {
-			return member.User.ID == parsedID
-		}
-		return member.User.AccountID == id || strings.EqualFold(member.User.Nickname, id) || strings.EqualFold(member.User.Name, id)
-	}
-
-	removed, err := removeRequestedReviewers(cmd, profile, &pullrequest, isMember)
+	removed, err := removeRequestedReviewers(cmd.Context(), cmd, profile, &pullrequest)
 	if err != nil {
 		return err
 	}
@@ -126,7 +108,7 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 		updateWanted = true
 	}
 
-	added, err := addRequestedReviewers(cmd.Context(), cmd, profile, &pullrequest, pullrequestWorkspace, isMember)
+	added, err := addRequestedReviewers(cmd.Context(), cmd, profile, &pullrequest, pullrequestWorkspace)
 	if err != nil {
 		return err
 	}
@@ -191,13 +173,33 @@ func applySimpleFieldUpdates(cmd *cobra.Command, pullrequest *PullRequest) bool 
 	return updateWanted
 }
 
+// destinationWorkspace resolves the workspace that owns pr's destination repository, falling back
+// to repo's own workspace when pr carries no destination repository.
+func destinationWorkspace(ctx context.Context, cmd *cobra.Command, pr *PullRequest, repo *repository.Repository) (*workspace.Workspace, error) {
+	var pullrequestWorkspace *workspace.Workspace
+	var err error
+	if pr.Destination.Repository != nil {
+		lgr.Printf("[DEBUG] getting workspace of pullrequest destination repository %s", pr.Destination.Repository.FullName)
+		lgr.Printf("[DEBUG] pullrequest destination repository details")
+		pullrequestWorkspace, err = pr.Destination.Repository.GetWorkspace(ctx, cmd)
+	} else {
+		lgr.Printf("[DEBUG] getting current workspace")
+		pullrequestWorkspace, err = repo.GetWorkspace(ctx, cmd)
+	}
+	if err != nil {
+		lgr.Printf("[ERROR] failed to get workspace of pullrequest destination repository: %v", err)
+		return nil, fmt.Errorf("failed to get workspace of pullrequest destination repository: %w", err)
+	}
+	return pullrequestWorkspace, nil
+}
+
 // removeRequestedReviewers removes reviewers listed in --remove-reviewer from pullrequest and
 // reports whether anything changed. A value that does not match any current reviewer is an
 // error: by default (or with --stop-on-error/ErrorProcessing StopOnError) it aborts immediately
 // naming the offending value, so no PUT is sent; with --warn-on-error/WarnOnError or
 // --ignore-errors/IgnoreErrors it is tolerated (warned or silently skipped) and the update
 // proceeds with whichever reviewers were resolved.
-func removeRequestedReviewers(cmd *cobra.Command, prof *profile.Profile, pullrequest *PullRequest, isMember func(workspace.Member, string) bool) (bool, error) {
+func removeRequestedReviewers(ctx context.Context, cmd *cobra.Command, currentProfile *profile.Profile, pullrequest *PullRequest) (bool, error) { //nolint:unparam // ctx is accepted for signature consistency with addRequestedReviewers, which needs it; this function resolves reviewers purely from the in-memory pullrequest.Reviewers and never reaches the network
 	if !cmd.Flag("remove-reviewer").Changed || len(updateOptions.RemoveReviewers) == 0 {
 		return false, nil
 	}
@@ -206,7 +208,7 @@ func removeRequestedReviewers(cmd *cobra.Command, prof *profile.Profile, pullreq
 	for _, reviewerNameOrID := range updateOptions.RemoveReviewers {
 		found := -1
 		for index, reviewer := range pullrequest.Reviewers {
-			if isMember(workspace.Member{User: reviewer}, reviewerNameOrID) {
+			if matchesMember(workspace.Member{User: reviewer}, reviewerNameOrID) {
 				found = index
 				break
 			}
@@ -218,21 +220,13 @@ func removeRequestedReviewers(cmd *cobra.Command, prof *profile.Profile, pullreq
 		}
 		reviewerErr := fmt.Errorf("reviewer %s is not a reviewer of the pullrequest", reviewerNameOrID)
 		lgr.Printf("[ERROR] %s", reviewerErr)
-		if prof.ShouldStopOnError(cmd) {
+		if currentProfile.ShouldStopOnError(cmd) {
 			return false, reviewerErr
 		}
 		errs = append(errs, reviewerErr)
 	}
-	if joined := errors.Join(errs...); joined != nil {
-		if prof.ShouldWarnOnError(cmd) {
-			fmt.Fprintf(os.Stderr, "Failed to remove these reviewers: %s\n", joined)
-			return updateWanted, nil
-		}
-		if prof.ShouldIgnoreErrors(cmd) {
-			lgr.Printf("[WARN] failed to remove these reviewers, but ignoring errors: %s", joined)
-			return updateWanted, nil
-		}
-		return false, joined
+	if err := tolerateReviewerErrors(cmd, currentProfile, errs, "remove these reviewers"); err != nil {
+		return false, err
 	}
 	return updateWanted, nil
 }
@@ -247,28 +241,9 @@ func resolveDefaultReviewers(ctx context.Context, cmd *cobra.Command, pullreques
 		return nil, errors.New("pullrequest has no source repository, cannot resolve default reviewers")
 	}
 
-	lgr.Printf("[DEBUG] finding current user")
-	me, meErr := user.GetMe(ctx, cmd)
-	if meErr != nil {
-		// RAT (repo scoped tokens) do not have access to that API endpoint usually
-		lgr.Printf("[WARN] failed to get current user, this may be a RAT client. Error: %s", meErr.Error())
-	} else {
-		lgr.Printf("[DEBUG] current user: %s (%s)", me.Username, me.ID)
-	}
-
-	// Find the default reviewers from the repo or project settings
-	lgr.Printf("[DEBUG] no reviewers in the repository, trying to get effective default reviewers from the repository")
-	reviewers, err := pullrequest.Source.Repository.GetEffectiveDefaultReviewers(ctx, cmd)
+	reviewers, err := effectiveDefaultReviewers(ctx, cmd, pullrequest.Source.Repository)
 	if err != nil {
-		lgr.Printf("[ERROR] failed to get default reviewers: %v", err)
-		return nil, fmt.Errorf("cannot get default reviewers: %w", err)
-	}
-	lgr.Printf("[DEBUG] found %d default reviewers", len(reviewers))
-
-	if me != nil {
-		// Removing myself from the reviewers since I cannot be a reviewer of my own pullrequest
-		reviewers = core.Filter(reviewers, func(reviewer project.Reviewer) bool { return reviewer.User.ID != me.ID })
-		lgr.Printf("[DEBUG] filtered reviewers to remove current user: %d reviewers remaining", len(reviewers))
+		return nil, err
 	}
 
 	// Replace the first reviewer with the list of default reviewers and append the rest
@@ -284,7 +259,7 @@ func resolveDefaultReviewers(ctx context.Context, cmd *cobra.Command, pullreques
 // StopOnError) it aborts immediately naming the offending value, so no PUT is sent; with
 // --warn-on-error/WarnOnError or --ignore-errors/IgnoreErrors it is tolerated (warned or
 // silently skipped) and the update proceeds with whichever reviewers were resolved.
-func addRequestedReviewers(ctx context.Context, cmd *cobra.Command, prof *profile.Profile, pullrequest *PullRequest, pullrequestWorkspace *workspace.Workspace, isMember func(workspace.Member, string) bool) (bool, error) {
+func addRequestedReviewers(ctx context.Context, cmd *cobra.Command, currentProfile *profile.Profile, pullrequest *PullRequest, pullrequestWorkspace *workspace.Workspace) (bool, error) {
 	if !cmd.Flag("add-reviewer").Changed || len(updateOptions.AddReviewers) == 0 {
 		return false, nil
 	}
@@ -306,7 +281,7 @@ func addRequestedReviewers(ctx context.Context, cmd *cobra.Command, prof *profil
 	var errs []error
 	for _, reviewerNameOrID := range reviewerValues {
 		lgr.Printf("[DEBUG] processing reviewer to add: %s", reviewerNameOrID)
-		matches := core.Filter(members, func(member workspace.Member) bool { return isMember(member, reviewerNameOrID) })
+		matches := core.Filter(members, func(member workspace.Member) bool { return matchesMember(member, reviewerNameOrID) })
 		if len(matches) > 0 {
 			if !slices.ContainsFunc(pullrequest.Reviewers, func(u user.User) bool { return u.ID == matches[0].User.ID }) {
 				lgr.Printf("[DEBUG] adding reviewer: %s (%s)", matches[0].User.ID, matches[0].User.Nickname)
@@ -319,21 +294,13 @@ func addRequestedReviewers(ctx context.Context, cmd *cobra.Command, prof *profil
 		}
 		reviewerErr := fmt.Errorf("reviewer %s is not a member of workspace %s", reviewerNameOrID, pullrequestWorkspace)
 		lgr.Printf("[ERROR] %s", reviewerErr)
-		if prof.ShouldStopOnError(cmd) {
+		if currentProfile.ShouldStopOnError(cmd) {
 			return false, reviewerErr
 		}
 		errs = append(errs, reviewerErr)
 	}
-	if joined := errors.Join(errs...); joined != nil {
-		if prof.ShouldWarnOnError(cmd) {
-			fmt.Fprintf(os.Stderr, "Failed to resolve these reviewers: %s\n", joined)
-			return updateWanted, nil
-		}
-		if prof.ShouldIgnoreErrors(cmd) {
-			lgr.Printf("[WARN] failed to resolve these reviewers, but ignoring errors: %s", joined)
-			return updateWanted, nil
-		}
-		return false, joined
+	if err := tolerateReviewerErrors(cmd, currentProfile, errs, "resolve these reviewers"); err != nil {
+		return false, err
 	}
 	return updateWanted, nil
 }

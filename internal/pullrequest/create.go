@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"strings"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/branch"
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
@@ -134,27 +132,9 @@ func createProcess(cmd *cobra.Command, args []string) (err error) {
 // resolveCreateDefaultReviewers resolves the effective default reviewers of repository, excluding
 // the current user when known
 func resolveCreateDefaultReviewers(ctx context.Context, cmd *cobra.Command, repository *repository.Repository) ([]user.User, error) {
-	lgr.Printf("[DEBUG] finding current user")
-	me, errMe := user.GetMe(ctx, cmd)
-	if errMe != nil {
-		// RAT (repo scoped tokens) do not have access to that API endpoint usually
-		lgr.Printf("[WARN] failed to get current user, this may be a RAT client. Error: %s", errMe.Error())
-	} else {
-		lgr.Printf("[DEBUG] current user: %s (%s)", me.Username, me.ID)
-	}
-
-	lgr.Printf("[DEBUG] no reviewers in the repository, trying to get effective default reviewers from the repository")
-	reviewers, err := repository.GetEffectiveDefaultReviewers(ctx, cmd)
+	reviewers, err := effectiveDefaultReviewers(ctx, cmd, repository)
 	if err != nil {
-		lgr.Printf("[ERROR] failed to get default reviewers: %v", err)
-		return nil, errors.Join(fmt.Errorf("failed to get the default reviewers: %w", err), errMe)
-	}
-	lgr.Printf("[DEBUG] found %d default reviewers", len(reviewers))
-
-	if me != nil {
-		// Removing myself from the reviewers since I cannot be a reviewer of my own pullrequest
-		reviewers = core.Filter(reviewers, func(reviewer project.Reviewer) bool { return reviewer.User.ID != me.ID })
-		lgr.Printf("[DEBUG] filtered reviewers to remove current user: %d reviewers remaining", len(reviewers))
+		return nil, err
 	}
 	return core.Map(reviewers, func(reviewer project.Reviewer) user.User { return reviewer.User }), nil
 }
@@ -165,20 +145,13 @@ func resolveCreateDefaultReviewers(ctx context.Context, cmd *cobra.Command, repo
 // StopOnError) it aborts immediately naming the offending value, so no pullrequest is created;
 // with --warn-on-error/WarnOnError or --ignore-errors/IgnoreErrors it is tolerated (warned or
 // silently skipped) and the pullrequest is created with only the resolved reviewers.
-func resolveExplicitReviewers(ctx context.Context, cmd *cobra.Command, prof *profile.Profile, repository *repository.Repository, values []string) ([]user.User, error) {
-	isMember := func(member workspace.Member, id string) bool {
-		if parsedID, uuidErr := common.ParseUUID(id); uuidErr == nil {
-			return member.User.ID == parsedID
-		}
-		return member.User.AccountID == id || strings.EqualFold(member.User.Nickname, id) || strings.EqualFold(member.User.Name, id)
-	}
-
+func resolveExplicitReviewers(ctx context.Context, cmd *cobra.Command, currentProfile *profile.Profile, repository *repository.Repository, values []string) ([]user.User, error) {
 	members, _ := repository.Workspace.GetMembers(ctx, cmd)
 	values = expandAllReviewers(values, members)
 	reviewers := make([]user.User, 0, len(values))
 	var errs []error
 	for _, reviewerNameOrID := range values {
-		matches := core.Filter(members, func(member workspace.Member) bool { return isMember(member, reviewerNameOrID) })
+		matches := core.Filter(members, func(member workspace.Member) bool { return matchesMember(member, reviewerNameOrID) })
 		if len(matches) > 0 {
 			lgr.Printf("[DEBUG] adding reviewer: %s", matches[0].User.ID)
 			reviewers = append(reviewers, matches[0].User)
@@ -192,21 +165,13 @@ func resolveExplicitReviewers(ctx context.Context, cmd *cobra.Command, prof *pro
 		}
 		reviewerErr := fmt.Errorf("reviewer %s is not a member of the workspace", reviewerNameOrID)
 		lgr.Printf("[ERROR] %s", reviewerErr)
-		if prof.ShouldStopOnError(cmd) {
+		if currentProfile.ShouldStopOnError(cmd) {
 			return nil, reviewerErr
 		}
 		errs = append(errs, reviewerErr)
 	}
-	if joined := errors.Join(errs...); joined != nil {
-		if prof.ShouldWarnOnError(cmd) {
-			fmt.Fprintf(os.Stderr, "Failed to resolve these reviewers: %s\n", joined)
-			return reviewers, nil
-		}
-		if prof.ShouldIgnoreErrors(cmd) {
-			lgr.Printf("[WARN] failed to resolve these reviewers, but ignoring errors: %s", joined)
-			return reviewers, nil
-		}
-		return nil, joined
+	if err := tolerateReviewerErrors(cmd, currentProfile, errs, "resolve these reviewers"); err != nil {
+		return nil, err
 	}
 	return reviewers, nil
 }

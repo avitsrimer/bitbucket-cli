@@ -173,7 +173,7 @@ func (activity Activity) GetRow(headers []string) []string {
 	for _, header := range headers {
 		switch strings.ToLower(header) {
 		case "date":
-			row = append(row, activityDate.Format("2006-01-02 15:04:05"))
+			row = append(row, activityDate.Format(common.TableTimeFormat))
 		case "approved":
 			row = append(row, strconv.FormatBool(approval))
 		case "description":
@@ -203,13 +203,13 @@ func (activity Activity) GetRow(headers []string) []string {
 				return update.Source.Repository.Name
 			}))
 		case "created on", "created_on", "created-on", "created":
-			row = append(row, activity.updateField(func(update *ActivityUpdate) string { return update.CreatedOn.Format("2006-01-02 15:04:05") }))
+			row = append(row, activity.updateField(func(update *ActivityUpdate) string { return update.CreatedOn.Format(common.TableTimeFormat) }))
 		case "updated on", "updated_on", "updated-on", "updated":
 			row = append(row, activity.updateField(func(update *ActivityUpdate) string {
 				if update.UpdatedOn.IsZero() {
 					return " "
 				}
-				return update.UpdatedOn.Format("2006-01-02 15:04:05")
+				return update.UpdatedOn.Format(common.TableTimeFormat)
 			}))
 		}
 	}

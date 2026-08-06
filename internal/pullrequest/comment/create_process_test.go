@@ -5,53 +5,112 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 )
 
-func TestCreateProcessSuccess(t *testing.T) {
-	withCommentEditOptions(t, &createOptions, func() {
-		createOptions.PullRequestID.Value = "42"
-		createOptions.Comment = "looks good"
-	})
+// TestCreateProcess covers createProcess's success, API-error, and dry-run paths.
+func TestCreateProcess(t *testing.T) {
+	tests := []struct {
+		name          string
+		handler       http.HandlerFunc
+		dryRun        bool
+		wantErrSubstr []string
+		validate      func(t *testing.T, requests []*http.Request, gotBody CommentPayload, stdout string)
+	}{
+		{
+			name: "success",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"id":1,"content":{"raw":"looks good"}}`))
+			},
+			validate: func(t *testing.T, requests []*http.Request, gotBody CommentPayload, stdout string) {
+				t.Helper()
+				if len(requests) != 1 {
+					t.Fatalf("expected exactly 1 request, got %d", len(requests))
+				}
+				wantPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/pullrequests/42/comments"
+				if requests[0].URL.Path != wantPath {
+					t.Errorf("path = %s, want %s", requests[0].URL.Path, wantPath)
+				}
+				if requests[0].Method != http.MethodPost {
+					t.Errorf("method = %s, want POST", requests[0].Method)
+				}
+				if gotBody.Content.Raw != "looks good" {
+					t.Errorf("posted content.raw = %q, want %q", gotBody.Content.Raw, "looks good")
+				}
+				if gotBody.Anchor != nil {
+					t.Errorf("posted anchor = %+v, want nil when --file is not set", gotBody.Anchor)
+				}
+				var printed Comment
+				if err := json.Unmarshal([]byte(stdout), &printed); err != nil {
+					t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
+				}
+				if printed.Content.Raw != "looks good" {
+					t.Errorf("printed content.raw = %q, want %q", printed.Content.Raw, "looks good")
+				}
+			},
+		},
+		{
+			name: "api error",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"type":"error","error":{"message":"pull request is not open"}}`))
+			},
+			wantErrSubstr: []string{"failed to create comment", "pull request is not open"},
+		},
+		{
+			name:    "dry run",
+			handler: func(http.ResponseWriter, *http.Request) {},
+			dryRun:  true,
+			validate: func(t *testing.T, requests []*http.Request, _ CommentPayload, _ string) {
+				t.Helper()
+				if len(requests) != 0 {
+					t.Errorf("expected no HTTP request in dry-run mode, got %d", len(requests))
+				}
+			},
+		},
+	}
 
-	var requests []*http.Request
-	var gotBody CommentCreator
-	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
-		requests = append(requests, r)
-		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
-			t.Errorf("cannot decode request body: %v", err)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":1,"content":{"raw":"looks good"}}`))
-	}, false)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			withCommentEditOptions(t, &createOptions, func() {
+				createOptions.PullRequestID.Value = "42"
+				createOptions.Comment = "looks good"
+			})
 
-	stdout := captureStdout(t, func() {
-		if err := createProcess(cmd, nil); err != nil {
-			t.Fatalf("createProcess() error = %v", err)
-		}
-	})
+			var requests []*http.Request
+			var gotBody CommentPayload
+			cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+				requests = append(requests, r)
+				_ = json.NewDecoder(r.Body).Decode(&gotBody)
+				tt.handler(w, r)
+			}, tt.dryRun)
 
-	if len(requests) != 1 {
-		t.Fatalf("expected exactly 1 request, got %d", len(requests))
-	}
-	wantPath := "/2.0/repositories/" + fixtureRepositoryFlag + "/pullrequests/42/comments"
-	if requests[0].URL.Path != wantPath {
-		t.Errorf("path = %s, want %s", requests[0].URL.Path, wantPath)
-	}
-	if requests[0].Method != http.MethodPost {
-		t.Errorf("method = %s, want POST", requests[0].Method)
-	}
-	if gotBody.Content.Raw != "looks good" {
-		t.Errorf("posted content.raw = %q, want %q", gotBody.Content.Raw, "looks good")
-	}
-	if gotBody.Anchor != nil {
-		t.Errorf("posted anchor = %+v, want nil when --file is not set", gotBody.Anchor)
-	}
-	var printed Comment
-	if err := json.Unmarshal([]byte(stdout), &printed); err != nil {
-		t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
-	}
-	if printed.Content.Raw != "looks good" {
-		t.Errorf("printed content.raw = %q, want %q", printed.Content.Raw, "looks good")
+			var err error
+			stdout := testutil.CaptureStdout(t, func() {
+				err = createProcess(cmd, nil)
+			})
+
+			if len(tt.wantErrSubstr) > 0 {
+				if err == nil {
+					t.Fatal("createProcess() expected an error, got nil")
+				}
+				for _, substr := range tt.wantErrSubstr {
+					if !strings.Contains(err.Error(), substr) {
+						t.Errorf("error = %q, want it to contain %q", err.Error(), substr)
+					}
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("createProcess() error = %v", err)
+			}
+			if tt.validate != nil {
+				tt.validate(t, requests, gotBody, stdout)
+			}
+		})
 	}
 }
 
@@ -64,7 +123,7 @@ func TestCreateProcessWithFileAnchor(t *testing.T) {
 		createOptions.To = 12
 	})
 
-	var gotBody CommentCreator
+	var gotBody CommentPayload
 	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
 			t.Errorf("cannot decode request body: %v", err)
@@ -73,7 +132,7 @@ func TestCreateProcessWithFileAnchor(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":2}`))
 	}, false)
 
-	captureStdout(t, func() {
+	testutil.CaptureStdout(t, func() {
 		if err := createProcess(cmd, nil); err != nil {
 			t.Fatalf("createProcess() error = %v", err)
 		}
@@ -87,10 +146,8 @@ func TestCreateProcessWithFileAnchor(t *testing.T) {
 	}
 }
 
-// TestCreateProcessFromWithoutFileReturnsError is a regression test for the Task 4 fix: this
-// used to be errors.RuntimeError.With("Cannot specify from/to without a file"), whose Text has
-// zero %-verbs, so the rendered error was always just "Runtime Error" and the actual message was
-// silently dropped. It must now be the real, readable message, and no request should be sent.
+// TestCreateProcessFromWithoutFileReturnsError verifies that --from/--to without --file produces
+// the real, readable "cannot specify from/to without a file" error message, and sends no request.
 func TestCreateProcessFromWithoutFileReturnsError(t *testing.T) {
 	withCommentEditOptions(t, &createOptions, func() {
 		createOptions.PullRequestID.Value = "42"
@@ -110,46 +167,5 @@ func TestCreateProcessFromWithoutFileReturnsError(t *testing.T) {
 	}
 	if requestCount != 0 {
 		t.Errorf("expected no HTTP request when the anchor is invalid, got %d", requestCount)
-	}
-}
-
-func TestCreateProcessAPIError(t *testing.T) {
-	withCommentEditOptions(t, &createOptions, func() {
-		createOptions.PullRequestID.Value = "42"
-		createOptions.Comment = "looks good"
-	})
-
-	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(`{"type":"error","error":{"message":"pull request is not open"}}`))
-	}, false)
-
-	err := createProcess(cmd, nil)
-	if err == nil {
-		t.Fatal("createProcess() expected an error, got nil")
-	}
-	if !strings.Contains(err.Error(), "failed to create comment") {
-		t.Errorf("error = %q, want it to mention the failed create", err.Error())
-	}
-	if !strings.Contains(err.Error(), "pull request is not open") {
-		t.Errorf("error = %q, want it to contain the BitBucket error message", err.Error())
-	}
-}
-
-func TestCreateProcessDryRun(t *testing.T) {
-	withCommentEditOptions(t, &createOptions, func() {
-		createOptions.PullRequestID.Value = "42"
-		createOptions.Comment = "looks good"
-	})
-
-	var requestCount int
-	cmd := setupTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, true)
-
-	if err := createProcess(cmd, nil); err != nil {
-		t.Fatalf("createProcess() error = %v", err)
-	}
-	if requestCount != 0 {
-		t.Errorf("expected no HTTP request in dry-run mode, got %d", requestCount)
 	}
 }

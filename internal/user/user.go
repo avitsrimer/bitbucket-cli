@@ -10,6 +10,7 @@ import (
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
+	"github.com/gildas/go-core"
 	"github.com/go-pkgz/lgr"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -36,12 +37,7 @@ var Command = &cobra.Command{
 	Use:     "user",
 	Aliases: []string{"account"},
 	Short:   "Manage users",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Issue requires a subcommand:")
-		for _, command := range cmd.Commands() {
-			fmt.Println(command.Name())
-		}
-	},
+	Run:     common.SubcommandRequired("User"),
 }
 
 var columns = common.Columns[User]{
@@ -88,7 +84,7 @@ func (user User) GetName() string {
 func (user User) GetHeaders(cmd *cobra.Command) []string {
 	if cmd != nil && cmd.Flag("columns") != nil && cmd.Flag("columns").Changed {
 		if columns, err := cmd.Flags().GetStringSlice("columns"); err == nil {
-			return columns
+			return core.Map(columns, func(column string) string { return strings.ReplaceAll(column, "_", " ") })
 		}
 	}
 	return []string{"ID", "Username", "Name"}
@@ -101,7 +97,7 @@ func (user User) GetRow(headers []string) []string {
 	var row []string
 
 	for _, header := range headers {
-		switch strings.ToLower(header) {
+		switch common.NormalizeColumnKey(header) {
 		case "id":
 			row = append(row, user.ID.String())
 		case "username":
@@ -116,18 +112,20 @@ func (user User) GetRow(headers []string) []string {
 			row = append(row, user.Nickname)
 		case "account":
 			row = append(row, user.AccountID)
-		case "created on", "created_on":
+		case "created_on":
 			if user.CreatedOn.IsZero() {
 				row = append(row, " ")
 			} else {
-				row = append(row, user.CreatedOn.Format("2006-01-02 15:04:05"))
+				row = append(row, user.CreatedOn.Format(common.TableTimeFormat))
 			}
-		case "account status":
+		case "account_status":
 			if user.AccountStatus == "" {
 				row = append(row, " ")
 			} else {
 				row = append(row, user.AccountStatus)
 			}
+		default:
+			row = append(row, " ")
 		}
 	}
 	return row
@@ -164,7 +162,7 @@ func (user User) MarshalJSON() (data []byte, err error) {
 	var createdOn string
 
 	if !user.CreatedOn.IsZero() {
-		createdOn = user.CreatedOn.Format("2006-01-02T15:04:05.999999999-07:00")
+		createdOn = user.CreatedOn.Format(common.JSONTimeFormat)
 	}
 	data, err = json.Marshal(struct {
 		surrogate

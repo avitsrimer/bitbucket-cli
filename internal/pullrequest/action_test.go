@@ -1,93 +1,21 @@
 package pullrequest
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"os"
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/avitsrimer/bitbucket-cli/internal/common"
-	"github.com/avitsrimer/bitbucket-cli/internal/profile"
-	"github.com/avitsrimer/bitbucket-cli/internal/repository"
+	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
-	"github.com/avitsrimer/bitbucket-cli/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
-// fixtureWorkspaceSlug/fixtureRepositorySlug identify a repository primed once, directly into
-// RepositoryCache/WorkspaceCache, so every test in this file resolves it without ever hitting
-// the network for workspace/repository lookups; only the action's own API call reaches the
-// per-test httptest server.
-const (
-	fixtureWorkspaceSlug  = "acme"
-	fixtureRepositorySlug = "widgets"
-	fixtureRepositoryFlag = fixtureWorkspaceSlug + "/" + fixtureRepositorySlug
-)
-
 func TestMain(m *testing.M) {
-	os.Exit(runTests(m))
-}
-
-// runTests points every package-level cache this test binary touches (WorkspaceCache,
-// RepositoryCache, UserCache) at a scratch temp directory instead of the real
-// os.UserCacheDir(), so the suite never reads or writes the developer's actual cache and leaves
-// nothing behind even if a test panics, times out, or the run is interrupted: the whole directory
-// is removed in a defer here rather than relying on individual tests to clean up their entries.
-func runTests(m *testing.M) int {
-	tempDir, err := os.MkdirTemp("", "bitbucket-cli-test-cache-*")
-	if err != nil {
-		panic("action_test: cannot create temp cache dir: " + err.Error())
-	}
-	defer func() { _ = os.RemoveAll(tempDir) }()
-
-	oldWorkspaceCache, oldRepositoryCache, oldUserCache := workspace.WorkspaceCache, repository.RepositoryCache, user.UserCache
-	workspace.WorkspaceCache = common.NewCacheAt[workspace.Workspace](tempDir, time.Minute)
-	repository.RepositoryCache = common.NewCacheAt[repository.Repository](tempDir, time.Minute)
-	user.UserCache = common.NewCacheAt[user.User](tempDir, time.Minute)
-	defer func() {
-		workspace.WorkspaceCache = oldWorkspaceCache
-		repository.RepositoryCache = oldRepositoryCache
-		user.UserCache = oldUserCache
-	}()
-
-	primeFixtureCaches()
-	return m.Run()
-}
-
-func primeFixtureCaches() {
-	ws := workspace.Workspace{Slug: fixtureWorkspaceSlug}
-	repo := newFixtureRepository(&ws)
-	if err := workspace.WorkspaceCache.Set(fixtureWorkspaceSlug, ws); err != nil {
-		panic("action_test: cannot prime workspace cache: " + err.Error())
-	}
-	if err := repository.RepositoryCache.Set(fixtureRepositoryFlag, repo); err != nil {
-		panic("action_test: cannot prime repository cache: " + err.Error())
-	}
-}
-
-// newFixtureRepository builds a Repository with the fields Repository.UnmarshalJSON's Validate
-// call requires (ID, Name, FullName) set, so priming RepositoryCache actually survives the
-// on-disk JSON round-trip instead of only ever being read back from an in-memory shortcut.
-func newFixtureRepository(ws *workspace.Workspace) repository.Repository {
-	id, err := common.ParseUUID("{22222222-2222-2222-2222-222222222222}")
-	if err != nil {
-		panic("action_test: cannot parse fixture repository uuid: " + err.Error())
-	}
-	return repository.Repository{
-		ID:        id,
-		Name:      "Widgets",
-		FullName:  fixtureRepositoryFlag,
-		Slug:      fixtureRepositorySlug,
-		Workspace: ws,
-	}
+	os.Exit(testutil.TempCaches(m))
 }
 
 // setupTest points the profile client at a fresh httptest server and returns a standalone
@@ -103,70 +31,12 @@ func setupTest(t *testing.T, handler http.HandlerFunc, dryRun bool) *cobra.Comma
 func setupTestNamed(t *testing.T, profileName string, handler http.HandlerFunc, dryRun bool) *cobra.Command {
 	t.Helper()
 
-	server := httptest.NewServer(handler)
-	t.Cleanup(server.Close)
-
-	apiRoot, err := url.Parse(server.URL)
-	if err != nil {
-		t.Fatalf("cannot parse test server URL: %v", err)
+	testutil.PrimeFixtureCaches(t)
+	cmd := testutil.SetupProfile(t, profileName, handler)
+	if dryRun {
+		_ = cmd.Flags().Set("dry-run", "true")
 	}
-
-	testProfile := &profile.Profile{Name: profileName, APIRoot: apiRoot, AccessToken: "dummy-token", OutputFormat: "json"}
-
-	oldProfiles, oldCurrent := profile.Profiles, profile.Current
-	profile.Profiles = append(profile.Profiles, testProfile)
-	profile.Current = testProfile
-	t.Cleanup(func() {
-		profile.Profiles = oldProfiles
-		profile.Current = oldCurrent
-	})
-
-	cmd := &cobra.Command{Use: "test"}
-	cmd.SetContext(context.Background())
-	cmd.Flags().String("profile", "", "")
-	cmd.Flags().String("repository", fixtureRepositoryFlag, "")
-	cmd.Flags().String("output", "", "")
-	cmd.Flags().Bool("dry-run", dryRun, "")
-	// Mirrors RootCmd's persistent stop-on-error/warn-on-error/ignore-errors flags (see
-	// internal/cmd/root.go): Profile.ShouldStopOnError/ShouldWarnOnError/ShouldIgnoreErrors read
-	// them via cmd.Flag(name).Changed unconditionally, so any code path reaching them needs the
-	// flags to exist even when a test never sets them.
-	cmd.Flags().Bool("stop-on-error", false, "")
-	cmd.Flags().Bool("warn-on-error", false, "")
-	cmd.Flags().Bool("ignore-errors", false, "")
 	return cmd
-}
-
-// captureStdout redirects os.Stdout for the duration of fn and returns what was written; used
-// to assert on profile.Print's rendered output (it writes straight to os.Stdout).
-//
-// The reader is drained on a goroutine started before fn runs, so output larger than the pipe
-// buffer cannot deadlock the test, and os.Stdout is restored via defer so a t.Fatalf inside fn
-// (which calls runtime.Goexit, skipping any code after it) still leaves stdout intact for the
-// rest of the test binary.
-func captureStdout(t *testing.T, fn func()) string {
-	t.Helper()
-
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("cannot create pipe: %v", err)
-	}
-	original := os.Stdout
-	os.Stdout = w
-	defer func() {
-		os.Stdout = original
-	}()
-
-	captured := make(chan string, 1)
-	go func() {
-		data, _ := io.ReadAll(r)
-		captured <- string(data)
-	}()
-
-	fn()
-
-	_ = w.Close()
-	return <-captured
 }
 
 func TestRunActionSimpleActions(t *testing.T) {
@@ -201,7 +71,7 @@ func testRunActionSuccess(t *testing.T, spec actionSpec) {
 	}
 	var stdout string
 	if spec.post {
-		stdout = captureStdout(t, call)
+		stdout = testutil.CaptureStdout(t, call)
 	} else {
 		call()
 	}
@@ -216,7 +86,7 @@ func testRunActionSuccess(t *testing.T, spec actionSpec) {
 	if requests[0].Method != wantMethod {
 		t.Errorf("method = %s, want %s", requests[0].Method, wantMethod)
 	}
-	wantPath := "/2.0/repositories/" + fixtureRepositoryFlag + "/pullrequests/42/" + spec.endpoint
+	wantPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/pullrequests/42/" + spec.endpoint
 	if requests[0].URL.Path != wantPath {
 		t.Errorf("path = %s, want %s", requests[0].URL.Path, wantPath)
 	}
@@ -320,7 +190,7 @@ func TestOpenPullRequestIDsCompletion(t *testing.T) {
 		if len(requests) != 1 {
 			t.Fatalf("expected exactly 1 request, got %d", len(requests))
 		}
-		wantPath := "/2.0/repositories/" + fixtureRepositoryFlag + "/pullrequests"
+		wantPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/pullrequests"
 		if requests[0].URL.Path != wantPath || requests[0].URL.Query().Get("state") != "OPEN" {
 			t.Errorf("request = %s?%s, want path %s with state=OPEN", requests[0].URL.Path, requests[0].URL.RawQuery, wantPath)
 		}
@@ -364,7 +234,7 @@ func TestMergeProcessSyncSuccess(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":42,"title":"Add feature"}`))
 	}, false)
 
-	stdout := captureStdout(t, func() {
+	stdout := testutil.CaptureStdout(t, func() {
 		if err := mergeProcess(cmd, []string{"42"}); err != nil {
 			t.Fatalf("mergeProcess() error = %v", err)
 		}
@@ -376,7 +246,7 @@ func TestMergeProcessSyncSuccess(t *testing.T) {
 	if requests[0].Method != http.MethodPost {
 		t.Errorf("method = %s, want POST", requests[0].Method)
 	}
-	wantPath := "/2.0/repositories/" + fixtureRepositoryFlag + "/pullrequests/42/merge"
+	wantPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/pullrequests/42/merge"
 	if requests[0].URL.Path != wantPath {
 		t.Errorf("path = %s, want %s", requests[0].URL.Path, wantPath)
 	}
@@ -407,7 +277,7 @@ func TestMergeProcessAsyncSuccessUsesLocationHeader(t *testing.T) {
 		w.WriteHeader(http.StatusAccepted)
 	}, false)
 
-	stdout := captureStdout(t, func() {
+	stdout := testutil.CaptureStdout(t, func() {
 		if err := mergeProcess(cmd, []string{"42"}); err != nil {
 			t.Fatalf("mergeProcess() error = %v", err)
 		}

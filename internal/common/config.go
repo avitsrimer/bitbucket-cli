@@ -102,10 +102,11 @@ func LoadConfig(cmd *cobra.Command) (*Config, error) {
 // GetSection decodes the config's top-level key into target, leaving target untouched when the
 // key is absent
 //
-// Mapping keys are lowercased before decoding (mirroring viper's insensitivise behavior, which
-// wrote this file historically): yaml.v3 matches keys case-sensitively against the lower-cased
-// struct field name it defaults to, so a camelCase key like defaultWorkspace would otherwise be
-// silently ignored instead of populating the DefaultWorkspace field.
+// Mapping keys are lowercased before decoding, so a config file whose keys are not already
+// lowercase (e.g. camelCase, the spelling documented by Profile's json tags) still decodes
+// correctly: yaml.v3 matches keys case-sensitively against the lower-cased struct field name it
+// defaults to, so a camelCase key like defaultWorkspace would otherwise be silently ignored instead
+// of populating the DefaultWorkspace field.
 func (config *Config) GetSection(key string, target any) error {
 	value, found := config.Data[key]
 	if !found {

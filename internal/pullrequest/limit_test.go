@@ -25,9 +25,8 @@ func TestGetPullRequestIDFromArgsIgnoresAmbientLimitFlag(t *testing.T) {
 			_, _ = w.Write([]byte(`{"values":[{"id":1},{"id":2},{"id":3},{"id":4}]}`))
 		}
 	}, false)
-	// mirrors commits.go/activities.go registering their own --limit flag on the same cmd used to
+	// mirrors commits.go/activities.go setting their own --limit value on the same cmd used to
 	// resolve the omitted pullrequest-id argument
-	cmd.Flags().Int("limit", 0, "")
 	if err := cmd.Flags().Set("limit", "1"); err != nil {
 		t.Fatalf("cannot set limit flag: %v", err)
 	}
@@ -41,8 +40,8 @@ func TestGetPullRequestIDFromArgsIgnoresAmbientLimitFlag(t *testing.T) {
 	if err == nil {
 		t.Fatal("GetPullRequestIDFromArgs() expected an error for 4 open pull requests, got nil")
 	}
-	if !strings.Contains(err.Error(), "too many pullrequests") {
-		t.Errorf("error = %q, want it to contain %q", err.Error(), "too many pullrequests")
+	if !strings.Contains(err.Error(), "too many open pullrequests") {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), "too many open pullrequests")
 	}
 	if openRequests != 1 {
 		t.Errorf("open pull requests queried %d times, want exactly 1", openRequests)

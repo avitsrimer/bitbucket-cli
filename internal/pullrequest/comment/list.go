@@ -25,8 +25,6 @@ var listOptions struct {
 	PullRequestID *common.EnumFlag
 	Columns       *common.EnumSliceFlag
 	SortBy        *common.EnumFlag
-	PageLength    int
-	Limit         int
 }
 
 func init() {
@@ -39,8 +37,8 @@ func init() {
 	listCmd.Flags().StringVar(&listOptions.Query, "query", "", "Query string to filter comments")
 	listCmd.Flags().Var(listOptions.Columns, "columns", "Comma-separated list of columns to display")
 	listCmd.Flags().Var(listOptions.SortBy, "sort", "Column to sort by")
-	listCmd.Flags().IntVar(&listOptions.PageLength, "page-length", 0, "Number of items per page to retrieve from Bitbucket. Default is the profile's default page length")
-	listCmd.Flags().IntVar(&listOptions.Limit, "limit", 0, "Maximum total number of comments to retrieve. Default is to retrieve all of them")
+	listCmd.Flags().Int("page-length", 0, "Number of items per page to retrieve from Bitbucket. Default is the profile's default page length")
+	listCmd.Flags().Int("limit", 0, "Maximum total number of comments to retrieve. Default is to retrieve all of them")
 	_ = listCmd.MarkFlagRequired("pullrequest")
 	_ = listCmd.RegisterFlagCompletionFunc(listOptions.PullRequestID.CompletionFunc("pullrequest"))
 	_ = listCmd.RegisterFlagCompletionFunc(listOptions.Columns.CompletionFunc("columns"))

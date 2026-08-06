@@ -32,7 +32,7 @@ var createOptions struct {
 func init() {
 	Command.AddCommand(createCmd)
 
-	createOptions.OutputFormat = common.NewEnumFlag("json", "yaml", "table")
+	createOptions.OutputFormat = common.NewEnumFlag("json", "yaml", "table", "csv", "tsv")
 	createOptions.CloneProtocol = common.NewEnumFlag("+git", "https", "ssh")
 	createCmd.Flags().StringVarP(&createOptions.Name, "name", "n", "", "Name of the profile")
 	createCmd.Flags().StringVar(&createOptions.Description, "description", "", "Description of the profile")
@@ -52,9 +52,9 @@ func init() {
 	createCmd.Flags().Var(createOptions.CloneProtocol, "clone-protocol", "Default protocol to use for cloning repositories. Default is git, can be https, git, or ssh")
 	createCmd.Flags().StringVar(&createOptions.CloneUser, "clone-user", "", "Username to use when cloning repositories. Default is the username of the profile.")
 	createCmd.Flags().StringVar(&createOptions.SshKeyFilename, "default-ssh-key-file", "", "Path to the SSH private key file to use when cloning repositories with the ssh protocol.")
-	createCmd.Flags().Var(createOptions.OutputFormat, "output", "Output format (json, yaml, table).")
+	createCmd.Flags().Var(createOptions.OutputFormat, "output", "Output format (json, yaml, table, csv, tsv).")
 	createCmd.Flags().IntVar(&createOptions.DefaultPageLength, "default-page-length", 0, "Default number of items per page to retrieve from Bitbucket (Default: 50).")
-	createCmd.Flags().Var(&createOptions.ErrorProcessing, "error-processing", "Error processing (StopOnError, WanOnError, IgnoreErrors).")
+	createCmd.Flags().Var(&createOptions.ErrorProcessing, "error-processing", "Error processing (StopOnError, WarnOnError, IgnoreErrors).")
 	createCmd.Flags().BoolVar(&createOptions.Progress, "progress", false, "Show progress during upload/download operations.")
 	_ = createCmd.MarkFlagRequired("name")
 	_ = createCmd.MarkFlagFilename("default-ssh-key-file")
@@ -134,14 +134,14 @@ func resolveCreateSecrets() error {
 		case createOptions.User != "" && createOptions.Password == "":
 			return errors.New("argument password is missing: a password is required when using a user since it is not stored in the vault")
 		case createOptions.ClientID == "" && createOptions.User == "" && createOptions.AccessToken == "":
-			return errors.New("argument accessToken is missing: an access token is required when using a user since it is not stored in the vault")
+			return errors.New("argument accessToken is missing: an access token is required when no client ID or user is given since it is not stored in the vault")
 		}
 		return nil
 	}
 
 	switch {
 	case createOptions.ClientID != "":
-		secret, fromVault, err := resolveVaultSecret("client secret", createOptions.VaultKey, createOptions.ClientID, createOptions.ClientSecret, createOptions.SetCredentialInVault, createOptions.GetCredentialFromVault)
+		secret, fromVault, err := resolveVaultSecret("client secret", createOptions.VaultKey, createOptions.ClientID, createOptions.ClientSecret)
 		if err != nil {
 			return errors.New("a client secret is required when using a client ID since it is not stored in the vault. Please provide it with --client-secret or store it in the vault with the command")
 		}
@@ -150,7 +150,7 @@ func resolveCreateSecrets() error {
 			createOptions.vault.clientSecret = true // must never be written back to the config file in plain text
 		}
 	case createOptions.User != "":
-		secret, fromVault, err := resolveVaultSecret("user password", createOptions.VaultKey, createOptions.User, createOptions.Password, createOptions.SetCredentialInVault, createOptions.GetCredentialFromVault)
+		secret, fromVault, err := resolveVaultSecret("password", createOptions.VaultKey, createOptions.User, createOptions.Password)
 		if err != nil {
 			return errors.New("a password is required when using a user since it is not stored in the vault. Please provide it with --password or store it in the vault with the command")
 		}
@@ -159,7 +159,7 @@ func resolveCreateSecrets() error {
 			createOptions.vault.password = true // must never be written back to the config file in plain text
 		}
 	case createOptions.AccessToken != "":
-		secret, fromVault, err := resolveVaultSecret("access token", createOptions.VaultKey, createOptions.Name, createOptions.AccessToken, createOptions.SetCredentialInVault, createOptions.GetCredentialFromVault)
+		secret, fromVault, err := resolveVaultSecret("access token", createOptions.VaultKey, createOptions.Name, createOptions.AccessToken)
 		if err != nil {
 			return err
 		}
@@ -179,9 +179,9 @@ func resolveCreateSecrets() error {
 // from the vault (mirroring getSecretOrFromVault). The caller must set the matching
 // createOptions.vault.* bit when fromVault is true, or Profile.forSave has no way to tell the
 // loaded secret apart from one the user typed in plain text, and will persist it verbatim.
-func resolveVaultSecret(kind, vaultKey, username, secret string, set func(vaultKey, username, secret string) error, get func(vaultKey, username string) (*Credential, error)) (value string, fromVault bool, err error) {
+func resolveVaultSecret(kind, vaultKey, username, secret string) (value string, fromVault bool, err error) {
 	if secret != "" {
-		if setErr := set(vaultKey, username, secret); setErr != nil {
+		if setErr := createOptions.SetCredentialInVault(vaultKey, username, secret); setErr != nil {
 			lgr.Printf("[ERROR] failed to store %s in the %s vault, the secret will be stored in plain text in the configuration file: %v", kind, vaultKey, setErr)
 			fmt.Fprintf(os.Stderr, "Failed to store %s in the %s vault, the secret will be stored in plain text in the configuration file: %s\n", kind, vaultKey, setErr)
 			return secret, false, nil
@@ -189,7 +189,7 @@ func resolveVaultSecret(kind, vaultKey, username, secret string, set func(vaultK
 		lgr.Printf("[DEBUG] stored %s in the %s vault for %s", kind, vaultKey, username)
 		return "", false, nil
 	}
-	credential, err := get(vaultKey, username)
+	credential, err := createOptions.GetCredentialFromVault(vaultKey, username)
 	if err != nil {
 		return "", false, err
 	}

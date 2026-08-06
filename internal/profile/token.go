@@ -23,6 +23,12 @@ var ErrUnmarshalJSON = errors.New("cannot unmarshal json")
 // to infer that from a nil profile.token.
 var ErrNoAccessToken = errors.New("no access token available")
 
+// nonExpiringTokenLifetime is the lifetime assigned to a loaded access token (a repository/
+// project/workspace access token set directly on the profile or found in the vault): such tokens
+// never expire, so this is set far enough in the future that isTokenExpired never reports one as
+// expired.
+const nonExpiringTokenLifetime = 100 * 365 * 24 * time.Hour
+
 type Token struct {
 	TokenType    string         `json:"token_type"`
 	AccessToken  string         `json:"access_token"`
@@ -48,7 +54,7 @@ func (profile *Profile) loadAccessToken(_ context.Context) (err error) {
 		lgr.Printf("[DEBUG] repository/project/workspace access token for profile %s", profile.Name)
 		profile.token = &Token{
 			AccessToken: profile.AccessToken,
-			ExpiresOn:   core.Timestamp(time.Now().Add(100 * 365 * 24 * time.Hour)), // Loaded Access Tokens never expire
+			ExpiresOn:   core.Timestamp(time.Now().Add(nonExpiringTokenLifetime)),
 		}
 		return nil
 	}
@@ -83,7 +89,7 @@ func (profile *Profile) loadAccessToken(_ context.Context) (err error) {
 	lgr.Printf("[DEBUG] loaded repository/project/workspace access token for profile %s from the vault", profile.Name)
 	profile.token = &Token{
 		AccessToken: profile.AccessToken,
-		ExpiresOn:   core.Timestamp(time.Now().Add(100 * 365 * 24 * time.Hour)), // Loaded Access Tokens never expire
+		ExpiresOn:   core.Timestamp(time.Now().Add(nonExpiringTokenLifetime)),
 	}
 	return nil
 }

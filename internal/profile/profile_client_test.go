@@ -227,10 +227,11 @@ func (suite *ProfileSuite) TestGetNon2xxWithoutJSONBodyReturnsGenericError() {
 	suite.Contains(err.Error(), "500")
 }
 
-// TestGetNon2xxWithUnrelatedJSONBodyReturnsGenericError is a regression test for
-// BitBucketError.UnmarshalJSON's last-resort fallback succeeding for any valid JSON object: a
-// proxy's {"message":"..."} shape (not BitBucket's own error shape) used to be mapped to a
-// *BitBucketError with every field blank, so the CLI printed a completely empty error message.
+// TestGetNon2xxWithUnrelatedJSONBodyReturnsGenericError proves a JSON body that isn't shaped like
+// a BitBucket error (e.g. a proxy's {"message":"..."} shape) is not mapped to a blank
+// *BitBucketError: BitBucketError.UnmarshalJSON's last-resort fallback succeeds for any valid JSON
+// object, so mapErrorResponse only trusts it when Message/Detail/Fields actually carry something,
+// falling back to a generic status-text error instead of a completely empty message.
 func (suite *ProfileSuite) TestGetNon2xxWithUnrelatedJSONBodyReturnsGenericError() {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -274,12 +275,10 @@ func (suite *ProfileSuite) TestGetRawUsesWildcardAcceptAndReturnsRawBody() {
 	suite.Equal("*/*", gotAccept)
 }
 
-// TestGetRetriesAfter429ThenSucceeds is a regression test for the request layer sending exactly
-// one attempt with no retry/backoff: BitBucket rate-limits aggressively, and GetAll issues one
-// request per page, so the first 429 used to hard-fail the whole command. This asserts a 429
-// (with a short Retry-After) is retried and the eventual 200 is returned. Retry-After is "1", not
-// "0": a zero value is treated as "no header" (use the computed backoff) rather than "retry
-// instantly", so this exercises the header actually being honored.
+// TestGetRetriesAfter429ThenSucceeds proves a 429 response (with a short Retry-After) is retried
+// and the eventual 200 is returned, rather than hard-failing the command on the first rate-limit
+// response. Retry-After is "1", not "0": a zero value is treated as "no header" (use the computed
+// backoff) rather than "retry instantly", so this exercises the header actually being honored.
 func (suite *ProfileSuite) TestGetRetriesAfter429ThenSucceeds() {
 	var attempts int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -396,10 +395,10 @@ func (suite *ProfileSuite) TestGetAllRejectsNextPageURLFromDifferentHost() {
 	suite.False(attackerReceivedAuth, "the attacker server should never have been reached with an Authorization header")
 }
 
-// TestCodeGrantCallbackDoesNotBlockOnDuplicateRequest is a regression test for resultchan being
-// unbuffered with a blocking send: a second callback request (browser reload/prefetch) arriving
-// after the first result was already delivered used to block its handler goroutine forever,
-// which in turn made authorizeProcess's server.Shutdown hang waiting on that in-flight request.
+// TestCodeGrantCallbackDoesNotBlockOnDuplicateRequest proves a second callback request (browser
+// reload/prefetch) arriving after the first result was already delivered returns immediately
+// instead of blocking its handler goroutine forever on resultchan's send, which would otherwise
+// make authorizeProcess's server.Shutdown hang waiting on that in-flight request.
 func (suite *ProfileSuite) TestCodeGrantCallbackDoesNotBlockOnDuplicateRequest() {
 	testProfile := &profile.Profile{Name: "callback-test", ClientID: "client-id", VaultKey: "bitbucket-cli-test-nonexistent-vault-key"}
 	resultchan := make(chan error, 1)

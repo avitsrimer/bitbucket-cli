@@ -100,12 +100,7 @@ const (
 var Command = &cobra.Command{
 	Use:   "profile",
 	Short: "Manage profiles",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Profile requires a subcommand:")
-		for _, command := range cmd.Commands() {
-			fmt.Println(command.Name())
-		}
-	},
+	Run:   common.SubcommandRequired("Profile"),
 }
 
 var columns = common.Columns[*Profile]{
@@ -116,7 +111,7 @@ var columns = common.Columns[*Profile]{
 		return strings.ToLower(a.Description) < strings.ToLower(b.Description)
 	}},
 	{Name: "default", DefaultSorter: false, Compare: func(a, b *Profile) bool {
-		return a.Default == b.Default
+		return !a.Default && b.Default
 	}},
 	{Name: "user", DefaultSorter: false, Compare: func(a, b *Profile) bool {
 		return strings.ToLower(a.User) < strings.ToLower(b.User)
@@ -127,7 +122,7 @@ var columns = common.Columns[*Profile]{
 	{Name: "accesstoken", DefaultSorter: false, Compare: func(a, b *Profile) bool {
 		return strings.ToLower(a.AccessToken) < strings.ToLower(b.AccessToken)
 	}},
-	{Name: "apiRoot", DefaultSorter: false, Compare: func(a, b *Profile) bool {
+	{Name: "apiroot", DefaultSorter: false, Compare: func(a, b *Profile) bool {
 		return a.APIRoot != nil && b.APIRoot != nil && strings.ToLower(a.APIRoot.String()) < strings.ToLower(b.APIRoot.String())
 	}},
 	{Name: "defaultworkspace", DefaultSorter: false, Compare: func(a, b *Profile) bool {
@@ -161,7 +156,7 @@ var columns = common.Columns[*Profile]{
 		return strings.ToLower(a.ErrorProcessing.String()) < strings.ToLower(b.ErrorProcessing.String())
 	}},
 	{Name: "progress", DefaultSorter: false, Compare: func(a, b *Profile) bool {
-		return a.Progress == b.Progress
+		return !a.Progress && b.Progress
 	}},
 }
 
@@ -232,7 +227,7 @@ func (profile Profile) GetRow(headers []string) []string {
 
 	row := make([]string, 0, len(headers))
 	for _, header := range headers {
-		switch key := strings.ToLower(header); key {
+		switch key := common.NormalizeColumnKey(header); key {
 		case "apiroot":
 			if profile.APIRoot != nil {
 				row = append(row, profile.APIRoot.String())
@@ -299,8 +294,8 @@ func (profile Profile) Redact() any {
 }
 
 // GetClientSecret gets the client secret from the profile, either from the vault or from the profile
-func (profile *Profile) GetClientSecret(ctx context.Context) (string, error) {
-	secret, fromVault, err := profile.getSecretOrFromVault(ctx, "client secret", profile.ClientSecret, profile.ClientID)
+func (profile *Profile) GetClientSecret(_ context.Context) (string, error) {
+	secret, fromVault, err := profile.getSecretOrFromVault("client secret", profile.ClientSecret, profile.ClientID)
 	if fromVault {
 		profile.vault.clientSecret = true // must never be written back to the config file in plain text
 	}
@@ -308,8 +303,8 @@ func (profile *Profile) GetClientSecret(ctx context.Context) (string, error) {
 }
 
 // GetPassword gets the password from the profile, either from the vault or from the profile
-func (profile *Profile) GetPassword(ctx context.Context) (string, error) {
-	secret, fromVault, err := profile.getSecretOrFromVault(ctx, "password", profile.Password, profile.User)
+func (profile *Profile) GetPassword(_ context.Context) (string, error) {
+	secret, fromVault, err := profile.getSecretOrFromVault("password", profile.Password, profile.User)
 	if fromVault {
 		profile.vault.password = true // must never be written back to the config file in plain text
 	}
@@ -317,8 +312,9 @@ func (profile *Profile) GetPassword(ctx context.Context) (string, error) {
 }
 
 // getSecretOrFromVault returns secret when already set, otherwise loads it from the vault for
-// username, reporting whether the returned value came from the vault.
-func (profile *Profile) getSecretOrFromVault(_ context.Context, kind, secret, username string) (value string, fromVault bool, err error) {
+// username, reporting whether the returned value came from the vault. It takes no context: the
+// vault client (zalando/go-keyring) is not context-aware.
+func (profile *Profile) getSecretOrFromVault(kind, secret, username string) (value string, fromVault bool, err error) {
 	if secret != "" {
 		lgr.Printf("[DEBUG] the %s for profile %s is set in the profile", kind, profile.Name)
 		return secret, false, nil

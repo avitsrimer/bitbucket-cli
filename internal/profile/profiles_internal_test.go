@@ -177,12 +177,11 @@ func TestConfigSaveNeverPersistsVaultLoadedSecretsWhenGivenForSaveProfiles(t *te
 	}
 }
 
-// TestProfileMarshalYAMLIncludesVaultLoadedAccessTokenForDisplay is a regression test for review-
-// iter4 finding 1: `profile get`/`profile list -o yaml` call LoadSecrets specifically so a vault-
-// loaded secret can be shown to the user, and reach this exact code path (yaml.Marshal on a live
-// *Profile, via printYAML) to do it. MarshalYAML must not drop AccessToken just because it came
-// from the vault -- that omission belongs solely to the persistence view (profileForSave), not to
-// every yaml encoding of a Profile.
+// TestProfileMarshalYAMLIncludesVaultLoadedAccessTokenForDisplay proves MarshalYAML does not drop
+// AccessToken just because it came from the vault: `profile get`/`profile list -o yaml` call
+// LoadSecrets specifically so a vault-loaded secret can be shown to the user, reaching this exact
+// code path (yaml.Marshal on a live *Profile, via printYAML). That omission belongs solely to the
+// persistence view (profileForSave), not to every yaml encoding of a Profile.
 func TestProfileMarshalYAMLIncludesVaultLoadedAccessTokenForDisplay(t *testing.T) {
 	target := &Profile{Name: "marshal-display-vault-test", AccessToken: "s3cr3t-from-vault"}
 	target.vault.accessToken = true
@@ -250,12 +249,10 @@ func TestProfileMarshalYAMLRoundTripsAPIRootUserinfo(t *testing.T) {
 	}
 }
 
-// TestProfileUnmarshalYAMLDecodingSameNodeTwiceIsIdempotent is a regression test for review-iter4
-// finding 5: UnmarshalYAML used to have extractAPIRootNode null the "apiroot" value node in place
-// on the node it was handed, so a second Decode of that same *yaml.Node (e.g. a config layer that
-// retained a parsed document tree, or any other code decoding the same node twice) silently lost
-// apiRoot the second time. Decoding from the same node twice must yield identical, non-nil results
-// both times.
+// TestProfileUnmarshalYAMLDecodingSameNodeTwiceIsIdempotent proves decoding the same *yaml.Node
+// twice (e.g. a config layer that retains a parsed document tree, or any other code decoding the
+// same node twice) yields identical, non-nil results both times: UnmarshalYAML reads the "apiroot"
+// value node without mutating it in place.
 func TestProfileUnmarshalYAMLDecodingSameNodeTwiceIsIdempotent(t *testing.T) {
 	const document = "name: p\napiroot: https://alice:s3cr3t@api.bitbucket.org\n"
 
@@ -288,17 +285,15 @@ func TestProfileUnmarshalYAMLDecodingSameNodeTwiceIsIdempotent(t *testing.T) {
 	}
 }
 
-// TestResolveProfileCredentialsPlainTextDetectionExcludesVaultLoadedSecrets is a regression test
-// for review-iter4 finding 2: resolveProfileCredentials used to treat any non-empty AccessToken/
-// ClientSecret/Password on the profile being updated as proof it stores credentials in plain text,
-// forcing NoVault = true -- even when that value had just been populated at runtime by
-// LoadSecrets'/loadAccessToken's vault fallback (e.g. authorizing the workspace/project lookup
-// --default-workspace/--default-project triggers during flag parsing, before this function ever
-// runs). That silently defeated a profile's own choice to keep its credentials in the vault:
-// `profile update <name> --default-workspace ws --access-token NEWTOKEN` would skip
-// SetCredentialInVault and end up writing the new token to config-cli.yml in plain text. On
-// unfixed code this test fails because NoVault is forced true purely from the vault-loaded value's
-// presence.
+// TestResolveProfileCredentialsPlainTextDetectionExcludesVaultLoadedSecrets proves
+// resolveProfileCredentials's plain-text detection does not treat a vault-loaded AccessToken/
+// ClientSecret/Password as proof the profile stores its credentials in plain text: a value
+// populated at runtime by LoadSecrets'/loadAccessToken's vault fallback (e.g. authorizing the
+// workspace/project lookup --default-workspace/--default-project triggers during flag parsing)
+// must not force NoVault = true, or a profile's own choice to keep its credentials in the vault
+// would be silently defeated the next time it is updated: `profile update <name>
+// --default-workspace ws --access-token NEWTOKEN` must still call SetCredentialInVault rather than
+// writing the new token to config-cli.yml in plain text.
 func TestResolveProfileCredentialsPlainTextDetectionExcludesVaultLoadedSecrets(t *testing.T) {
 	cases := []struct {
 		name  string

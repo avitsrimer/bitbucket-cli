@@ -7,12 +7,11 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 )
 
-// TestProfileRedactSurvivesStringerFormatting is a regression test for Redact's output being
-// discarded by fmt: Profile implements fmt.Stringer (returning just the profile name), and fmt
-// prefers Stringer over field-by-field struct formatting for %v/%+v. Since Redact used to return
-// a plain Profile value, logging it with %+v printed only the name, silently dropping every
-// redacted field - this asserts the redacted secret's masked form is visible, not the name-only
-// Stringer output.
+// TestProfileRedactSurvivesStringerFormatting proves Redact's masked fields survive %+v
+// formatting: Profile implements fmt.Stringer (returning just the profile name), and fmt prefers
+// Stringer over field-by-field struct formatting for %v/%+v, so Redact returns a distinct type
+// (redactedProfile) instead of a plain Profile value to keep its masked fields visible rather than
+// collapsing to the name-only Stringer output.
 func (suite *ProfileSuite) TestProfileRedactSurvivesStringerFormatting() {
 	target := profile.Profile{Name: "test-profile", ClientID: "super-secret-client-id"}
 
@@ -23,13 +22,13 @@ func (suite *ProfileSuite) TestProfileRedactSurvivesStringerFormatting() {
 	suite.NotContains(rendered, "super-secret-client-id", "the raw secret must never appear in the redacted rendering")
 }
 
-// TestProfileRedactMasksAPIRootUserinfoPassword is a regression test for review-iter4 finding 4:
-// Redact masked ClientID/ClientSecret/User/Password/AccessToken/CloneUser but left APIRoot
-// untouched, so a profile configured with userinfo credentials in its apiRoot (e.g.
-// "https://alice:s3cr3t@api.bitbucket.org", preserved verbatim by MarshalYAML/UnmarshalYAML's
-// string-form round trip) leaked its password in plain text through every debug log line that
-// formats Redact()'s result with %+v (APIRoot's *url.URL implements fmt.Stringer, so fmt prints
-// its full URL string instead of dumping the struct field-by-field).
+// TestProfileRedactMasksAPIRootUserinfoPassword proves Redact masks APIRoot's userinfo password
+// alongside ClientID/ClientSecret/User/Password/AccessToken/CloneUser: a profile configured with
+// userinfo credentials in its apiRoot (e.g. "https://alice:s3cr3t@api.bitbucket.org", preserved
+// verbatim by MarshalYAML/UnmarshalYAML's string-form round trip) must not leak its password in
+// plain text through a debug log line that formats Redact()'s result with %+v (APIRoot's *url.URL
+// implements fmt.Stringer, so fmt prints its full URL string instead of dumping the struct
+// field-by-field).
 func (suite *ProfileSuite) TestProfileRedactMasksAPIRootUserinfoPassword() {
 	apiRoot, err := url.Parse("https://alice:s3cr3t@api.bitbucket.org")
 	suite.Require().NoError(err)

@@ -39,14 +39,13 @@ func newIsolatedCreateCmd() *cobra.Command {
 	return cmd
 }
 
-// TestCreateProcessNeverPersistsVaultLoadedClientSecret is a regression test for review-iter5
-// finding 1: `bb profile create -n foo --client-id abc --client-secret ""` passes
-// MarkFlagsRequiredTogether (which only checks Changed, not the value) and reaches
-// resolveVaultSecret's load-from-vault branch. Before the fix, resolveVaultSecret returned the
-// vault-loaded secret without reporting provenance, so resolveCreateSecrets never set
-// createOptions.vault.clientSecret, and Profile.forSave -- seeing no provenance bit set -- wrote
-// the secret to the config file in plain text, defeating the vault. The vault itself is a
-// keyring.MockInit in-memory store, not the real OS keychain, so this test is hermetic.
+// TestCreateProcessNeverPersistsVaultLoadedClientSecret proves `bb profile create -n foo
+// --client-id abc --client-secret ""` never writes a vault-loaded client secret to the config file
+// in plain text: MarkFlagsRequiredTogether only checks Changed, not the value, so this command
+// line reaches resolveVaultSecret's load-from-vault branch, and resolveCreateSecrets must set
+// createOptions.vault.clientSecret so Profile.forSave knows to blank the secret before saving. The
+// vault itself is a keyring.MockInit in-memory store, not the real OS keychain, so this test is
+// hermetic.
 func TestCreateProcessNeverPersistsVaultLoadedClientSecret(t *testing.T) {
 	keyring.MockInit()
 

@@ -36,12 +36,7 @@ type Task struct {
 var Command = &cobra.Command{
 	Use:   "task",
 	Short: "Manage tasks",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Task requires a subcommand:")
-		for _, command := range cmd.Commands() {
-			fmt.Println(command.Name())
-		}
-	},
+	Run:   common.SubcommandRequired("Task"),
 }
 
 var columns = common.Columns[Task]{
@@ -82,7 +77,7 @@ var columns = common.Columns[Task]{
 		return strings.ToLower(a.ResolvedBy.Name) < strings.ToLower(b.ResolvedBy.Name)
 	}},
 	{Name: "pending", DefaultSorter: false, Compare: func(a, b Task) bool {
-		return a.IsPending == b.IsPending
+		return !a.IsPending && b.IsPending
 	}},
 }
 
@@ -102,11 +97,9 @@ func (task Task) GetHeaders(cmd *cobra.Command) []string {
 //
 // implements common.Tableables
 //
-// headers is normalized (lowercased, spaces treated the same as underscores) before matching,
-// the same way every other GetRow in this codebase does: GetHeaders maps a user-supplied
-// --columns value like "resolved_by" through strings.ReplaceAll(column, "_", " ") into "resolved
-// by", so matching against the raw, case-sensitive, underscore spelling here would otherwise
-// leave every multi-word column blank.
+// header is matched via common.NormalizeColumnKey, so a user-supplied --columns value like
+// "resolved by" or "resolved-on" resolves the same underscore-separated key as the GetHeaders
+// default ("resolved_by", "resolved_on").
 func (task Task) GetRow(headers []string) []string {
 	simple := map[string]string{
 		"id":         strconv.Itoa(task.ID),
@@ -120,24 +113,24 @@ func (task Task) GetRow(headers []string) []string {
 
 	row := make([]string, 0, len(headers))
 	for _, header := range headers {
-		switch key := strings.ReplaceAll(strings.ToLower(header), " ", "_"); key {
+		switch key := common.NormalizeColumnKey(header); key {
 		case "resolved_on":
 			if task.ResolvedOn != nil {
 				row = append(row, task.ResolvedOn.Format(time.RFC3339))
 			} else {
-				row = append(row, "")
+				row = append(row, " ")
 			}
 		case "resolved_by":
 			if task.ResolvedBy != nil {
 				row = append(row, task.ResolvedBy.String())
 			} else {
-				row = append(row, "")
+				row = append(row, " ")
 			}
 		default:
 			if value, found := simple[key]; found {
 				row = append(row, value)
 			} else {
-				row = append(row, "")
+				row = append(row, " ")
 			}
 		}
 	}

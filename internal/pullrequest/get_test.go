@@ -5,69 +5,97 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 )
 
-func TestGetProcessSuccess(t *testing.T) {
-	var requests []*http.Request
-	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
-		requests = append(requests, r)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":42,"title":"Add feature","state":"OPEN"}`))
-	}, false)
+func TestGetProcess(t *testing.T) {
+	tests := []struct {
+		name          string
+		handler       http.HandlerFunc
+		dryRun        bool
+		wantErrSubstr []string
+		validate      func(t *testing.T, requests []*http.Request, stdout string)
+	}{
+		{
+			name: "success",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"id":42,"title":"Add feature","state":"OPEN"}`))
+			},
+			validate: func(t *testing.T, requests []*http.Request, stdout string) {
+				t.Helper()
+				if len(requests) != 1 {
+					t.Fatalf("expected exactly 1 request, got %d", len(requests))
+				}
+				wantPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/pullrequests/42"
+				if requests[0].URL.Path != wantPath {
+					t.Errorf("path = %s, want %s", requests[0].URL.Path, wantPath)
+				}
+				if requests[0].Method != http.MethodGet {
+					t.Errorf("method = %s, want GET", requests[0].Method)
+				}
+				var pr PullRequest
+				if err := json.Unmarshal([]byte(stdout), &pr); err != nil {
+					t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
+				}
+				if pr.Title != "Add feature" {
+					t.Errorf("printed pullrequest title = %q, want %q", pr.Title, "Add feature")
+				}
+			},
+		},
+		{
+			name: "api error",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"type":"error","error":{"message":"pull request not found"}}`))
+			},
+			wantErrSubstr: []string{"failed to get pullrequest 42", "pull request not found"},
+		},
+		{
+			name:    "dry run",
+			handler: func(http.ResponseWriter, *http.Request) {},
+			dryRun:  true,
+			validate: func(t *testing.T, requests []*http.Request, _ string) {
+				t.Helper()
+				if len(requests) != 0 {
+					t.Errorf("expected no HTTP request in dry-run mode, got %d", len(requests))
+				}
+			},
+		},
+	}
 
-	stdout := captureStdout(t, func() {
-		if err := getProcess(cmd, []string{"42"}); err != nil {
-			t.Fatalf("getProcess() error = %v", err)
-		}
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var requests []*http.Request
+			cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+				requests = append(requests, r)
+				tt.handler(w, r)
+			}, tt.dryRun)
 
-	if len(requests) != 1 {
-		t.Fatalf("expected exactly 1 request, got %d", len(requests))
-	}
-	wantPath := "/2.0/repositories/" + fixtureRepositoryFlag + "/pullrequests/42"
-	if requests[0].URL.Path != wantPath {
-		t.Errorf("path = %s, want %s", requests[0].URL.Path, wantPath)
-	}
-	if requests[0].Method != http.MethodGet {
-		t.Errorf("method = %s, want GET", requests[0].Method)
-	}
+			var err error
+			stdout := testutil.CaptureStdout(t, func() {
+				err = getProcess(cmd, []string{"42"})
+			})
 
-	var pr PullRequest
-	if err := json.Unmarshal([]byte(stdout), &pr); err != nil {
-		t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
-	}
-	if pr.Title != "Add feature" {
-		t.Errorf("printed pullrequest title = %q, want %q", pr.Title, "Add feature")
-	}
-}
-
-func TestGetProcessAPIError(t *testing.T) {
-	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		_, _ = w.Write([]byte(`{"type":"error","error":{"message":"pull request not found"}}`))
-	}, false)
-
-	err := getProcess(cmd, []string{"42"})
-	if err == nil {
-		t.Fatal("getProcess() expected an error, got nil")
-	}
-	if !strings.Contains(err.Error(), "failed to get pullrequest 42") {
-		t.Errorf("error = %q, want it to mention the failed get", err.Error())
-	}
-	if !strings.Contains(err.Error(), "pull request not found") {
-		t.Errorf("error = %q, want it to contain the BitBucket error message", err.Error())
-	}
-}
-
-func TestGetProcessDryRun(t *testing.T) {
-	var requestCount int
-	cmd := setupTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, true)
-
-	if err := getProcess(cmd, []string{"42"}); err != nil {
-		t.Fatalf("getProcess() error = %v", err)
-	}
-	if requestCount != 0 {
-		t.Errorf("expected no HTTP request in dry-run mode, got %d", requestCount)
+			if len(tt.wantErrSubstr) > 0 {
+				if err == nil {
+					t.Fatal("getProcess() expected an error, got nil")
+				}
+				for _, substr := range tt.wantErrSubstr {
+					if !strings.Contains(err.Error(), substr) {
+						t.Errorf("error = %q, want it to contain %q", err.Error(), substr)
+					}
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("getProcess() error = %v", err)
+			}
+			if tt.validate != nil {
+				tt.validate(t, requests, stdout)
+			}
+		})
 	}
 }

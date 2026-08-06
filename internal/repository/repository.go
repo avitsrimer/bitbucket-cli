@@ -247,10 +247,10 @@ func (repository Repository) MarshalJSON() (data []byte, err error) {
 		br = &branch{Type: "branch", Name: repository.MainBranch}
 	}
 	if !repository.CreatedOn.IsZero() {
-		createdOn = repository.CreatedOn.Format("2006-01-02T15:04:05.999999999-07:00")
+		createdOn = repository.CreatedOn.Format(common.JSONTimeFormat)
 	}
 	if !repository.UpdatedOn.IsZero() {
-		updatedOn = repository.UpdatedOn.Format("2006-01-02T15:04:05.999999999-07:00")
+		updatedOn = repository.UpdatedOn.Format(common.JSONTimeFormat)
 	}
 	if repository.HasIssues {
 		hasIssues = &repository.HasIssues

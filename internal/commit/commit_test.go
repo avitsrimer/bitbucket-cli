@@ -81,10 +81,8 @@ func (suite *CommitSuite) TestCommitReferenceGetShortHashLongHash() {
 	suite.Equal("0265607", reference.GetShortHash())
 }
 
-// TestCommitReferenceGetShortHashShortHashDoesNotPanic is a regression test: the refactor that
-// introduced CommitReference dropped the length-guarded GetShortHash helper the old
-// CommitReference (58a098e:cmd/commit/commit_reference.go) had, so any merge_commit hash shorter
-// than 7 characters sliced out of range and panicked. It must now return the hash as-is instead.
+// TestCommitReferenceGetShortHashShortHashDoesNotPanic proves a hash shorter than 7 characters is
+// returned as-is instead of being sliced out of range.
 func (suite *CommitSuite) TestCommitReferenceGetShortHashShortHashDoesNotPanic() {
 	reference := commit.CommitReference{Hash: "abc"}
 	suite.NotPanics(func() {
@@ -98,9 +96,8 @@ func (suite *CommitSuite) TestCommitReferenceGetShortHashEmptyHash() {
 	suite.Empty(reference.GetShortHash())
 }
 
-// TestLongHashSorterComparesHash is a regression test: the "longhash" column's Compare used to
-// compare Message instead of Hash, so "bb pr commits --sort longhash" silently sorted by commit
-// message even though it is exposed as a hash-based sorter.
+// TestLongHashSorterComparesHash proves the "longhash" column's Compare sorts by Hash, matching
+// its purpose as a hash-based sorter exposed via "bb pr commits --sort longhash".
 func (suite *CommitSuite) TestLongHashSorterComparesHash() {
 	compare := commit.Commit{}.GetColumnDefinitions().SortBy("longhash")
 

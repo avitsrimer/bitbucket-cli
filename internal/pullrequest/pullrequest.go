@@ -13,6 +13,7 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/commit"
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
+	"github.com/avitsrimer/bitbucket-cli/internal/project"
 	"github.com/avitsrimer/bitbucket-cli/internal/pullrequest/comment"
 	prcommon "github.com/avitsrimer/bitbucket-cli/internal/pullrequest/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/pullrequest/task"
@@ -51,12 +52,7 @@ var Command = &cobra.Command{
 	Use:     "pullrequest",
 	Aliases: []string{"pr", "pull-request"},
 	Short:   "Manage pull requests",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Pullrequest requires a subcommand:")
-		for _, command := range cmd.Commands() {
-			fmt.Println(command.Name())
-		}
-	},
+	Run:     common.SubcommandRequired("Pullrequest"),
 }
 
 var columns = common.Columns[PullRequest]{
@@ -176,10 +172,10 @@ func (pullrequest PullRequest) GetRow(headers []string) []string {
 		case "tasks":
 			row = append(row, strconv.FormatUint(pullrequest.TaskCount, 10))
 		case "created on", "created_on", "created-on":
-			row = append(row, pullrequest.CreatedOn.Format("2006-01-02 15:04:05"))
+			row = append(row, pullrequest.CreatedOn.Format(common.TableTimeFormat))
 		case "updated on", "updated_on", "updated-on":
 			if !pullrequest.UpdatedOn.IsZero() {
-				row = append(row, pullrequest.UpdatedOn.Format("2006-01-02 15:04:05"))
+				row = append(row, pullrequest.UpdatedOn.Format(common.TableTimeFormat))
 			} else {
 				row = append(row, " ")
 			}
@@ -200,7 +196,7 @@ func (pullrequest PullRequest) String() string {
 	return pullrequest.Title
 }
 
-// GetPullRequestIDFromArgs gets the pullrequest ID from the command arguments or, if not provided, from the only open pullrequestA
+// GetPullRequestIDFromArgs gets the pullrequest ID from the command arguments or, if not provided, from the only open pull request
 func GetPullRequestIDFromArgs(ctx context.Context, cmd *cobra.Command, repository *repository.Repository, args []string) (pullRequestID string, err error) {
 	if len(args) == 0 {
 		pullRequestIDs, err := prcommon.GetPullRequestIDsFromRepositoryWithState(cmd.Context(), cmd, repository, "OPEN")
@@ -211,7 +207,7 @@ func GetPullRequestIDFromArgs(ctx context.Context, cmd *cobra.Command, repositor
 			return "", fmt.Errorf("no open pullrequest found for repository %s", repository.FullName)
 		}
 		if len(pullRequestIDs) > 1 {
-			return "", fmt.Errorf("too many pullrequests to merge: %s", strings.Join(pullRequestIDs, ", "))
+			return "", fmt.Errorf("too many open pullrequests, specify one: %s", strings.Join(pullRequestIDs, ", "))
 		}
 		return pullRequestIDs[0], nil
 	}
@@ -229,7 +225,7 @@ func GetReviewerNicknames(ctx context.Context, cmd *cobra.Command, args []string
 	}
 
 	lgr.Printf("[DEBUG] getting reviewer nicknames for profile %s", profile.Current)
-	pullrequestWorkspace, err := workspace.GetWorkspace(cmd.Context(), cmd)
+	pullrequestWorkspace, err := workspace.GetWorkspace(ctx, cmd)
 	if err != nil {
 		lgr.Printf("[ERROR] failed to get repository: %v", err)
 		return []string{}, fmt.Errorf("cannot get workspace: %w", err)
@@ -262,17 +258,75 @@ func reviewerCompletionFunc(cmd *cobra.Command, args []string, toComplete string
 	return nicknames, cobra.ShellCompDirectiveNoFileComp
 }
 
-// expandAllReviewers restores the "all" sentinel the retired EnumSliceFlag.AllAllowed provided:
-// when the caller passed exactly "all" and nothing else, every workspace member's nickname is
-// substituted in its place, then matched against the workspace like any other reviewer value. Any
-// other combination of values (e.g. "all,bob", or "all" alongside other flags) is left untouched,
-// so a workspace with no member literally named "all" failing to resolve it is expected, not a
-// bug.
+// expandAllReviewers implements the "all" sentinel for --reviewer/--add-reviewer: when the caller
+// passed exactly "all" and nothing else, every workspace member's nickname is substituted in its
+// place, then matched against the workspace like any other reviewer value. Any other combination
+// of values (e.g. "all,bob", or "all" alongside other flags) is left untouched, so a workspace
+// with no member literally named "all" failing to resolve it is expected, not a bug.
 func expandAllReviewers(values []string, members []workspace.Member) []string {
 	if len(values) == 1 && values[0] == "all" {
 		return core.Map(members, func(member workspace.Member) string { return member.User.Nickname })
 	}
 	return values
+}
+
+// matchesMember reports whether member is identified by id: a value that parses as a UUID is
+// compared against the member's ID, otherwise id is compared case-insensitively against the
+// member's Account ID, nickname, or display name.
+func matchesMember(member workspace.Member, id string) bool {
+	if parsedID, uuidErr := common.ParseUUID(id); uuidErr == nil {
+		return member.User.ID == parsedID
+	}
+	return member.User.AccountID == id || strings.EqualFold(member.User.Nickname, id) || strings.EqualFold(member.User.Name, id)
+}
+
+// effectiveDefaultReviewers resolves the effective default reviewers of repo (repository or
+// project settings), excluding the current user when known.
+func effectiveDefaultReviewers(ctx context.Context, cmd *cobra.Command, repo *repository.Repository) ([]project.Reviewer, error) {
+	lgr.Printf("[DEBUG] finding current user")
+	me, errMe := user.GetMe(ctx, cmd)
+	if errMe != nil {
+		// RAT (repo scoped tokens) do not have access to that API endpoint usually
+		lgr.Printf("[WARN] failed to get current user, this may be a RAT client. Error: %s", errMe.Error())
+	} else {
+		lgr.Printf("[DEBUG] current user: %s (%s)", me.Username, me.ID)
+	}
+
+	lgr.Printf("[DEBUG] getting effective default reviewers of repository %s", repo)
+	reviewers, err := repo.GetEffectiveDefaultReviewers(ctx, cmd)
+	if err != nil {
+		lgr.Printf("[ERROR] failed to get default reviewers: %v", err)
+		return nil, errors.Join(fmt.Errorf("failed to get the default reviewers: %w", err), errMe)
+	}
+	lgr.Printf("[DEBUG] found %d default reviewers", len(reviewers))
+
+	if me != nil {
+		// removing the current user from the reviewers, since they cannot review their own pullrequest
+		reviewers = core.Filter(reviewers, func(reviewer project.Reviewer) bool { return reviewer.User.ID != me.ID })
+		lgr.Printf("[DEBUG] filtered reviewers to remove current user: %d reviewers remaining", len(reviewers))
+	}
+	return reviewers, nil
+}
+
+// tolerateReviewerErrors decides, given prof's ShouldWarnOnError/ShouldIgnoreErrors tolerance,
+// whether errs (aggregated reviewer resolution failures) should be returned as a hard error,
+// printed to stderr as a warning, or silently logged and ignored. summary describes the failed
+// action in lowercase (e.g. "resolve these reviewers") for both the stderr and log messages. It
+// returns nil whenever the profile's tolerance absorbs errs, or the joined error otherwise.
+func tolerateReviewerErrors(cmd *cobra.Command, prof *profile.Profile, errs []error, summary string) error {
+	joined := errors.Join(errs...)
+	if joined == nil {
+		return nil
+	}
+	if prof.ShouldWarnOnError(cmd) {
+		fmt.Fprintf(os.Stderr, "Failed to %s: %s\n", summary, joined)
+		return nil
+	}
+	if prof.ShouldIgnoreErrors(cmd) {
+		lgr.Printf("[WARN] failed to %s, but ignoring errors: %s", summary, joined)
+		return nil
+	}
+	return joined
 }
 
 // MarshalJSON implements the json.Marshaler interface.
@@ -285,8 +339,8 @@ func (pullrequest PullRequest) MarshalJSON() (data []byte, err error) {
 		UpdatedOn string `json:"updated_on"`
 	}{
 		surrogate: surrogate(pullrequest),
-		CreatedOn: pullrequest.CreatedOn.Format("2006-01-02T15:04:05.999999999-07:00"),
-		UpdatedOn: pullrequest.UpdatedOn.Format("2006-01-02T15:04:05.999999999-07:00"),
+		CreatedOn: pullrequest.CreatedOn.Format(common.JSONTimeFormat),
+		UpdatedOn: pullrequest.UpdatedOn.Format(common.JSONTimeFormat),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("cannot marshal pullrequest to json: %w", err)
