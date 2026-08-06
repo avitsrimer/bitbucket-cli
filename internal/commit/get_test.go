@@ -16,7 +16,10 @@ func TestGetProcessSuccessWithHash(t *testing.T) {
 	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"type":"commit","hash":"` + hash + `","message":"Add feature","date":"2026-01-01T00:00:00+00:00"}`))
+		// The real Bitbucket "commits/{revision}" endpoint returns a list-shaped body even
+		// though its documentation implies a single object; the fixture reproduces that so the
+		// test proves GetCommitByHash unwraps values[0] rather than decoding the page itself.
+		_, _ = w.Write([]byte(`{"values":[{"type":"commit","hash":"` + hash + `","message":"Add feature","date":"2026-01-01T00:00:00+00:00"}]}`))
 	}, false)
 
 	stdout := testutil.CaptureStdout(t, func() {
@@ -28,7 +31,7 @@ func TestGetProcessSuccessWithHash(t *testing.T) {
 	if len(requests) != 1 {
 		t.Fatalf("expected exactly 1 request, got %d", len(requests))
 	}
-	wantPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/commit/" + hash
+	wantPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/commits/" + hash
 	if requests[0].URL.Path != wantPath {
 		t.Errorf("path = %s, want %s", requests[0].URL.Path, wantPath)
 	}
@@ -117,7 +120,7 @@ func TestGetProcessDryRunSkipsPrinting(t *testing.T) {
 	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
 		requestCount++
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"type":"commit","hash":"` + hash + `","date":"2026-01-01T00:00:00+00:00"}`))
+		_, _ = w.Write([]byte(`{"values":[{"type":"commit","hash":"` + hash + `","date":"2026-01-01T00:00:00+00:00"}]}`))
 	}, true)
 
 	stdout := testutil.CaptureStdout(t, func() {

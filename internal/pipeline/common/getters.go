@@ -26,9 +26,9 @@ type PipelineID struct {
 // GetPipelineIDs gets the build numbers of the current repository's pipelines, for shell
 // completion of a pipeline build number argument.
 //
-// This uses profile.GetAllUnbounded, not profile.GetAll (rule 7): cmd here is the calling
-// command's own flags, which may carry an unrelated --limit meant to bound a different query, and
-// completion must still enumerate every pipeline regardless of it.
+// This uses profile.GetAllUnbounded, not profile.GetAll: cmd here is the calling command's own
+// flags, which may carry an unrelated --limit meant to bound a different query, and completion
+// must still enumerate every pipeline regardless of it.
 func GetPipelineIDs(ctx context.Context, cmd *cobra.Command, args []string, toComplete string) (ids []string, err error) {
 	repo, err := repository.GetRepository(ctx, cmd)
 	if err != nil {

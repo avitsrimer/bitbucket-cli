@@ -26,7 +26,7 @@ var membersOptions struct {
 func init() {
 	Command.AddCommand(membersCmd)
 
-	membersOptions.Columns, membersOptions.SortBy = registerListFlags(membersCmd, memberColumns, "members")
+	membersOptions.Columns, membersOptions.SortBy = common.RegisterListFlags(membersCmd, memberColumns, "members")
 }
 
 func membersProcess(cmd *cobra.Command, args []string) error {
@@ -58,8 +58,8 @@ func membersProcess(cmd *cobra.Command, args []string) error {
 		fmt.Println("No member found")
 		return nil
 	}
-	if sortFlag := cmd.Flag("sort"); sortFlag != nil && sortFlag.Changed {
-		core.Sort(members, memberColumns.SortBy(membersOptions.SortBy.Value))
+	if sortValue := common.SortFlagValue(cmd); sortValue != "" {
+		core.Sort(members, memberColumns.SortBy(sortValue))
 	}
 	if err := profile.Current.Print(cmd.Context(), cmd, Members(members)); err != nil {
 		return fmt.Errorf("cannot print result: %w", err)

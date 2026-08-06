@@ -104,3 +104,27 @@ func TestBranchesTableables(t *testing.T) {
 		t.Errorf("GetRowAt(5, ...) = %v, want empty", row)
 	}
 }
+
+// TestGetBranchNamesIgnoresLimitFlag proves a completion getter uses GetAllUnbounded, so a
+// --limit flag registered on cmd (belonging to a different, unrelated output query) never
+// truncates the enumeration.
+func TestGetBranchNamesIgnoresLimitFlag(t *testing.T) {
+	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[` +
+			`{"type":"branch","name":"Zeta"},` +
+			`{"type":"branch","name":"alpha"}` +
+			`]}`))
+	}, false)
+	if err := cmd.Flags().Set("limit", "1"); err != nil {
+		t.Fatalf("cannot set limit flag: %v", err)
+	}
+
+	names, err := GetBranchNames(t.Context(), cmd, nil, "")
+	if err != nil {
+		t.Fatalf("GetBranchNames() error = %v", err)
+	}
+	if len(names) != 2 {
+		t.Errorf("names = %v, want 2 names despite --limit=1 on cmd", names)
+	}
+}

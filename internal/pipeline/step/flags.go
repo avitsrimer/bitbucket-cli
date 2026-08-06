@@ -14,16 +14,17 @@ import (
 
 // registerPipelineFlag registers a required --pipeline flag on cmd, backed by shell completion
 // over plcommon.GetPipelineIDs. --pipeline is a plain string flag rather than an EnumFlag
-// validated by API call at parse time (rule 8): pipeline build numbers are an unbounded
-// identifier space, not a small enumeration.
+// validated at parse time: pipeline build numbers are an unbounded identifier space, not a small
+// enumeration.
 func registerPipelineFlag(cmd *cobra.Command, usage string) {
 	cmd.Flags().String("pipeline", "", usage)
 	_ = cmd.MarkFlagRequired("pipeline")
 	_ = cmd.RegisterFlagCompletionFunc("pipeline", pipelineValidArgs)
 }
 
-// pipelineValidArgs backs shell completion of --pipeline via plcommon.GetPipelineIDs
-// (profile.GetAllUnbounded under the hood -- rule 7).
+// pipelineValidArgs backs shell completion of --pipeline via plcommon.GetPipelineIDs, which
+// fetches every pipeline ID unbounded by --limit (completion candidates must never be truncated
+// by a flag meant to cap a *listing*'s output).
 func pipelineValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	ids, err := plcommon.GetPipelineIDs(cmd.Context(), cmd, args, toComplete)
 	if err != nil {
@@ -62,9 +63,9 @@ func stepValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]stri
 }
 
 // getStepIDs gets the ids of a pipeline's steps, for shell completion of a step UUID argument.
-// Uses profile.GetAllUnbounded, not profile.GetAll (rule 7): cmd here is the calling command's own
-// flags, which may carry an unrelated --limit meant to bound a different query, and completion
-// must still enumerate every step regardless of it.
+// Uses profile.GetAllUnbounded, not profile.GetAll: cmd here is the calling command's own flags,
+// which may carry an unrelated --limit meant to bound a different query, and completion must
+// still enumerate every step regardless of it.
 func getStepIDs(ctx context.Context, cmd *cobra.Command, pipelineID string) (ids []string, err error) {
 	repo, err := repository.GetRepository(ctx, cmd)
 	if err != nil {

@@ -326,21 +326,12 @@ func effectiveDefaultReviewers(ctx context.Context, cmd *cobra.Command, repo *re
 // whether errs (aggregated reviewer resolution failures) should be returned as a hard error,
 // printed to stderr as a warning, or silently logged and ignored. summary describes the failed
 // action in lowercase (e.g. "resolve these reviewers") for both the stderr and log messages. It
-// returns nil whenever the profile's tolerance absorbs errs, or the joined error otherwise.
+// returns nil whenever the profile's tolerance absorbs errs, or the joined error otherwise. This
+// is the reference implementation the same logic in artifact download and the comment/task
+// delete commands was lifted from into common.TolerateErrors; kept here as a thin wrapper so
+// existing call sites (create.go, update.go) need no change.
 func tolerateReviewerErrors(cmd *cobra.Command, prof *profile.Profile, errs []error, summary string) error {
-	joined := errors.Join(errs...)
-	if joined == nil {
-		return nil
-	}
-	if prof.ShouldWarnOnError(cmd) {
-		fmt.Fprintf(os.Stderr, "Failed to %s: %s\n", summary, joined)
-		return nil
-	}
-	if prof.ShouldIgnoreErrors(cmd) {
-		lgr.Printf("[WARN] failed to %s, but ignoring errors: %s", summary, joined)
-		return nil
-	}
-	return joined
+	return common.TolerateErrors(cmd, prof, errs, summary) //nolint:wrapcheck // TolerateErrors returns the same joined error verbatim (or nil); wrapping would prefix it with redundant noise
 }
 
 // MarshalJSON implements the json.Marshaler interface.

@@ -2,9 +2,12 @@
 
 ## Overview
 
-Restore five command groups to the modernized bitbucket-cli, adapted to every convention the
-modernization established. Owner decision (2026-08-05): these land BEFORE the first release.
-Scope per group (deliberately narrower than upstream — admin/destructive verbs stay dead):
+Restore five task groups to the modernized bitbucket-cli, adapted to every convention the
+modernization established — six command groups in total, since task group 4 below covers two
+separate CLI command groups (`commit` and `branch`) as one unit of work; README/CLAUDE.md count
+command groups, not task groups, hence "six" there. Owner decision (2026-08-05): these land
+BEFORE the first release. Scope per group (deliberately narrower than upstream —
+admin/destructive verbs stay dead):
 
 1. **pipeline** — `get`, `list`, `trigger`, `stop` + `step` subgroup (`get`, `list`, `logs`,
    `report`, `cases`). `trigger`/`stop` gain a y/N confirmation unless `--force`. NO `--tag`

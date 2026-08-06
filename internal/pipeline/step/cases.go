@@ -19,5 +19,5 @@ func init() {
 }
 
 func casesProcess(cmd *cobra.Command, args []string) error {
-	return rawStepOutput(cmd, args, []string{"test_reports", "test_cases"}, "test cases")
+	return rawStepOutput(cmd, args[0], "test cases", "test_reports", "test_cases")
 }

@@ -39,11 +39,6 @@ func (repositories Repositories) Size() int {
 	return len(repositories)
 }
 
-// GetRepositories gets the repositories of the current workspace.
-func GetRepositories(ctx context.Context, cmd *cobra.Command) ([]Repository, error) {
-	return GetRepositoriesWithQuery(ctx, cmd, url.Values{})
-}
-
 // GetRepositoriesWithQuery gets the repositories of the current workspace matching query,
 // honoring cmd's own --page-length and --limit flags (see profile.GetAll).
 func GetRepositoriesWithQuery(ctx context.Context, cmd *cobra.Command, query url.Values) ([]Repository, error) {

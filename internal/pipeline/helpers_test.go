@@ -33,8 +33,8 @@ func setupTest(t *testing.T, handler http.HandlerFunc, dryRun bool) *cobra.Comma
 		_ = cmd.Flags().Set("dry-run", "true")
 	}
 	cmd.Flags().String("query", "", "")
-	cmd.Flags().String("columns", "", "")
-	cmd.Flags().String("sort", "", "")
+	cmd.Flags().StringSlice("columns", []string{}, "")
+	cmd.Flags().String("sort", "build_number", "")
 	return cmd
 }
 

@@ -106,14 +106,14 @@ func (commit Commit) GetRow(headers []string) []string {
 		switch common.NormalizeColumnKey(header) {
 		case "hash":
 			row = append(row, commit.GetShortHash())
-		case "longhash", "fullhash":
+		case "longhash":
 			row = append(row, commit.Hash)
 		case "author":
 			row = append(row, commit.Author.User.Name)
 		case "message":
 			row = append(row, commit.Message)
 		case "date":
-			row = append(row, commit.Date.Format(common.TableTimeFormat))
+			row = append(row, commit.dateCell())
 		case "repository":
 			row = append(row, commit.Repository.Name)
 		default:
@@ -128,10 +128,18 @@ func (commit Commit) GetShortHash() string {
 	return shortHash(commit.Hash)
 }
 
-// GetLatestCommit gets the single most recent commit of the repository. BitBucket's commits
-// endpoint returns commits newest first, so requesting a one-item page and taking its only
-// element is enough; unlike upstream's go-git-based implementation, this never touches the local
-// git working directory and works purely against the BitBucket API.
+// dateCell returns Date formatted with common.TableTimeFormat, or " " when it is zero.
+func (commit Commit) dateCell() string {
+	if commit.Date.IsZero() {
+		return " "
+	}
+	return commit.Date.Format(common.TableTimeFormat)
+}
+
+// GetLatestCommit gets the single most recent commit of the repository, purely against the
+// BitBucket API: it never touches a local git working directory. BitBucket's commits endpoint
+// returns commits newest first, so requesting a one-item page and taking its only element is
+// enough.
 func GetLatestCommit(ctx context.Context, cmd *cobra.Command) (*Commit, error) {
 	repo, err := repository.GetRepository(ctx, cmd)
 	if err != nil {
@@ -152,6 +160,13 @@ func GetLatestCommit(ctx context.Context, cmd *cobra.Command) (*Commit, error) {
 }
 
 // GetCommitByHash gets a commit by its hash.
+//
+// This deliberately requests the plural "commits/{revision}" endpoint and decodes a
+// {"values":[...]} page, not the singular "commit/{revision}" form: despite what Bitbucket's own
+// API documentation says, the singular endpoint returns a list-shaped body, so decoding it
+// straight into a Commit silently yields an all-zero value with no error. The plural form is
+// documented (and observed) to behave the same way but is unambiguous either way, since it is
+// always list-shaped.
 func GetCommitByHash(ctx context.Context, cmd *cobra.Command, hash string) (*Commit, error) {
 	repo, err := repository.GetRepository(ctx, cmd)
 	if err != nil {
@@ -161,11 +176,14 @@ func GetCommitByHash(ctx context.Context, cmd *cobra.Command, hash string) (*Com
 	if err != nil {
 		return nil, fmt.Errorf("cannot get profile: %w", err)
 	}
-	var target Commit
-	if err := profileCurrent.Get(ctx, repo.GetPath("commit", hash), &target); err != nil {
+	var page profile.PaginatedResources[Commit]
+	if err := profileCurrent.Get(ctx, repo.GetPath("commits", hash), &page); err != nil {
 		return nil, fmt.Errorf("cannot get commit %s: %w", hash, err)
 	}
-	return &target, nil
+	if len(page.Values) == 0 {
+		return nil, fmt.Errorf("commit %s not found", hash)
+	}
+	return &page.Values[0], nil
 }
 
 // String gets a string representation of this commit

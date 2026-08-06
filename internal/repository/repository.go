@@ -71,7 +71,7 @@ var columns = common.Columns[Repository]{
 		return strings.ToLower(a.Owner.Name) < strings.ToLower(b.Owner.Name)
 	}},
 	{Name: "workspace", DefaultSorter: false, Compare: func(a, b Repository) bool {
-		return strings.ToLower(a.Workspace.Name) < strings.ToLower(b.Workspace.Name)
+		return strings.ToLower(a.workspaceName()) < strings.ToLower(b.workspaceName())
 	}},
 	{Name: "project", DefaultSorter: false, Compare: func(a, b Repository) bool {
 		return strings.ToLower(a.Project.Name) < strings.ToLower(b.Project.Name)
@@ -187,7 +187,7 @@ func (repository Repository) getCell(key string) string {
 	case "parent":
 		return repository.parentFullName()
 	case "created_on":
-		return repository.CreatedOn.Format(common.TableTimeFormat)
+		return repository.createdOnCell()
 	case "updated_on":
 		return repository.updatedOnCell()
 	default:
@@ -217,6 +217,16 @@ func (repository Repository) updatedOnCell() string {
 		return " "
 	}
 	return repository.UpdatedOn.Format(common.TableTimeFormat)
+}
+
+// createdOnCell returns CreatedOn formatted with common.TableTimeFormat, or " " when it is zero.
+// Bitbucket omits created_on on the trimmed Repository objects nested in other payloads (the
+// same reason updatedOnCell exists), so a zero value must not render as a year-1 timestamp.
+func (repository Repository) createdOnCell() string {
+	if repository.CreatedOn.IsZero() {
+		return " "
+	}
+	return repository.CreatedOn.Format(common.TableTimeFormat)
 }
 
 // GetPath gets the API path of the repository

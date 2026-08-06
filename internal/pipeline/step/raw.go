@@ -13,10 +13,12 @@ import (
 )
 
 // rawStepOutput fetches a step's raw sub-resource (logs, test report, or test cases -- the only
-// difference between them is pathSuffix and the noun used in messages) and copies the response
-// body straight to stdout. Shared by logs/report/cases, whose RunE bodies would otherwise be
-// byte-for-byte identical apart from those two things (tripping dupl).
-func rawStepOutput(cmd *cobra.Command, args, pathSuffix []string, noun string) error {
+// difference between them is pathSuffix and noun) and copies the response body straight to
+// stdout. Shared by logs/report/cases, whose RunE bodies would otherwise be byte-for-byte
+// identical apart from those two things (tripping dupl). pathSuffix is always 1-2 literal path
+// elements at every call site (e.g. "log", or "test_reports", "test_cases"), so it is variadic
+// rather than a []string the caller has to build.
+func rawStepOutput(cmd *cobra.Command, stepID, noun string, pathSuffix ...string) error {
 	pipelineID := pipelineFlagValue(cmd)
 
 	repo, err := repository.GetRepository(cmd.Context(), cmd)
@@ -24,8 +26,8 @@ func rawStepOutput(cmd *cobra.Command, args, pathSuffix []string, noun string) e
 		return fmt.Errorf("cannot get repository: %w", err)
 	}
 
-	lgr.Printf("[DEBUG] displaying %s for step %s of pipeline %s", noun, args[0], pipelineID)
-	if !common.WhatIf(cmd, "Showing %s for step %s of pipeline %s", noun, args[0], pipelineID) {
+	lgr.Printf("[DEBUG] displaying %s for step %s of pipeline %s", noun, stepID, pipelineID)
+	if !common.WhatIf(cmd, "Showing %s for step %s of pipeline %s", noun, stepID, pipelineID) {
 		return nil
 	}
 
@@ -34,10 +36,10 @@ func rawStepOutput(cmd *cobra.Command, args, pathSuffix []string, noun string) e
 		return fmt.Errorf("cannot get profile: %w", err)
 	}
 
-	pathElements := append([]string{"pipelines", pipelineID, "steps", args[0]}, pathSuffix...)
+	pathElements := append([]string{"pipelines", pipelineID, "steps", stepID}, pathSuffix...)
 	raw, err := profileCurrent.GetRaw(cmd.Context(), repo.GetPath(pathElements...))
 	if err != nil {
-		return fmt.Errorf("cannot get %s for step %s: %w", noun, args[0], err)
+		return fmt.Errorf("cannot get %s for step %s: %w", noun, stepID, err)
 	}
 	if _, err := io.Copy(os.Stdout, raw); err != nil {
 		return fmt.Errorf("cannot write %s: %w", noun, err)

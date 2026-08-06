@@ -31,10 +31,21 @@ func init() {
 	Command.AddCommand(triggerCmd)
 
 	triggerCmd.Flags().String("branch", "", "Branch to trigger the pipeline on. Defaults to the current git branch")
-	triggerCmd.Flags().String("commit", "", "Commit hash to pin the pipeline to")
-	triggerCmd.Flags().Uint64("pullrequest", 0, "Pull request ID to trigger the pipeline for")
+	triggerCmd.Flags().String("commit", "", "Commit hash to pin the pipeline to. Not compatible with --pullrequest: BitBucket derives the commit server-side for a pull request target")
+	triggerCmd.Flags().Uint64("pullrequest", 0, "Pull request ID to trigger the pipeline for. Not compatible with --branch or --commit")
+	triggerCmd.Flags().String("pattern", "", "Custom pipeline pattern to run (e.g. \"deploy-to-prod\"), for a repository's custom pipeline definitions. Not compatible with --pullrequest")
 	triggerCmd.Flags().StringArray("variable", []string{}, "Pipeline variable in KEY=VALUE format. Can be specified multiple times")
 	triggerCmd.Flags().Bool("force", false, "Skip the confirmation prompt")
+
+	// A pull request target's source/destination/commit are all derived server-side from the pull
+	// request itself, so --branch and --commit have no effect when combined with --pullrequest;
+	// reject the combination outright instead of silently discarding one of them (--branch) or
+	// sending a target BitBucket is likely to reject (--commit attached to a pull request target).
+	// --pattern selects a repository's custom pipeline definition, which is orthogonal to a pull
+	// request target and not something BitBucket's API accepts alongside one.
+	triggerCmd.MarkFlagsMutuallyExclusive("branch", "pullrequest")
+	triggerCmd.MarkFlagsMutuallyExclusive("commit", "pullrequest")
+	triggerCmd.MarkFlagsMutuallyExclusive("pattern", "pullrequest")
 
 	_ = triggerCmd.RegisterFlagCompletionFunc("branch", triggerBranchValidArgs)
 	_ = triggerCmd.RegisterFlagCompletionFunc("commit", triggerCommitValidArgs)
@@ -50,10 +61,11 @@ func triggerBranchValidArgs(cmd *cobra.Command, args []string, toComplete string
 	return names, cobra.ShellCompDirectiveNoFileComp
 }
 
-// triggerCommitValidArgs backs shell completion of --commit via commit.GetCommitHashes
-// (profile.GetAllUnbounded under the hood -- rule 7). --commit is a plain string flag rather than
-// an EnumFlag validated by API call at parse time (rule 8): commit hashes are an unbounded
-// identifier space, unlike --branch's small, enumerable set.
+// triggerCommitValidArgs backs shell completion of --commit via commit.GetCommitHashes, which
+// fetches every commit unbounded by --limit (completion candidates must never be truncated by a
+// flag meant to cap a *listing*'s output). --commit is a plain string flag rather than an EnumFlag
+// validated at parse time: commit hashes are an unbounded identifier space, unlike --branch's
+// small, enumerable set.
 func triggerCommitValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	hashes, err := commit.GetCommitHashes(cmd.Context(), cmd, args, toComplete)
 	if err != nil {
@@ -81,8 +93,8 @@ func triggerProcess(cmd *cobra.Command, args []string) error {
 
 	payload := triggerBody{Target: target, Variables: variables}
 
-	// the payload (and therefore every variable value, routinely a secret or a token) must never be
-	// logged -- only the variable keys are, and only their names, never their values (rule 5).
+	// The payload (and therefore every variable value, routinely a secret or a token) must never
+	// be logged -- only the variable keys are, and only their names, never their values.
 	if len(keys) > 0 {
 		lgr.Printf("[DEBUG] triggering pipeline on %s with variable(s): %s", description, strings.Join(keys, ", "))
 	} else {
@@ -118,16 +130,18 @@ func triggerProcess(cmd *cobra.Command, args []string) error {
 }
 
 // buildTriggerTarget resolves the flat Target payload and a human-readable description of it from
-// cmd's own --branch/--commit/--pullrequest flags (read directly off cmd, not a package-level
-// variable, so triggerProcess behaves identically whether cmd is the real triggerCmd or a
-// standalone test command carrying its own flags -- mirrors list.go's queryFlagValue). A pull
+// cmd's own --branch/--commit/--pullrequest/--pattern flags (read directly off cmd, not a
+// package-level variable, so triggerProcess behaves identically whether cmd is the real triggerCmd
+// or a standalone test command carrying its own flags -- mirrors list.go's queryFlagValue). A pull
 // request target takes the pull request id alone (BitBucket derives its source/destination/commit
 // server-side); otherwise the target is a branch reference, defaulting to the current git branch
-// (branch.GetCurrentBranch) when --branch is not set, optionally pinned to --commit.
+// (branch.GetCurrentBranch) when --branch is not set, optionally pinned to --commit and/or
+// selecting a custom pipeline definition via --pattern (the only way to trigger a repository's
+// custom pipelines, as opposed to its default/branch pipelines).
 func buildTriggerTarget(cmd *cobra.Command) (target Target, description string, err error) {
 	pullRequestID, _ := cmd.Flags().GetUint64("pullrequest")
 	if pullRequestID != 0 {
-		target = Target{Type: "pipeline_pullrequest_target", PullRequestID: pullRequestID}
+		target = Target{Type: "pipeline_pullrequest_target", PullRequest: &pullRequestReference{Type: "pullrequest", ID: pullRequestID}}
 		description = fmt.Sprintf("pull request #%d", pullRequestID)
 	} else {
 		branchName, _ := cmd.Flags().GetString("branch")
@@ -145,6 +159,12 @@ func buildTriggerTarget(cmd *cobra.Command) (target Target, description string, 
 	commitHash, _ := cmd.Flags().GetString("commit")
 	if commitHash != "" {
 		target.Commit = &commit.CommitReference{Hash: commitHash}
+	}
+
+	pattern, _ := cmd.Flags().GetString("pattern")
+	if pattern != "" {
+		target.Selector = &common.Selector{Type: "custom", Pattern: pattern}
+		description = fmt.Sprintf("%s (custom pipeline %q)", description, pattern)
 	}
 	return target, description, nil
 }

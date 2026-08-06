@@ -9,7 +9,13 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 )
 
-func TestListProcessSuccessPreservesAPIOrderWithoutSortFlag(t *testing.T) {
+// TestListProcessDefaultSortsByName proves the real command's documented default ("--sort string
+// Column to sort by (default \"name\")") actually applies when --sort is not passed: columns
+// marks "name" as its DefaultSorter, and common.SortFlagValue resolves that default from the flag
+// itself, so this must always sort ascending by name -- not merely preserve whatever order the
+// API happened to return. The fixture's API order (zeta, then alpha) is deliberately reversed
+// from the expected sorted order, so the two orders can never be confused.
+func TestListProcessDefaultSortsByName(t *testing.T) {
 	var requests []*http.Request
 	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r)
@@ -44,13 +50,16 @@ func TestListProcessSuccessPreservesAPIOrderWithoutSortFlag(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &branches); err != nil {
 		t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
 	}
-	if len(branches) != 2 || branches[0].Name != "zeta" || branches[1].Name != "alpha" {
-		t.Errorf("branches = %+v, want API order preserved (zeta, alpha) since --sort was not set", branches)
+	if len(branches) != 2 || branches[0].Name != "alpha" || branches[1].Name != "zeta" {
+		t.Errorf("branches = %+v, want sorted by name ascending (alpha, zeta) by default, not the API's raw order (zeta, alpha)", branches)
 	}
 }
 
-// TestListProcessSortFlagChangedSorts proves the sort-guard (rule 3): core.Sort only runs when
-// cmd's "sort" flag is Changed, never unconditionally against an untouched default.
+// TestListProcessSortFlagChangedSorts proves --sort actually selects the comparator
+// core.Sort runs: reading it via common.SortFlagValue(cmd) (cmd's own --sort flag, not a
+// package-level SortBy.Value binding that is only ever populated on the real command) means
+// the process sorts identically whether cmd is the real command or, as here, a standalone
+// test command carrying its own --sort flag.
 func TestListProcessSortFlagChangedSorts(t *testing.T) {
 	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -154,5 +163,35 @@ func TestListProcessQueryFlag(t *testing.T) {
 	}
 	if got := requests[0].URL.Query().Get("q"); got != `name~"feature"` {
 		t.Errorf("q query = %q, want %q", got, `name~"feature"`)
+	}
+}
+
+// TestListProcessRendersTableOutput proves the columns -> GetHeaders -> GetRow wiring
+// actually reaches profile.Print for --output table, not just the JSON path every other
+// test in this file drives.
+func TestListProcessRendersTableOutput(t *testing.T) {
+	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[{"type":"branch","name":"main"}]}`))
+	}, false)
+	if err := cmd.Flags().Set("output", "table"); err != nil {
+		t.Fatalf("cannot set output flag: %v", err)
+	}
+
+	stdout := testutil.CaptureStdout(t, func() {
+		if err := listProcess(cmd, nil); err != nil {
+			t.Fatalf("listProcess() error = %v", err)
+		}
+	})
+
+	if !strings.Contains(stdout, "main") {
+		t.Errorf("table output = %q, want it to contain the branch name", stdout)
+	}
+	if !strings.Contains(stdout, "+--") {
+		t.Errorf("table output = %q, want tablewriter's box-drawing border", stdout)
+	}
+	var probe any
+	if err := json.Unmarshal([]byte(stdout), &probe); err == nil {
+		t.Errorf("table output = %q, want it not to parse as JSON", stdout)
 	}
 }

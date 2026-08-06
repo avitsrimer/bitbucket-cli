@@ -78,6 +78,12 @@ You can download the latest `bb` tar.gz from the [releases](https://github.com/a
 `go install`ed or plain `go build` binary reports `dev` unless the build stamps the `version`
 variable via `-ldflags` the way the release `Makefile` does. Building `bb` requires Go 1.26+.
 
+### Prerequisites
+
+`bb repo clone` and `bb pipeline trigger` (whenever `--branch` is omitted) shell out to the real
+`git` executable, so a `git` binary must be on `PATH`. No other command touches it — `bb`
+otherwise reads `.git/config` by hand and never needs `git` itself.
+
 ## Usage
 
 `bb` is a modern command line interface. It uses subcommands to perform actions. You can get help on any subcommand by running `bb <subcommand> --help`.
@@ -88,10 +94,11 @@ By default `bb` works in the current git repository. You can specify a Bitbucket
 
 Many commands and flags are dynamically auto-completed. See the [Completion](#completion) section for more information about completion.
 
-Most `delete` commands support multiple arguments. You can pass a list of arguments or a file with one argument per line:
+Most `delete` commands, and `bb artifact download`, support multiple arguments. You can pass a list of arguments or a file with one argument per line:
 
 ```bash
 bb pullrequest comment delete --pullrequest 1 452466 452467 452468
+bb artifact download build.log other.zip
 ```
 
 You can tell `bb` to stop on the first error, warn on errors, or ignore errors when processing multiple arguments with the `--stop-on-error`, `--warn-on-error`, or `--ignore-errors` flags.
@@ -112,6 +119,12 @@ bb pullrequest list --repository myworkspace/myrepository
 
 The `--workspace` flag is also dynamically auto-completed with the workspaces you have access to.
 
+> [!NOTE]
+> `bb repo get`, `bb repo list`, and `bb repo clone` reject `--repository` (it is also hidden
+> from their `--help`): the repository is always the command's own positional argument (`get`,
+> `clone`) or the current workspace's repositories (`list`), so a separate `--repository` override
+> would be ambiguous or meaningless.
+
 `get` and `list` commands support the `--columns` flag to specify which columns to display in the output. You can pass a comma-separated list of columns, repeat the flag, or use `all` to display all columns. If you do not provide this flag, the default columns are displayed.
 
 ```bash
@@ -126,7 +139,7 @@ bb pullrequest list --columns id --columns title
 bb pullrequest list --sort title
 ```
 
-`list` commands also support the `--query` flag to filter the output by a specific query. The query syntax is similar to the one used in the Bitbucket web interface. For example, to filter Pull Requests updated after a specific date:
+Most `list` commands also support the `--query` flag to filter the output by a specific query. The query syntax is similar to the one used in the Bitbucket web interface. For example, to filter Pull Requests updated after a specific date:
 
 ```bash
 bb pullrequest list --query 'updated_on > 2025-12-31'
@@ -134,15 +147,33 @@ bb pullrequest list --query 'updated_on > 2025-12-31'
 
 Please refer to the [Bitbucket API documentation](https://developer.atlassian.com/cloud/bitbucket/rest/intro/#filtering) for more information about the supported query syntax and fields.
 
-`list` commands also support the 'page-length' flag to set the number of items to retrieve per request to Bitbucket API at a time. By default, the page length is set on the profile and the default is 50. You can set it to a value between 1 and 100.
+> [!NOTE]
+> `bb workspace list`, `bb workspace members`, `bb repo list`, and `bb pipeline step list` have no
+> `--query`: Bitbucket's list endpoints for workspaces, members, and pipeline steps don't support
+> server-side filtering. `bb repo list` filters by `--role` instead.
+
+`list` commands also support the `--page-length` flag to set the number of items to retrieve per request to Bitbucket API at a time. By default, the page length is set on the profile and the default is 50. You can set it to a value between 1 and 100.
 
 ```bash
 bb pullrequest list --page-length 25
 ```
 
+`list` commands also support the `--limit` flag to cap the *total* number of items retrieved across every page (unlike `--page-length`, which only sizes each individual request). Shell-completion lookups (e.g. completing a pull request ID) deliberately ignore `--limit` on the same command, since a completion candidate list must never be truncated by a flag meant to bound a different, unrelated listing.
+
+```bash
+bb pullrequest list --limit 10
+```
+
 ### Output
 
 `bb` outputs a table by default. You can change the output format with the `--output` flag,  by setting the `BB_OUTPUT_FORMAT` environment variable, or by modifying the profile configuration (See [Profiles](#profiles)).
+
+> [!NOTE]
+> `bb commit diff`, `bb commit patch`, and `bb pipeline step logs`/`report`/`cases` ignore
+> `--output`/`--columns` entirely: they stream Bitbucket's raw response (a diff, a patch, log
+> text, or a JSON report) straight to stdout instead of rendering a table/JSON/etc. `bb commit
+> diff --stat` is a further special case: it hits the diffstat endpoint and always prints raw
+> JSON, regardless of `--output`.
 
 The following formats are supported:
 
@@ -518,14 +549,14 @@ bb commit list
 bb commit list --include develop --exclude master
 ```
 
-You can get the details of a commit with the `bb commit get` command. If you don't provide a hash, the latest commit is used:
+You can get the details of a commit with the `bb commit get` command. If you don't provide a hash, the newest commit Bitbucket's `/commits` endpoint returns for the repository is used — this is a server-side lookup, not your local git `HEAD`, so it can differ if your working copy is checked out to a different branch, is behind, or the repository is resolved without a local git checkout at all:
 
 ```bash
 bb commit get 123456
 bb commit get
 ```
 
-You can get the diff between two commits with the `bb commit diff` command (or between one commit and its parent, if only one hash is given), and the diffstat alone with `--stat`:
+You can get the diff between two commits with the `bb commit diff` command (or between one commit and its parent, if only one hash is given). `--stat` switches to the diffstat endpoint instead of the diff itself, which returns a JSON summary rather than a text diff (both are printed raw, ignoring `--output`; see [Output](#output)):
 
 ```bash
 bb commit diff 123456 654321
@@ -802,17 +833,22 @@ You can trigger a new pipeline with the `bb pipeline trigger` command (aliases `
 bb pipeline trigger --branch master --variable KEY1=VALUE1 --variable KEY2=VALUE2
 ```
 
-By default, the pipeline is triggered on the current git branch (`--branch` overrides it). You can pin the target to a specific `--commit`, or trigger it for a pull request instead with `--pullrequest` (Bitbucket then resolves the source/destination/commit server-side):
+By default, the pipeline is triggered on the current git branch (`--branch` overrides it). You can pin the target to a specific `--commit`, trigger a repository's custom pipeline definition with `--pattern` (e.g. `--pattern deploy-to-prod`), or trigger it for a pull request instead with `--pullrequest` (Bitbucket then resolves the source/destination/commit server-side; `--pullrequest` is not compatible with `--branch`, `--commit`, or `--pattern`):
 
 ```bash
 bb pipeline trigger --pullrequest 42
+bb pipeline trigger --branch master --pattern deploy-to-prod
 ```
+
+`--variable KEY=VALUE` may be repeated; each entry must contain `=` and a non-empty `KEY` or the command errors before sending anything. Variable *values* are never logged, even under `--debug` — only their keys are. `--variable` has no way to mark a variable as secured (Bitbucket-side "secured" variables can only be managed from the web UI or the variables API directly).
 
 `trigger` asks for a `y`/`N` confirmation before sending the request. Pass `--force` to skip the prompt, or `--dry-run` to preview what would be sent without ever showing the prompt:
 
 ```bash
 bb pipeline trigger --branch master --force
 ```
+
+Declining the confirmation prints `Trigger cancelled` and exits `0` (not an error) — same for `bb pipeline stop`'s equivalent `Stop cancelled`. On success, `trigger` prints the newly created pipeline, honoring `--output` like any other command.
 
 > [!NOTE]
 > There is no `--tag` target (the upstream `tag` package stays removed) and no
@@ -825,6 +861,10 @@ bb pipeline stop 123456
 ```
 
 #### Pipeline Steps
+
+> [!IMPORTANT]
+> `--pipeline` is required on every command in this subgroup — unlike `bb commit get`, there is no
+> "latest pipeline" fallback when it is omitted.
 
 You can list the steps of a pipeline with the `bb pipeline step list` command:
 
@@ -848,7 +888,14 @@ bb pipeline step cases  --pipeline 123456 {stepUUID}
 
 ### Artifacts
 
-You can list the artifacts of the current repository with the `bb artifact list` command:
+> [!IMPORTANT]
+> `bb artifact` operates on a repository's **Downloads** (the files attached under a repository's
+> "Downloads" tab in the Bitbucket web UI), not on a pipeline *build* artifact. There is no `bb`
+> command for pipeline build artifacts specifically; despite appearing right after the Pipeline
+> Steps section above, `bb artifact` is a repository-level feature, unrelated to any particular
+> pipeline run.
+
+You can list the artifacts (repository downloads) of the current repository with the `bb artifact list` command:
 
 ```bash
 bb artifact list
@@ -861,7 +908,7 @@ bb artifact download myartifact.zip
 bb artifact download myartifact.zip other.zip --destination ./downloads
 ```
 
-`--destination` defaults to the current directory and must already exist. Each artifact is written under the base name of its `<name>` (any directory components are stripped, so a name cannot write outside the destination directory), overwriting a file already there; a download only replaces the destination file once it has completed successfully, so a failed attempt never leaves a stray empty or partial file behind.
+`--destination` defaults to the current directory and must already exist. Each artifact is written under the base name of its `<name>` (any directory components are stripped, so a name cannot write outside the destination directory), overwriting a file already there and preserving that file's existing permissions (a newly downloaded file gets the normal umask-adjusted mode, not a restricted one); a download only replaces the destination file once it has completed successfully, so a failed attempt never leaves a stray empty or partial file behind, nor corrupts a file already there.
 
 > [!NOTE]
 > There is no `bb artifact upload`/`delete`, and no `--progress` flag.

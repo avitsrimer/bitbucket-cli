@@ -635,6 +635,17 @@ func resolveRequestURL(apiRoot *url.URL, uripath string) (*url.URL, error) {
 		return reqURL, nil
 	}
 	components := strings.Split(uripath, "?")
+	// url.URL.JoinPath treats each element as already percent-encoded: a malformed escape (e.g.
+	// a bare "%" from an unescaped literal in a path segment, such as an artifact name) makes its
+	// internal setPath fail, and JoinPath silently swallows that error, returning apiRoot
+	// essentially unmodified -- callers then unknowingly send an authenticated request to the API
+	// root instead of the intended path. Validating first turns that into a clear error; callers
+	// that build a path segment from arbitrary user-facing data (see artifact download's use of
+	// url.PathEscape) must escape it themselves so a legitimate "%" survives instead of tripping
+	// this check.
+	if _, err := url.PathUnescape(components[0]); err != nil {
+		return nil, fmt.Errorf("cannot build request url from path %q: %w", components[0], err)
+	}
 	reqURL := apiRoot.JoinPath("2.0", components[0])
 	if len(components) > 1 {
 		reqURL.RawQuery = components[1]
@@ -651,7 +662,6 @@ func mapErrorResponse(result *Response) error {
 	// empty; only trust it when it actually carried something, otherwise fall through to the
 	// generic status-text error so failures are never reported as a completely blank message.
 	if jerr := json.Unmarshal(result.Body, &bberr); jerr == nil && (bberr.Message != "" || bberr.Detail != "" || len(bberr.Fields) > 0) {
-		lgr.Printf("[WARN] we have a BitBucketError: %#+v", bberr)
 		return &bberr
 	}
 	return fmt.Errorf("cannot send request: %s", result.StatusText)

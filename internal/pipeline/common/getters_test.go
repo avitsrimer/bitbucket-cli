@@ -80,3 +80,24 @@ func TestGetPipelineIDsEmpty(t *testing.T) {
 		t.Errorf("ids = %v, want empty", ids)
 	}
 }
+
+// TestGetPipelineIDsIgnoresLimitFlag proves a completion getter uses GetAllUnbounded, so a
+// --limit flag registered on cmd (belonging to a different, unrelated output query) never
+// truncates the enumeration.
+func TestGetPipelineIDsIgnoresLimitFlag(t *testing.T) {
+	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[{"build_number":42},{"build_number":7}]}`))
+	})
+	if err := cmd.Flags().Set("limit", "1"); err != nil {
+		t.Fatalf("cannot set limit flag: %v", err)
+	}
+
+	ids, err := GetPipelineIDs(context.Background(), cmd, nil, "")
+	if err != nil {
+		t.Fatalf("GetPipelineIDs() error = %v", err)
+	}
+	if len(ids) != 2 {
+		t.Errorf("ids = %v, want 2 ids despite --limit=1 on cmd", ids)
+	}
+}

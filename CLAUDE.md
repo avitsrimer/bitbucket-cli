@@ -56,7 +56,17 @@ cmd/bb/main.go            # entry point: load .env, set up lgr, cmd.Execute
 internal/cmd/             # cobra RootCmd, global flags, version
 internal/common/          # config load/save, EnumFlag, local TTL cache, error helpers,
                            # Confirm (y/N prompt), exported flag-hiding helpers
-internal/profile/         # profile CRUD, OAuth2 authorize flow, HTTP client (net/http)
+internal/profile/         # profile CRUD, OAuth2 authorize flow, HTTP client (net/http).
+                           # download.go is the one request path that deliberately
+                           # breaks two invariants the rest of the client relies on: it
+                           # streams straight to the destination writer instead of
+                           # buffering the body, so it is never retried on a transient
+                           # failure (doRequestWithRetry's retry logic needs a buffered
+                           # body to resend); and it depends on the stdlib http.Client's
+                           # default redirect policy stripping the Authorization header
+                           # on a cross-host redirect, since Bitbucket's downloads
+                           # endpoint 302s to a different upload host. Keep both
+                           # properties if you ever touch that file.
 internal/pullrequest/     # pullrequest command tree + shared action helper
   /comment, /task, /common # subcommand packages + shared getters
 internal/user/            # bb user get/me
@@ -69,8 +79,15 @@ internal/pipeline/        # bb pipeline get/list/trigger/stop
                            # pipeline->step->pipeline import cycle)
   /step                   # bb pipeline step get/list/logs/report/cases
 internal/artifact/        # bb artifact list/download
-internal/testutil/        # shared test harness (profile/fixture setup) for packages
-                           # that can import it without a cycle
+internal/testutil/        # shared test harness (profile/fixture setup); imports
+                           # repository, user, and workspace, so any test file declared
+                           # "package repository"/"package workspace"/"package user" (as
+                           # opposed to "package foo_test") would cycle importing it and
+                           # must instead duplicate the specific helpers it needs in a
+                           # local helpers_test.go. An external test file in one of those
+                           # three packages (package foo_test) sits outside the cycle and
+                           # can still import testutil normally -- see
+                           # internal/workspace/allowed_slugs_test.go.
 internal/project/, /remote/
                            # library packages consumed by profile/pullrequest/user;
                            # no cobra command tree of their own (no restore task covers
@@ -178,6 +195,28 @@ their error checked in a CLI). `_test.go` files are exempt from `gosec`, `dupl`,
   fixtures rather than leaving them (three were removed for exactly this reason during
   the modernization — a stale fixture with no reader is a trap for the next person who
   assumes it's exercised).
+- Shelling out to an external command (`internal/repository/clone.go`'s `git clone`,
+  `internal/branch/current.go`'s `git symbolic-ref`) always uses `exec.CommandContext` with an
+  explicit argv, never a shell (`sh -c` or similar) — string-concatenating user input into a
+  single command line reopens exactly the injection class explicit argv exists to close.
+  `os.Environ()`-derived env vars that a subprocess's own subshell *will* re-parse (e.g. git's
+  `GIT_SSH_COMMAND`, which git passes to `/bin/sh`) must still be shell-quoted/escaped even though
+  the outer `exec.Command` call itself needs no quoting. Wire stdin/stdout/stderr straight through
+  unless the command's output must be captured. A justified `//nolint:gosec` (G204) sits next to
+  the call. Never build a URL carrying userinfo into a log line. Test this kind of code with a
+  fake executable of the same name placed first on `PATH` in a `t.TempDir()`, recording its exact
+  argv to a file for the test to assert on (see `setupGitShim` in
+  `internal/repository/clone_test.go`) — this runs the real code path through the real
+  `os/exec` machinery without ever invoking the real external binary.
+- A `RunE` function reads every flag it needs directly off the `cmd *cobra.Command` it was
+  called with (`cmd.Flags().GetString("query")`, `common.SortFlagValue(cmd)`, etc.), never off a
+  package-level variable a flag was bound to at registration time. This is what lets a test drive
+  the function with a standalone `*cobra.Command` carrying its own flags and get identical
+  behavior to the real, fully-wired command — a package-level binding is only ever populated on
+  the one real command instance, so a test built around one is exercising something a production
+  invocation with a different `cmd` value could never see. Where earlier code still binds a flag
+  to a package-level struct field (e.g. `internal/repository/list.go`'s `listOptions.Role`),
+  treat it as legacy, not a second sanctioned pattern — write new flag-reading code the direct-off-`cmd` way.
 - Five `gildas/*` dependencies were replaced by stdlib or small local code during the
   modernization (`go-logger` → `go-pkgz/lgr`, `go-errors` → stdlib `errors`/`fmt`,
   `go-request` → `net/http`, `go-cache`/`go-flags` → local code in

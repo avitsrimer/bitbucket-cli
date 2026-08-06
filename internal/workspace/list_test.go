@@ -7,14 +7,23 @@ import (
 	"testing"
 )
 
-func TestListProcessSuccessPreservesAPIOrderWithoutSortFlag(t *testing.T) {
+// TestListProcessDefaultSortsByName proves the real command's documented default ("--sort string
+// Column to sort by (default \"name\")") actually applies when --sort is not passed: columns
+// marks "name" as its DefaultSorter, and common.SortFlagValue resolves that default from the flag
+// itself, so this must always sort ascending by name -- not merely preserve whatever order the
+// API happened to return. Both fixture entries carry a distinct "name" (the column Compare
+// actually sorts by): omitting it, as an earlier version of this fixture did, makes every
+// comparison equal and the sort a no-op regardless of whether sorting ran at all. The fixture's
+// API order (Zeta Corp, then Acme Corp) is deliberately reversed from the expected sorted order,
+// so the two orders can never be confused.
+func TestListProcessDefaultSortsByName(t *testing.T) {
 	var requests []*http.Request
-	cmd := setupTest(t, "workspace-list-success", func(w http.ResponseWriter, r *http.Request) {
+	cmd := setupTest(t, "workspace-list-default-sort", func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"values":[` +
-			`{"type":"workspace_access","administrator":false,"workspace":{"type":"workspace_base","slug":"zeta"}},` +
-			`{"type":"workspace_access","administrator":false,"workspace":{"type":"workspace_base","slug":"acme"}}` +
+			`{"type":"workspace_access","administrator":false,"workspace":{"type":"workspace_base","slug":"zeta","name":"Zeta Corp"}},` +
+			`{"type":"workspace_access","administrator":false,"workspace":{"type":"workspace_base","slug":"acme","name":"Acme Corp"}}` +
 			`]}`))
 	}, false)
 
@@ -35,13 +44,16 @@ func TestListProcessSuccessPreservesAPIOrderWithoutSortFlag(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &workspaces); err != nil {
 		t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
 	}
-	if len(workspaces) != 2 || workspaces[0].Slug != "zeta" || workspaces[1].Slug != "acme" {
-		t.Errorf("workspaces = %+v, want API order preserved (zeta, acme) since --sort was not set", workspaces)
+	if len(workspaces) != 2 || workspaces[0].Slug != "acme" || workspaces[1].Slug != "zeta" {
+		t.Errorf("workspaces = %+v, want sorted by name ascending (Acme Corp, Zeta Corp) by default, not the API's raw order (Zeta Corp, Acme Corp)", workspaces)
 	}
 }
 
-// TestListProcessSortFlagChangedSorts proves the sort-guard (rule 3): core.Sort only runs when
-// cmd's "sort" flag is Changed, never unconditionally against an untouched default.
+// TestListProcessSortFlagChangedSorts proves --sort actually selects the comparator
+// core.Sort runs: reading it via common.SortFlagValue(cmd) (cmd's own --sort flag, not a
+// package-level SortBy.Value binding that is only ever populated on the real command) means
+// the process sorts identically whether cmd is the real command or, as here, a standalone
+// test command carrying its own --sort flag.
 func TestListProcessSortFlagChangedSorts(t *testing.T) {
 	cmd := setupTest(t, "workspace-list-sorted", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -116,5 +128,35 @@ func TestListProcessDryRun(t *testing.T) {
 	}
 	if requestCount != 0 {
 		t.Errorf("expected no HTTP request in dry-run mode, got %d", requestCount)
+	}
+}
+
+// TestListProcessRendersTableOutput proves the columns -> GetHeaders -> GetRow wiring
+// actually reaches profile.Print for --output table, not just the JSON path every other
+// test in this file drives.
+func TestListProcessRendersTableOutput(t *testing.T) {
+	cmd := setupTest(t, "workspace-list-table", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[{"type":"workspace_access","administrator":false,"workspace":{"type":"workspace_base","slug":"acme","name":"Acme Corp"}}]}`))
+	}, false)
+	if err := cmd.Flags().Set("output", "table"); err != nil {
+		t.Fatalf("cannot set output flag: %v", err)
+	}
+
+	stdout := captureStdout(t, func() {
+		if err := listProcess(cmd, nil); err != nil {
+			t.Fatalf("listProcess() error = %v", err)
+		}
+	})
+
+	if !strings.Contains(stdout, "Acme Corp") {
+		t.Errorf("table output = %q, want it to contain the workspace name", stdout)
+	}
+	if !strings.Contains(stdout, "+--") {
+		t.Errorf("table output = %q, want tablewriter's box-drawing border", stdout)
+	}
+	var probe any
+	if err := json.Unmarshal([]byte(stdout), &probe); err == nil {
+		t.Errorf("table output = %q, want it not to parse as JSON", stdout)
 	}
 }

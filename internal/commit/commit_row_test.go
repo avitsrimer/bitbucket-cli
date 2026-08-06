@@ -56,3 +56,33 @@ func TestCommitGetRowUnknownColumnFillsPlaceholder(t *testing.T) {
 		t.Errorf("GetRow() = %v, want [\"0265607\", \" \"]", row)
 	}
 }
+
+// TestCommitsTableables proves the Commits collection type's Tableables wiring: GetHeaders,
+// GetRowAt (including its out-of-range guards), and Size. Every sibling package restored
+// alongside commit already has an equivalent test for its own collection type; this one was
+// missing.
+func TestCommitsTableables(t *testing.T) {
+	target := commit.Commits{
+		{Hash: "aaaaaaa"},
+		{Hash: "bbbbbbb"},
+	}
+
+	if target.Size() != 2 {
+		t.Errorf("Size() = %d, want 2", target.Size())
+	}
+	if headers := target.GetHeaders(nil); len(headers) == 0 {
+		t.Error("GetHeaders(nil) returned no headers, want the default column set")
+	}
+	if row := target.GetRowAt(0, []string{"hash"}); len(row) != 1 || row[0] != "aaaaaaa" {
+		t.Errorf("GetRowAt(0, ...) = %v, want [\"aaaaaaa\"]", row)
+	}
+	if row := target.GetRowAt(1, []string{"hash"}); len(row) != 1 || row[0] != "bbbbbbb" {
+		t.Errorf("GetRowAt(1, ...) = %v, want [\"bbbbbbb\"]", row)
+	}
+	if row := target.GetRowAt(-1, []string{"hash"}); len(row) != 0 {
+		t.Errorf("GetRowAt(-1, ...) = %v, want empty", row)
+	}
+	if row := target.GetRowAt(5, []string{"hash"}); len(row) != 0 {
+		t.Errorf("GetRowAt(5, ...) = %v, want empty", row)
+	}
+}

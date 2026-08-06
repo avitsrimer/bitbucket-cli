@@ -122,7 +122,7 @@ func (pipeline Pipeline) GetRow(headers []string) []string {
 		switch common.NormalizeColumnKey(header) {
 		case "build_number":
 			row = append(row, strconv.FormatUint(pipeline.BuildNumber, 10))
-		case "uuid", "id":
+		case "uuid":
 			row = append(row, pipeline.ID.String())
 		case "state":
 			row = append(row, pipeline.State.String())
@@ -133,7 +133,7 @@ func (pipeline Pipeline) GetRow(headers []string) []string {
 		case "duration":
 			row = append(row, pipeline.Duration.String())
 		case "created_on":
-			row = append(row, pipeline.CreatedOn.Format(common.TableTimeFormat))
+			row = append(row, pipeline.createdOnCell())
 		case "completed_on":
 			row = append(row, pipeline.completedOnCell())
 		default:
@@ -150,6 +150,14 @@ func (pipeline Pipeline) completedOnCell() string {
 		return " "
 	}
 	return pipeline.CompletedOn.Format(common.TableTimeFormat)
+}
+
+// createdOnCell returns CreatedOn formatted with common.TableTimeFormat, or " " when it is zero.
+func (pipeline Pipeline) createdOnCell() string {
+	if pipeline.CreatedOn.IsZero() {
+		return " "
+	}
+	return pipeline.CreatedOn.Format(common.TableTimeFormat)
 }
 
 // String gets a string representation of this pipeline
