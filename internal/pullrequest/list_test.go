@@ -494,6 +494,34 @@ func TestListProcessBranchFilterEscapesQuotes(t *testing.T) {
 	}
 }
 
+// TestListProcessRejectsPathTraversalInCommit proves --commit is guarded by
+// common.ValidatePathIdentifier before it ever reaches repository.GetPath: a value carrying a "/"
+// must be rejected with zero HTTP requests issued, not silently spliced into the request path.
+func TestListProcessRejectsPathTraversalInCommit(t *testing.T) {
+	withListOptions(t, func() {
+		listOptions.Commit = "../../../otherws/otherrepo/pullrequests"
+		listOptions.Query = ""
+	})
+
+	var requests []*http.Request
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[]}`))
+	}, false)
+
+	err := listProcess(cmd, nil)
+	if err == nil {
+		t.Fatal("listProcess() expected an error for a path-traversal --commit value, got nil")
+	}
+	if !strings.Contains(err.Error(), "commit") {
+		t.Errorf("error = %q, want it to name the commit argument", err.Error())
+	}
+	if len(requests) != 0 {
+		t.Errorf("expected no HTTP request for an invalid --commit value, got %d", len(requests))
+	}
+}
+
 // setRealListFlag sets name to value on the real listCmd singleton and registers a t.Cleanup that
 // fully restores the flag's prior state -- both its Value (via DefValue) and its Changed bit --
 // so a test driving the singleton directly (rather than a throwaway re-declaration) never leaks

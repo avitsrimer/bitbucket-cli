@@ -67,28 +67,42 @@ func TestSubcommandsRejectInvalidPipelineID(t *testing.T) {
 	}
 }
 
-// TestSubcommandsRejectInvalidStepArg proves get/logs/report/cases validate their (now required,
-// positional) step argument via common.ValidatePathIdentifier before it ever reaches a GetPath
-// call, for each of the three values path.Join silently mishandles.
+// emptyStepsListHandler answers any request with an empty steps page, for asserting the "no step
+// named ... found" branch of resolveStepID rather than an actual step fetch.
+func emptyStepsListHandler(t *testing.T) http.HandlerFunc {
+	t.Helper()
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values": []}`))
+	}
+}
+
+// TestSubcommandsRejectInvalidStepArg proves get/logs/report/cases reject "", ".", and ".." step
+// arguments -- none of the three is ever a valid step name or UUID, so resolveStepID's own
+// zero-match branch reports them, rather than ValidatePathIdentifier short-circuiting before any
+// request: a step name is free to contain any character (including "/"), so
+// ValidatePathIdentifier only ever guards the resolved UUID that reaches GetPath, never the
+// user-typed step argument itself (see TestGetProcessSuccessNameContainingSlash /
+// TestLogsProcessSuccessNameContainingSlash).
 func TestSubcommandsRejectInvalidStepArg(t *testing.T) {
 	cases := []struct {
 		name string
 		run  func(t *testing.T, stepArg string) error
 	}{
 		{"get", func(t *testing.T, id string) error {
-			cmd := setupTest(t, failIfCalled(t), false)
+			cmd := setupTest(t, emptyStepsListHandler(t), false)
 			return getProcess(cmd, []string{"42", id})
 		}},
 		{"logs", func(t *testing.T, id string) error {
-			cmd := setupTest(t, failIfCalled(t), false)
+			cmd := setupTest(t, emptyStepsListHandler(t), false)
 			return logsProcess(cmd, []string{"42", id})
 		}},
 		{"report", func(t *testing.T, id string) error {
-			cmd := setupTest(t, failIfCalled(t), false)
+			cmd := setupTest(t, emptyStepsListHandler(t), false)
 			return reportProcess(cmd, []string{"42", id})
 		}},
 		{"cases", func(t *testing.T, id string) error {
-			cmd := setupTest(t, failIfCalled(t), false)
+			cmd := setupTest(t, emptyStepsListHandler(t), false)
 			return casesProcess(cmd, []string{"42", id})
 		}},
 	}
@@ -100,8 +114,8 @@ func TestSubcommandsRejectInvalidStepArg(t *testing.T) {
 				if err == nil {
 					t.Fatalf("%s(%q) expected an error, got nil", tc.name, invalid)
 				}
-				if !strings.Contains(err.Error(), "pipeline-step-uuid-or-name") {
-					t.Errorf("%s(%q) error = %q, want it to name pipeline-step-uuid-or-name", tc.name, invalid, err.Error())
+				if !strings.Contains(err.Error(), "no step named") {
+					t.Errorf("%s(%q) error = %q, want it to report no matching step", tc.name, invalid, err.Error())
 				}
 			})
 		}

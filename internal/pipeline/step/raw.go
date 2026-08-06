@@ -22,9 +22,6 @@ func rawStepOutput(cmd *cobra.Command, pipelineID, stepArg, noun string, pathSuf
 	if err := common.ValidatePathIdentifier("pipeline", pipelineID); err != nil {
 		return fmt.Errorf("cannot get %s: %w", noun, err)
 	}
-	if err := common.ValidatePathIdentifier("pipeline-step-uuid-or-name", stepArg); err != nil {
-		return fmt.Errorf("cannot get %s: %w", noun, err)
-	}
 
 	repo, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
@@ -39,6 +36,14 @@ func rawStepOutput(cmd *cobra.Command, pipelineID, stepArg, noun string, pathSuf
 	stepID, err := resolveStepID(cmd.Context(), cmd, repo, pipelineID, stepArg)
 	if err != nil {
 		return fmt.Errorf("cannot resolve step %s: %w", stepArg, err)
+	}
+	// stepArg -- a name or a UUID the user typed -- is deliberately not guarded by
+	// ValidatePathIdentifier: a legitimate step name may contain "/" (e.g. a bitbucket-pipelines.yml
+	// step named "build/test"), and stepArg never reaches GetPath directly, only the resolved stepID
+	// does. resolveStepID always returns a canonical UUID string, but it is still guarded here since
+	// it is the value that actually reaches GetPath.
+	if err = common.ValidatePathIdentifier("pipeline-step-uuid-or-name", stepID); err != nil {
+		return fmt.Errorf("cannot get %s: %w", noun, err)
 	}
 
 	profileCurrent, err := profile.GetProfileFromCommand(cmd.Context(), cmd)

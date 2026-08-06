@@ -71,6 +71,43 @@ func TestLogsProcessSuccessName(t *testing.T) {
 	}
 }
 
+// TestLogsProcessSuccessNameContainingSlash proves a step whose name legitimately contains a "/"
+// (a real bitbucket-pipelines.yml step name, e.g. "build/test") resolves successfully:
+// ValidatePathIdentifier guards the resolved UUID that actually reaches GetPath (via rawStepOutput,
+// shared by logs/report/cases), not the user-typed name, which is free to contain a "/".
+func TestLogsProcessSuccessNameContainingSlash(t *testing.T) {
+	const logBody = "+ go build .\nok\n"
+
+	var requests []*http.Request
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		if strings.HasSuffix(r.URL.Path, "/steps") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"values":[{"type":"pipeline_step","uuid":"{cec5beef-dead-deed-bead-5ae1bedd9ada}","name":"build/test"}]}`))
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte(logBody))
+	}, false)
+
+	stdout := testutil.CaptureStdout(t, func() {
+		if err := logsProcess(cmd, []string{"42", "build/test"}); err != nil {
+			t.Fatalf("logsProcess() error = %v, want a step name containing '/' to resolve", err)
+		}
+	})
+
+	if len(requests) != 2 {
+		t.Fatalf("expected exactly 2 requests (list then logs), got %d", len(requests))
+	}
+	wantLogsPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/pipelines/42/steps/{cec5beef-dead-deed-bead-5ae1bedd9ada}/log"
+	if requests[1].URL.Path != wantLogsPath {
+		t.Errorf("second request path = %s, want %s", requests[1].URL.Path, wantLogsPath)
+	}
+	if stdout != logBody {
+		t.Errorf("stdout = %q, want the raw log body %q copied unchanged", stdout, logBody)
+	}
+}
+
 func TestLogsProcessAPIError(t *testing.T) {
 	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
