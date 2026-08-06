@@ -207,3 +207,15 @@ func TestListProcessRendersTableOutput(t *testing.T) {
 		t.Errorf("table output = %q, want it not to parse as JSON", stdout)
 	}
 }
+
+// TestRepositoryListRoleFlagDefaultsToMember reproduces the FINAL CRITICAL GATE's priority-5
+// finding: --role defaulted to "owner", which returns nothing on a first-run `bb repo list`
+// against a team workspace (every repository there is workspace-owned, not owned by any
+// individual member) -- an empty result the caller has no reason to expect, since they can see
+// (and are a member of) every one of those repositories. The default must be "member" instead,
+// which always includes a personal-workspace user's own repositories too.
+func TestRepositoryListRoleFlagDefaultsToMember(t *testing.T) {
+	if got := listOptions.Role.String(); got != "member" {
+		t.Errorf("--role default = %q, want %q", got, "member")
+	}
+}

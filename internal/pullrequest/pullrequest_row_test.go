@@ -7,6 +7,7 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/commit"
 	"github.com/avitsrimer/bitbucket-cli/internal/pullrequest"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -14,6 +15,22 @@ import (
 func TestPullRequestGetHeadersDefault(t *testing.T) {
 	target := pullrequest.PullRequest{}
 	assert.Equal(t, []string{"ID", "Title", "source", "destination", "state"}, target.GetHeaders(nil))
+}
+
+// TestPullRequestGetHeadersGetIncludesDescription reproduces the FINAL CRITICAL GATE's priority-4
+// finding: GetHeaders is shared by `pullrequest list` and `pullrequest get`, and dropping
+// Description from the shared default column set (to keep the list view readable) left `get`
+// with no default table/csv/tsv path to a PR's body at all. `get`'s own command (Use starting
+// with "get") must include description in its defaults; `list`'s (or any other/nil command) must
+// not.
+func TestPullRequestGetHeadersGetIncludesDescription(t *testing.T) {
+	target := pullrequest.PullRequest{}
+
+	getCmd := &cobra.Command{Use: "get [flags] <pullrequest-id>"}
+	assert.Equal(t, []string{"ID", "Title", "source", "destination", "state", "description"}, target.GetHeaders(getCmd))
+
+	listCmd := &cobra.Command{Use: "list"}
+	assert.Equal(t, []string{"ID", "Title", "source", "destination", "state"}, target.GetHeaders(listCmd))
 }
 
 func TestPullRequestGetRow(t *testing.T) {

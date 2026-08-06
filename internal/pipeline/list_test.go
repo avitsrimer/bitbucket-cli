@@ -9,14 +9,14 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 )
 
-// TestListProcessDefaultSortsByBuildNumber proves the real command's documented default
-// ("--sort string   Column to sort by (default \"build_number\")") actually applies when --sort
-// is not passed: columns marks "build_number" as its DefaultSorter, and common.SortFlagValue
-// resolves that default from the flag itself, so this must always sort ascending by build number
-// -- not merely preserve whatever order the API happened to return. The fixture's API order (9,
-// then 3) is deliberately reversed from the expected sorted order, so the two orders can never be
-// confused.
-func TestListProcessDefaultSortsByBuildNumber(t *testing.T) {
+// TestListProcessDefaultPreservesFetchOrder proves `bb pipeline list` with --sort not passed
+// preserves the server's own "?sort=-created_on" (newest-first) order instead of re-sorting
+// ascending by build_number: no column in this package's columns table is marked DefaultSorter
+// (see pipeline.go's own comment), so common.SortFlagValue returns "" and listProcess skips
+// sorting entirely. The fixture's API order (9, then 3) is deliberately the reverse of ascending
+// build_number order, so a regression back to sorting by build_number by default would flip
+// these two pipelines and fail this assertion.
+func TestListProcessDefaultPreservesFetchOrder(t *testing.T) {
 	var requests []*http.Request
 	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r)
@@ -48,8 +48,8 @@ func TestListProcessDefaultSortsByBuildNumber(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &pipelines); err != nil {
 		t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
 	}
-	if len(pipelines) != 2 || pipelines[0].BuildNumber != 3 || pipelines[1].BuildNumber != 9 {
-		t.Errorf("pipelines = %+v, want sorted by build_number ascending (3, 9) by default, not the API's raw order (9, 3)", pipelines)
+	if len(pipelines) != 2 || pipelines[0].BuildNumber != 9 || pipelines[1].BuildNumber != 3 {
+		t.Errorf("pipelines = %+v, want the server's own fetch order (9, 3) preserved by default, not re-sorted by build_number", pipelines)
 	}
 }
 

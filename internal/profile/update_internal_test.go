@@ -3,6 +3,9 @@ package profile
 import (
 	"context"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,6 +62,8 @@ func newIsolatedUpdateCmd() *cobra.Command {
 	cmd.Flags().Bool("access-token-stdin", false, "")
 	cmd.Flags().BoolVar(&updateOptions.ToVault, "to-vault", false, "")
 	cmd.Flags().BoolVar(&updateOptions.NoVault, "no-vault", false, "")
+	cmd.Flags().Var(updateOptions.DefaultWorkspace, "default-workspace", "")
+	cmd.Flags().Var(updateOptions.DefaultProject, "default-project", "")
 	cmd.Flags().IntVar(&updateOptions.DefaultPageLength, "default-page-length", 0, "")
 	cmd.Flags().Var(&updateOptions.ErrorProcessing, "error-processing", "")
 	cmd.Flags().BoolVar(&updateOptions.Progress, "progress", false, "")
@@ -461,4 +466,66 @@ func TestUpdateClientSecretStdinReadsAndTrims(t *testing.T) {
 	if credential.Password != "s3cr3t-piped-client-secret" {
 		t.Errorf("vault client secret = %q, want the piped secret trimmed of its trailing newline", credential.Password)
 	}
+}
+
+// TestUpdateProcessValidatesDefaultWorkspaceAgainstLiveWorkspaces reproduces the FINAL CRITICAL
+// GATE's priority-5 finding: --default-workspace's EnumFlag is dynamic (AllowedFunc-backed), so
+// EnumFlag.Set deliberately never validates it at parse time (see common/flags.go) -- correct for
+// most flags sharing that mechanism, but wrong here specifically, since the workspace *is* the
+// thing `profile update --default-workspace` sets, not an incidental value for some other
+// operation. A typo must be rejected before it is ever persisted to the config file, instead of
+// resurfacing later as a 404 from an unrelated command.
+func TestUpdateProcessValidatesDefaultWorkspaceAgainstLiveWorkspaces(t *testing.T) {
+	withUpdateOptions(t)
+	withIsolatedProfilesConfig(t)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[{"workspace":{"slug":"acme"}}]}`))
+	}))
+	t.Cleanup(server.Close)
+	apiRoot, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("cannot parse test server URL: %v", err)
+	}
+
+	const profileName = "default-workspace-validation-test"
+	target := &Profile{Name: profileName, APIRoot: apiRoot, AccessToken: "dummy-token"}
+	Profiles = append(Profiles, target)
+
+	t.Run("a typo is rejected and never persisted", func(t *testing.T) {
+		cmd := newIsolatedUpdateCmd()
+		cmd.SetArgs([]string{profileName, "--default-workspace", "acmee-typo"})
+		cmd.SetContext(context.Background())
+
+		if err := cmd.Execute(); err == nil {
+			t.Fatal("cmd.Execute() error = nil, want an error for an unknown workspace slug")
+		}
+
+		updated, found := Profiles.Find(profileName)
+		if !found {
+			t.Fatal("profile disappeared after the failed update")
+		}
+		if updated.DefaultWorkspace != "" {
+			t.Errorf("DefaultWorkspace = %q, want it left unset after the rejected update", updated.DefaultWorkspace)
+		}
+	})
+
+	t.Run("a real workspace slug is accepted", func(t *testing.T) {
+		cmd := newIsolatedUpdateCmd()
+		cmd.SetArgs([]string{profileName, "--default-workspace", "acme"})
+		cmd.SetContext(context.Background())
+
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("cmd.Execute() error = %v, want the real workspace slug to be accepted", err)
+		}
+
+		updated, found := Profiles.Find(profileName)
+		if !found {
+			t.Fatal("profile not found after update")
+		}
+		if updated.DefaultWorkspace != "acme" {
+			t.Errorf("DefaultWorkspace = %q, want %q", updated.DefaultWorkspace, "acme")
+		}
+	})
 }

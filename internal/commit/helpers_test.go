@@ -35,6 +35,9 @@ func setupTest(t *testing.T, handler http.HandlerFunc, dryRun bool) *cobra.Comma
 	cmd.Flags().StringSlice("include", []string{}, "")
 	cmd.Flags().StringSlice("exclude", []string{}, "")
 	cmd.Flags().StringSlice("columns", []string{}, "")
-	cmd.Flags().String("sort", "date", "")
+	// "" mirrors columns' own lack of a DefaultSorter (no column here is marked DefaultSorter, so
+	// the real listCmd's --sort flag defaults to "" too), which is what makes listProcess skip
+	// sorting entirely and preserve BitBucket's own newest-first commit order by default.
+	cmd.Flags().String("sort", "", "")
 	return cmd
 }

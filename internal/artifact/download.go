@@ -68,6 +68,19 @@ func downloadProcess(cmd *cobra.Command, args []string) error {
 
 	var errs []error
 	for _, name := range args {
+		// A name of "", ".", or ".." must be rejected outright: repo.GetPath("downloads", ...)
+		// runs the segments through path.Join, which collapses any of these three away instead
+		// of erroring -- "" or "." silently retargets the request at the downloads *list*
+		// endpoint (an authenticated request whose JSON body then gets written to a temp file
+		// before the rename fails), and ".." removes "downloads" entirely, hitting the
+		// repository resource itself.
+		if err := common.ValidatePathIdentifier("name", name); err != nil {
+			if profileCurrent.ShouldStopOnError(cmd) {
+				return fmt.Errorf("failed to download artifact %s: %w", name, err)
+			}
+			errs = append(errs, err)
+			continue
+		}
 		if common.WhatIf(cmd, "Downloading artifact %s to %s", name, destination) {
 			if err := downloadOne(cmd, profileCurrent, repo, destination, name); err != nil {
 				if profileCurrent.ShouldStopOnError(cmd) {

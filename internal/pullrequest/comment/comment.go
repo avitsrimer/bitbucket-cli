@@ -252,18 +252,12 @@ func (comment Comment) String() string {
 func (resolution Resolution) MarshalJSON() (data []byte, err error) {
 	type surrogate Resolution
 
-	var createdOn *string
-	if !resolution.CreatedOn.IsZero() {
-		formatted := resolution.CreatedOn.Format(common.JSONTimeFormat)
-		createdOn = &formatted
-	}
-
 	data, err = json.Marshal(struct {
 		surrogate
 		CreatedOn *string `json:"created_on,omitempty"`
 	}{
 		surrogate: surrogate(resolution),
-		CreatedOn: createdOn,
+		CreatedOn: common.FormatOptionalTime(resolution.CreatedOn),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("cannot marshal resolution to json: %w", err)
@@ -272,17 +266,20 @@ func (resolution Resolution) MarshalJSON() (data []byte, err error) {
 }
 
 // MarshalJSON implements the json.Marshaler interface.
+// CreatedOn/UpdatedOn are only formatted (and only included at all, via omitempty) when non-zero,
+// matching Resolution.MarshalJSON just above: a year-1 "0001-01-01T00:00:00Z" in machine-readable
+// output has no meaning to a caller scripting against it.
 func (comment Comment) MarshalJSON() (data []byte, err error) {
 	type surrogate Comment
 
 	data, err = json.Marshal(struct {
 		surrogate
-		CreatedOn string `json:"created_on"`
-		UpdatedOn string `json:"updated_on"`
+		CreatedOn *string `json:"created_on,omitempty"`
+		UpdatedOn *string `json:"updated_on,omitempty"`
 	}{
 		surrogate: surrogate(comment),
-		CreatedOn: comment.CreatedOn.Format(common.JSONTimeFormat),
-		UpdatedOn: comment.UpdatedOn.Format(common.JSONTimeFormat),
+		CreatedOn: common.FormatOptionalTime(comment.CreatedOn),
+		UpdatedOn: common.FormatOptionalTime(comment.UpdatedOn),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("cannot marshal comment to json: %w", err)

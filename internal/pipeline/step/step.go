@@ -90,8 +90,17 @@ var Command = &cobra.Command{
 
 // columns is the single source of truth for the columns this command supports: GetHeaders'
 // default subset, GetRow's switch, and the --columns/--sort completion all read from here.
+//
+// Ordering policy: no column here is marked DefaultSorter. "id" is a UUID with no inherent order,
+// so sorting by it by default (as a prior revision did) scrambled `bb pipeline step list`'s
+// output into random UUID order, discarding the API's own execution order (BitBucket returns a
+// pipeline's steps in the order they ran: setup, then each script step, then teardown) with no
+// --sort value that restores it. common.SortFlagValue returns "" when no column is marked
+// DefaultSorter and --sort was never passed, and list.go already skips sorting entirely on "" --
+// so leaving every column here unmarked is what makes "no default sort, preserve execution order"
+// the actual default, while --sort <column> remains fully available as an explicit opt-in.
 var columns = common.Columns[Step]{
-	{Name: "id", DefaultSorter: true, Compare: func(a, b Step) bool {
+	{Name: "id", DefaultSorter: false, Compare: func(a, b Step) bool {
 		return strings.ToLower(a.ID.String()) < strings.ToLower(b.ID.String())
 	}},
 	{Name: "name", DefaultSorter: false, Compare: func(a, b Step) bool {

@@ -18,6 +18,7 @@ import (
 	"github.com/gildas/go-core"
 	"github.com/go-pkgz/lgr"
 	"github.com/kataras/tablewriter"
+	"github.com/mattn/go-runewidth"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -585,20 +586,20 @@ func (profile Profile) printTable(cmd *cobra.Command, payload any) error {
 		table.SetHeader(headers)
 		table.SetAutoWrapText(false)
 		for _, row := range rows {
-			table.Append(truncateTableRow(row))
+			table.Append(truncateTableRow(headers, row))
 		}
 	}
 	table.Render()
 	return nil
 }
 
-// maxTableCellWidth caps how many runes of a single cell's content the human-facing table
-// renderer will show before cutting it off with an ellipsis. A Tableable's GetRow/GetRowAt is
-// shared with printDelimited (csv/tsv) and read directly by json/yaml via the untouched payload,
-// so this cap is applied here, once, on the already-rendered row slice, rather than inside any
-// GetRow/GetRowAt implementation: printTable is the only caller of truncateTableRow, which keeps
-// every other output format -- csv, tsv, json, yaml -- exactly as complete as the underlying data,
-// for scripting.
+// maxTableCellWidth caps how many display columns of a single free-text cell's content (see
+// freeTextColumnKeys) the human-facing table renderer will show before cutting it off with an
+// ellipsis. A Tableable's GetRow/GetRowAt is shared with printDelimited (csv/tsv) and read
+// directly by json/yaml via the untouched payload, so this cap is applied here, once, on the
+// already-rendered row slice, rather than inside any GetRow/GetRowAt implementation: printTable
+// is the only caller of truncateTableRow, which keeps every other output format -- csv, tsv,
+// json, yaml -- exactly as complete as the underlying data, for scripting.
 //
 // A single fixed cap (deliberately not derived from the terminal's actual width via $COLUMNS or
 // an stty call, both of which would add real complexity for a cosmetic table-only concern) is the
@@ -606,14 +607,36 @@ func (profile Profile) printTable(cmd *cobra.Command, payload any) error {
 // stdout is a TTY.
 const maxTableCellWidth = 80
 
-// truncateTableRow returns a copy of row with every cell cut down to maxTableCellWidth runes (see
+// freeTextColumnKeys is the fixed set of normalized column keys (see common.NormalizeColumnKey)
+// whose values are unbounded free text -- a pull request/commit/comment title, description,
+// message, or content, or a decline/close reason -- as opposed to an identifier a user must copy
+// verbatim (a UUID, an artifact name, a container image reference) or a short, bounded value that
+// already reads fine at any length. Only a cell under one of these keys is truncated for the
+// table renderer; every other column, including every identifier, is left exactly as returned by
+// the API, at any length.
+var freeTextColumnKeys = map[string]bool{
+	"title":       true,
+	"description": true,
+	"message":     true,
+	"content":     true,
+	"reason":      true,
+}
+
+// truncateTableRow returns a copy of row with every cell under a freeTextColumnKeys header (per
+// headers, positionally matched to row) cut down to maxTableCellWidth display columns (see
 // truncateCell), so one long free-text value -- a multi-paragraph pull request description, a
 // comment body, a commit message -- can no longer blow a table's column, and so every other
-// column, out to an unreadable width.
-func truncateTableRow(row []string) []string {
+// column, out to an unreadable width. Every other cell -- identifiers most of all, e.g. an
+// artifact Name a later `artifact download` needs verbatim, or a step Image reference -- is left
+// untouched.
+func truncateTableRow(headers, row []string) []string {
 	truncated := make([]string, len(row))
 	for i, cell := range row {
-		truncated[i] = truncateCell(cell)
+		if i < len(headers) && freeTextColumnKeys[common.NormalizeColumnKey(headers[i])] {
+			truncated[i] = truncateCell(cell)
+		} else {
+			truncated[i] = cell
+		}
 	}
 	return truncated
 }
@@ -621,15 +644,29 @@ func truncateTableRow(row []string) []string {
 // truncateCell collapses cell's internal whitespace (including embedded newlines, so a
 // multi-paragraph value renders as one table line instead of expanding the row across as many
 // lines as it has paragraphs) down to single spaces, then cuts the result to maxTableCellWidth
-// runes, replacing the final rune with an ellipsis when a cut was needed. Rune count, not byte
-// count, is what is compared against the cap, so multi-byte UTF-8 characters are never split.
+// display columns, replacing the final rune with an ellipsis when a cut was needed. Display width
+// (github.com/mattn/go-runewidth, the same measure tablewriter itself uses to size columns), not
+// rune count, is what is compared against the cap: a rune count would still let maxTableCellWidth
+// double-width runes (CJK, most emoji) render at up to twice the cap's actual terminal columns,
+// defeating the "readable regardless of terminal size" goal for exactly the values most likely to
+// need it.
 func truncateCell(cell string) string {
 	flattened := strings.Join(strings.Fields(cell), " ")
-	runes := []rune(flattened)
-	if len(runes) <= maxTableCellWidth {
+	if runewidth.StringWidth(flattened) <= maxTableCellWidth {
 		return flattened
 	}
-	return string(runes[:maxTableCellWidth-1]) + "…"
+	runes := []rune(flattened)
+	width := 0
+	cut := len(runes)
+	for i, r := range runes {
+		w := runewidth.RuneWidth(r)
+		if width+w > maxTableCellWidth-1 { // reserve 1 display column for the ellipsis
+			cut = i
+			break
+		}
+		width += w
+	}
+	return string(runes[:cut]) + "…"
 }
 
 // Validate validates a Profile

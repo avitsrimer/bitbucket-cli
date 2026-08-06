@@ -32,6 +32,9 @@ func setupTest(t *testing.T, handler http.HandlerFunc, dryRun bool) *cobra.Comma
 	}
 	cmd.Flags().String("pipeline", "", "")
 	cmd.Flags().StringSlice("columns", []string{}, "")
-	cmd.Flags().String("sort", "id", "")
+	// "" mirrors columns' own lack of a DefaultSorter (no column here is marked DefaultSorter, so
+	// the real listCmd's --sort flag defaults to "" too), which is what makes listProcess skip
+	// sorting entirely and preserve the API's own execution order by default.
+	cmd.Flags().String("sort", "", "")
 	return cmd
 }

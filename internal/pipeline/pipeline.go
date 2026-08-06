@@ -56,8 +56,15 @@ func init() {
 	Command.AddCommand(step.Command)
 }
 
+// Ordering policy: no column here is marked DefaultSorter. listProcess requests
+// "?sort=-created_on" (newest first) directly from the API; re-sorting that result ascending by
+// build_number by default (as a prior revision did) silently reversed it back to oldest-first
+// with no way to opt back into the fetched order via --sort. Leaving every column here unmarked
+// makes "no default sort, keep the server's own -created_on order" the actual default (see
+// common.SortFlagValue/list.go), while --sort <column> -- including --sort build_number for an
+// explicit oldest-first read -- remains fully available.
 var columns = common.Columns[Pipeline]{
-	{Name: "build_number", DefaultSorter: true, Compare: func(a, b Pipeline) bool {
+	{Name: "build_number", DefaultSorter: false, Compare: func(a, b Pipeline) bool {
 		return a.BuildNumber < b.BuildNumber
 	}},
 	{Name: "uuid", DefaultSorter: false, Compare: func(a, b Pipeline) bool {

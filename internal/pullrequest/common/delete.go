@@ -24,15 +24,22 @@ func DeleteSubResources(cmd *cobra.Command, repo *repository.Repository, pullreq
 
 	var errs []error
 	for _, id := range ids {
-		if common.WhatIf(cmd, "Deleting %s %s from pullrequest %s", singularNoun, id, pullrequestID) {
-			if err := currentProfile.Delete(cmd.Context(), repo.GetPath("pullrequests", pullrequestID, pathSegment, id), nil); err != nil {
-				if currentProfile.ShouldStopOnError(cmd) {
-					return fmt.Errorf("failed to delete pullrequest %s %s: %w", singularNoun, id, err)
-				}
-				errs = append(errs, err)
-			}
-			lgr.Printf("[DEBUG] pullrequest %s %s deleted", singularNoun, id)
+		if !common.WhatIf(cmd, "Deleting %s %s from pullrequest %s", singularNoun, id, pullrequestID) {
+			continue
 		}
+		if err := currentProfile.Delete(cmd.Context(), repo.GetPath("pullrequests", pullrequestID, pathSegment, id), nil); err != nil {
+			// err on its own (e.g. a bare "404 Not Found") names neither which id failed nor
+			// which kind of sub-resource it was; wrapping it with both here is what lets
+			// --warn-on-error's aggregate message (and a --stop-on-error abort) actually say
+			// which of possibly several ids in this call failed.
+			wrapped := fmt.Errorf("%s %s: %w", singularNoun, id, err)
+			if currentProfile.ShouldStopOnError(cmd) {
+				return fmt.Errorf("failed to delete pullrequest %w", wrapped)
+			}
+			errs = append(errs, wrapped)
+			continue
+		}
+		lgr.Printf("[DEBUG] pullrequest %s %s deleted", singularNoun, id)
 	}
 	return common.TolerateErrors(cmd, currentProfile, errs, "delete these "+pluralNoun) //nolint:wrapcheck // TolerateErrors returns the same joined error verbatim (or nil); wrapping would prefix it with redundant noise
 }
