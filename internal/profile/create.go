@@ -52,7 +52,11 @@ func init() {
 	createCmd.Flags().Var(createOptions.CloneProtocol, "clone-protocol", "Default protocol to use for cloning repositories. Default is git, can be https, git, or ssh")
 	createCmd.Flags().StringVar(&createOptions.CloneUser, "clone-user", "", "Username to use when cloning repositories. Default is the username of the profile.")
 	createCmd.Flags().StringVar(&createOptions.SshKeyFilename, "default-ssh-key-file", "", "Path to the SSH private key file to use when cloning repositories with the ssh protocol.")
-	createCmd.Flags().Var(createOptions.OutputFormat, "output", "Output format (json, yaml, table, csv, tsv).")
+	// Named "default-output", not "output": a local "output" flag would shadow the root
+	// persistent -o/--output flag (local flags win over inherited ones of the same name),
+	// breaking -o on this command and making Profile.Print read this flag's value instead of the
+	// root one to decide how to render *this command's own* confirmation output.
+	createCmd.Flags().Var(createOptions.OutputFormat, "default-output", "Default output format of the profile (json, yaml, table, csv, tsv).")
 	createCmd.Flags().IntVar(&createOptions.DefaultPageLength, "default-page-length", 0, "Default number of items per page to retrieve from Bitbucket (Default: 50).")
 	createCmd.Flags().Var(&createOptions.ErrorProcessing, "error-processing", "Error processing (StopOnError, WarnOnError, IgnoreErrors).")
 	createCmd.Flags().BoolVar(&createOptions.Progress, "progress", false, "Show progress during upload/download operations.")
@@ -65,7 +69,7 @@ func init() {
 		createCmd.MarkFlagsMutuallyExclusive("vault-key", "no-vault")
 	}
 	_ = createCmd.RegisterFlagCompletionFunc(createOptions.CloneProtocol.CompletionFunc("clone-protocol"))
-	_ = createCmd.RegisterFlagCompletionFunc(createOptions.OutputFormat.CompletionFunc("output"))
+	_ = createCmd.RegisterFlagCompletionFunc(createOptions.OutputFormat.CompletionFunc("default-output"))
 	_ = createCmd.RegisterFlagCompletionFunc("error-processing", createOptions.ErrorProcessing.CompletionFunc())
 	createCmd.SetHelpFunc(hideUnsupportedFlags)
 }

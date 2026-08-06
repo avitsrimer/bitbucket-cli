@@ -56,6 +56,22 @@ func TestConfigPath(t *testing.T) {
 		assert.Equal(t, "/from/env/config.yml", path)
 		assert.False(t, cmd.PersistentFlags().Changed("config"), "the flag must not be Changed for this regression to be meaningful")
 	})
+
+	// This reproduces the .env-loading-order regression: the real root command's "config" flag
+	// default is baked from BB_CONFIG at package-init time (cmd/root.go's init()), which runs
+	// before main() has a chance to call godotenv.Load(), so a BB_CONFIG set only via a .env file
+	// is invisible to that baked default. ConfigPath must fall back to reading the environment
+	// variable directly -- which, by the time any command actually runs, reflects the .env file --
+	// rather than trusting only the (possibly stale) flag default.
+	t.Run("honors BB_CONFIG set in the environment after the flag was registered", func(t *testing.T) {
+		cmd := newConfigTestCommand("", false)
+		t.Setenv("BB_CONFIG", "/from/dotenv/config.yml")
+
+		path, err := ConfigPath(cmd)
+
+		require.NoError(t, err)
+		assert.Equal(t, "/from/dotenv/config.yml", path)
+	})
 }
 
 func TestLoadConfig(t *testing.T) {

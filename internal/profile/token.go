@@ -2,6 +2,8 @@ package profile
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,6 +30,17 @@ var ErrNoAccessToken = errors.New("no access token available")
 // never expire, so this is set far enough in the future that isTokenExpired never reports one as
 // expired.
 const nonExpiringTokenLifetime = 100 * 365 * 24 * time.Hour
+
+// accessTokenCacheFilename returns the on-disk filename for a profile's cached access token.
+//
+// It hashes the profile name rather than embedding it verbatim: the name comes from the config
+// file (which a user can hand-edit or import from elsewhere), so a profile named e.g.
+// "../../../etc/something" must never be able to make the cache write outside its own directory
+// via a path-traversal-laden filename.
+func accessTokenCacheFilename(profileName string) string {
+	sum := sha256.Sum256([]byte(profileName))
+	return "access-token-" + hex.EncodeToString(sum[:])
+}
 
 type Token struct {
 	TokenType    string         `json:"token_type"`
@@ -65,8 +78,8 @@ func (profile *Profile) loadAccessToken(_ context.Context) (err error) {
 		return fmt.Errorf("cannot determine cache directory: %w", err)
 	}
 
-	accessTokenFile := filepath.Join(cacheDir, "bitbucket", "access-token-"+profile.Name)
-	data, readErr := os.ReadFile(accessTokenFile) //nolint:gosec // accessTokenFile is built from the OS-provided cache dir and the profile's own name, not external input
+	accessTokenFile := filepath.Join(cacheDir, "bitbucket", accessTokenCacheFilename(profile.Name))
+	data, readErr := os.ReadFile(accessTokenFile) //nolint:gosec // accessTokenFile is built from the OS-provided cache dir and a hash of the profile's own name, not external input
 	if readErr == nil {
 		var token Token
 		if readErr = json.Unmarshal(data, &token); readErr == nil {
@@ -110,7 +123,7 @@ func (profile *Profile) saveAccessToken(_ context.Context, data []byte) (accessT
 	if cacheDir, err := os.UserCacheDir(); err == nil {
 		cachePath := filepath.Join(cacheDir, "bitbucket")
 		if err = os.MkdirAll(cachePath, 0o700); err == nil {
-			cacheFile := filepath.Join(cachePath, "access-token-"+profile.Name)
+			cacheFile := filepath.Join(cachePath, accessTokenCacheFilename(profile.Name))
 			payload, _ := json.Marshal(profile.token) //nolint:gosec // G117: caching the access token locally (0600) is the intended behavior here, not a leak
 			if err = os.WriteFile(cacheFile, payload, 0o600); err != nil {
 				lgr.Printf("[ERROR] failed to save access token to cache for profile %s: %v", profile.Name, err)

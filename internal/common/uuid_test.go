@@ -38,3 +38,15 @@ func (suite *CommonSuite) TestCanUnmarshalUUID() {
 	suite.Require().NotNil(uuid)
 	suite.True(uuid.IsNil())
 }
+
+// TestCanUnmarshalNullUUID reproduces major finding #3: UnmarshalJSON sliced payload[1:len-1]
+// unconditionally, so a JSON null (the 4-byte literal "null", not a quoted empty string) became
+// "ul" once sliced, which fails to parse as a UUID -- so any API response with a null uuid field
+// (common.UUID is the uuid field on Repository, User, Workspace, Project) failed to decode
+// entirely instead of yielding a nil UUID the same way an empty string does.
+func (suite *CommonSuite) TestCanUnmarshalNullUUID() {
+	var uuid common.UUID
+	err := json.Unmarshal([]byte(`null`), &uuid)
+	suite.Require().NoError(err)
+	suite.True(uuid.IsNil())
+}

@@ -497,6 +497,32 @@ func TestSendRedactsURLUserinfoInDebugLogs(t *testing.T) {
 	}
 }
 
+// TestCodeGrantCallbackRedactsAuthorizationCodeInDebugLogs reproduces critical finding #6:
+// CodeGrantCallback logged the OAuth authorization code verbatim ("[DEBUG] received code %s"),
+// the one secret in this package not passed through redactWithHash before hitting the log.
+func TestCodeGrantCallbackRedactsAuthorizationCodeInDebugLogs(t *testing.T) {
+	var buf bytes.Buffer
+	lgr.Setup(lgr.Out(&buf), lgr.Debug)
+	defer lgr.Setup() // restore the package's zero-value default logger
+
+	target := &Profile{Name: "redact-code-test", ClientID: "client-id", VaultKey: "bitbucket-cli-test-nonexistent-vault-key"}
+	resultchan := make(chan error, 1)
+	handler := target.CodeGrantCallback(resultchan)
+
+	const authCode = "s3cr3t-oauth-authorization-code"
+	req := httptest.NewRequest(http.MethodGet, "/callback?code="+authCode, http.NoBody)
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+	<-resultchan // drain: GetClientSecret fails against the nonexistent vault entry, but the log line under test already happened before that
+
+	logged := buf.String()
+	if strings.Contains(logged, authCode) {
+		t.Errorf("debug log = %q, must not contain the OAuth authorization code in plain text", logged)
+	}
+	if !strings.Contains(logged, "REDACTED-") {
+		t.Errorf("debug log = %q, want the redacted code's hash placeholder present", logged)
+	}
+}
+
 // TestDoRequestWithRetryStopsAtOverallBudget is a regression test: honoring an uncapped
 // Retry-After with no overall deadline could freeze a request for hours. This shrinks
 // maxRetryBudget to prove the retry loop gives up once the overall budget is exceeded, even though

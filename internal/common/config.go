@@ -57,11 +57,16 @@ func initializeLogger(cmd *cobra.Command) {
 
 // ConfigPath resolves the configuration file path from, in order: the --config flag (which also
 // carries the BB_CONFIG environment variable as its default value, so it wins whether it came
-// from the flag or the environment), os.UserConfigDir()/bitbucket/config-cli.yml, or
-// ~/.bitbucket-cli
+// from the flag or the environment), the BB_CONFIG environment variable read directly (covering
+// the flag's default value having been baked in at the root command's package-init time, before
+// main() has had a chance to load a .env file -- see cmd/bb/main.go), os.UserConfigDir()/
+// bitbucket/config-cli.yml, or ~/.bitbucket-cli
 func ConfigPath(cmd *cobra.Command) (string, error) {
 	if flag := cmd.Root().PersistentFlags().Lookup("config"); flag != nil && flag.Value.String() != "" {
 		return flag.Value.String(), nil
+	}
+	if envPath := os.Getenv("BB_CONFIG"); envPath != "" {
+		return envPath, nil
 	}
 	if configDir, _ := os.UserConfigDir(); configDir != "" {
 		return filepath.Join(configDir, "bitbucket", "config-cli.yml"), nil

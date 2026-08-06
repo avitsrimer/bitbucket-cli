@@ -279,7 +279,7 @@ func (profile *Profile) CodeGrantCallback(resultchan chan error) http.Handler {
 			http.Error(w, "No code in the callback", http.StatusBadRequest)
 			return
 		}
-		lgr.Printf("[DEBUG] received code %s", code)
+		lgr.Printf("[DEBUG] received code %s", redactWithHash(code))
 
 		// Get the client secret from the vault if it is empty
 		clientSecret, err := profile.GetClientSecret(r.Context())

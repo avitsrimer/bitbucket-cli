@@ -275,9 +275,12 @@ func addRequestedReviewers(ctx context.Context, cmd *cobra.Command, currentProfi
 
 	updateWanted := false
 	lgr.Printf("[DEBUG] getting all members from workspace %s", pullrequestWorkspace)
-	members, _ := pullrequestWorkspace.GetMembers(ctx, cmd)
+	members, membersErr := pullrequestWorkspace.GetMembers(ctx, cmd)
 	lgr.Printf("[DEBUG] found %d members in workspace %s", len(members), pullrequestWorkspace)
-	reviewerValues = expandAllReviewers(reviewerValues, members)
+	reviewerValues, err := expandAllReviewers(reviewerValues, members, membersErr)
+	if err != nil {
+		return false, err
+	}
 	var errs []error
 	for _, reviewerNameOrID := range reviewerValues {
 		lgr.Printf("[DEBUG] processing reviewer to add: %s", reviewerNameOrID)

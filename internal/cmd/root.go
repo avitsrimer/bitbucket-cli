@@ -49,8 +49,10 @@ func Execute(context context.Context) error {
 }
 
 func init() {
-	configDir, err := os.UserConfigDir()
-	cobra.CheckErr(err)
+	// configDir only feeds the --config flag's help text below (the default path shown to the
+	// user); an error here (e.g. no $HOME in a container/CI) must not abort every invocation,
+	// including bb --version or bb --help, which don't otherwise need it.
+	configDir, _ := os.UserConfigDir()
 
 	// Global flags
 	CmdOptions.Workspace = common.NewEnumFlagWithFunc(RootCmd, "", workspace.GetWorkspaceAllowedSlugs)

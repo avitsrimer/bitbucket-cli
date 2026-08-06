@@ -102,13 +102,47 @@ func TestCacheCorruptFile(t *testing.T) {
 
 func TestNewCacheUsesUserCacheDir(t *testing.T) {
 	t.Setenv("BITBUCKET_CLI_CACHE_DURATION", "")
-	userCacheDir, err := os.UserCacheDir()
+	wantCacheDir, err := os.UserCacheDir()
 	require.NoError(t, err)
 
 	cache := NewCache[string]()
 
-	assert.Equal(t, filepath.Join(userCacheDir, "bitbucket"), cache.folder)
-	assert.Equal(t, 5*time.Minute, cache.expiration)
+	assert.Equal(t, filepath.Join(wantCacheDir, "bitbucket"), cache.folder)
+	// NewCache resolves BITBUCKET_CLI_CACHE_DURATION lazily on each Set (see resolveExpiration),
+	// not once at construction time, so its expiration is read through that method rather than
+	// the raw field.
+	assert.Equal(t, 5*time.Minute, cache.resolveExpiration())
+}
+
+// TestNewCacheResolvesCacheDurationLazily reproduces the .env-loading-order regression: process
+// vars like RepositoryCache are constructed via NewCache at package-init time -- before main() has
+// had a chance to load a .env file (see cmd/bb/main.go) -- so BITBUCKET_CLI_CACHE_DURATION set
+// only via .env must still take effect once a command actually runs and calls Set, not be
+// permanently missed because it wasn't yet in the environment when NewCache ran.
+func TestNewCacheResolvesCacheDurationLazily(t *testing.T) {
+	cache := NewCache[string]()
+
+	t.Setenv("BITBUCKET_CLI_CACHE_DURATION", "30s")
+
+	assert.Equal(t, 30*time.Second, cache.resolveExpiration())
+}
+
+// TestUserCacheDirFallsBackWhenUserCacheDirFails reproduces the container/CI regression where
+// os.UserCacheDir()'s error was silently discarded, leaving NewCache to create a relative
+// "bitbucket" directory inside the process's current working directory instead of falling back
+// the way ConfigPath already does for the analogous os.UserConfigDir() case.
+func TestUserCacheDirFallsBackWhenUserCacheDirFails(t *testing.T) {
+	t.Setenv("HOME", "")
+	t.Setenv("XDG_CACHE_HOME", "")
+	if _, err := os.UserCacheDir(); err == nil {
+		t.Skip("os.UserCacheDir() still resolves on this platform without $HOME/$XDG_CACHE_HOME; nothing to fall back from")
+	}
+
+	dir := userCacheDir()
+
+	assert.NotEmpty(t, dir)
+	assert.NotEqual(t, "bitbucket", dir)
+	assert.True(t, filepath.IsAbs(dir), "fallback cache dir %q must be absolute, never a relative path rooted at the process's cwd", dir)
 }
 
 func TestNewCacheAt(t *testing.T) {

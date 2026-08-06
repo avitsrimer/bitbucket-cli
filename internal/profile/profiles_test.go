@@ -75,6 +75,28 @@ func (suite *ProfileSuite) TestLoadParsesTestdataConfigYAMLProfilesIdentically()
 	suite.Empty(profile.Profiles[1].User)
 }
 
+// TestGetProfileFromCommandHonorsBBProfileEnvironmentVariable reproduces the profile-selection half
+// of major finding #7: the "--profile" flag's default value is populated from BB_PROFILE
+// (core.GetEnvAsString("BB_PROFILE", "")) at the root command's package-init time, before main()
+// has had a chance to load a .env file, so a BB_PROFILE set only via .env was invisible to that
+// baked default -- and GetProfileFromCommand only ever consulted the flag's value when Changed was
+// true, which a flag holding only its default value never is. GetProfileFromCommand must fall back
+// to reading BB_PROFILE directly, selecting the named profile instead of silently falling through
+// to the config's own default profile ("test", per testdata/config.yml).
+func (suite *ProfileSuite) TestGetProfileFromCommandHonorsBBProfileEnvironmentVariable() {
+	defer resetProfilesState()()
+	suite.T().Setenv("BB_PROFILE", "simple")
+
+	cmd := newTestRootCommand()
+	suite.Require().NoError(cmd.PersistentFlags().Set("config", "../../testdata/config.yml"))
+	suite.Require().NoError(common.Initialize(cmd))
+
+	got, err := profile.GetProfileFromCommand(suite.Context, cmd)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(got)
+	suite.Equal("simple", got.Name, "BB_PROFILE must select \"simple\", not silently fall through to the config's default profile (\"test\")")
+}
+
 // TestLoadParsesCamelCaseConfigKeys proves camelCase config keys (the spelling documented by
 // Profile's json tags) populate their fields instead of being silently dropped by yaml.v3's
 // case-sensitive key matching.

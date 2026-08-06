@@ -19,6 +19,12 @@ import (
 type Cache[T any] struct {
 	expiration time.Duration
 	folder     string
+	// envExpiration, when true, means expiration is ignored and BITBUCKET_CLI_CACHE_DURATION is
+	// instead re-read from the environment on every Set call, rather than once at construction
+	// time: NewCache is called from several packages' process-global cache variables, which are
+	// initialized before main() has had a chance to load a .env file (see cmd/bb/main.go), so
+	// baking the env var's value in at construction time would miss a value set only via .env.
+	envExpiration bool
 }
 
 type cacheEntry[T any] struct {
@@ -27,27 +33,49 @@ type cacheEntry[T any] struct {
 }
 
 // NewCache creates the process-wide persistent cache used for repository/user/workspace
-// lookups, rooted at os.UserCacheDir()/bitbucket and honoring BITBUCKET_CLI_CACHE_DURATION
-// (default 5m).
+// lookups, rooted at userCacheDir()/bitbucket and honoring BITBUCKET_CLI_CACHE_DURATION
+// (default 5m), re-read fresh every time an entry is stored.
 func NewCache[T any]() *Cache[T] {
-	folder, _ := os.UserCacheDir()
-	expiration := core.GetEnvAsDuration("BITBUCKET_CLI_CACHE_DURATION", 5*time.Minute)
-	return NewCacheAt[T](filepath.Join(folder, "bitbucket"), expiration)
+	return &Cache[T]{folder: filepath.Join(userCacheDir(), "bitbucket"), envExpiration: true}
 }
 
-// NewCacheAt creates a persistent Cache rooted at the given folder with the given default TTL.
+// NewCacheAt creates a persistent Cache rooted at the given folder with the given fixed TTL.
 //
 // Tests use this to point a cache at a temporary directory instead of the real
-// os.UserCacheDir().
+// os.UserCacheDir(), with a TTL that isn't subject to BITBUCKET_CLI_CACHE_DURATION.
 func NewCacheAt[T any](folder string, expiration time.Duration) *Cache[T] {
 	return &Cache[T]{folder: folder, expiration: expiration}
+}
+
+// userCacheDir resolves the base directory for the on-disk cache, falling back to
+// $HOME/.cache and finally os.TempDir() when os.UserCacheDir() cannot determine one (e.g. no
+// $HOME/$XDG_CACHE_HOME set, as in a container or CI), rather than silently creating a relative
+// "bitbucket" folder inside the process's current directory.
+func userCacheDir() string {
+	if dir, err := os.UserCacheDir(); err == nil && dir != "" {
+		return dir
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		return filepath.Join(home, ".cache")
+	}
+	return os.TempDir()
+}
+
+// resolveExpiration returns the TTL to use for the next Set call: cache.expiration for a fixed-TTL
+// cache built with NewCacheAt, or a fresh read of BITBUCKET_CLI_CACHE_DURATION for one built with
+// NewCache.
+func (cache *Cache[T]) resolveExpiration() time.Duration {
+	if cache.envExpiration {
+		return core.GetEnvAsDuration("BITBUCKET_CLI_CACHE_DURATION", 5*time.Minute)
+	}
+	return cache.expiration
 }
 
 // Set stores item in the cache under key, honoring the cache's default expiration.
 func (cache *Cache[T]) Set(key string, item T) error {
 	var expiresAt int64
-	if cache.expiration > 0 {
-		expiresAt = time.Now().Add(cache.expiration).UnixNano()
+	if expiration := cache.resolveExpiration(); expiration > 0 {
+		expiresAt = time.Now().Add(expiration).UnixNano()
 	}
 	entry := cacheEntry[T]{Item: item, ExpiresAt: expiresAt}
 

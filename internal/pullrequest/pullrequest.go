@@ -142,7 +142,7 @@ func (pullrequest PullRequest) GetRow(headers []string) []string {
 	var row []string
 
 	for _, header := range headers {
-		switch strings.ToLower(header) {
+		switch common.NormalizeColumnKey(header) {
 		case "id":
 			row = append(row, strconv.FormatUint(pullrequest.ID, 10))
 		case "title":
@@ -157,7 +157,7 @@ func (pullrequest PullRequest) GetRow(headers []string) []string {
 			row = append(row, pullrequest.State)
 		case "author":
 			row = append(row, pullrequest.Author.Name)
-		case "closed by":
+		case "closed_by":
 			row = append(row, pullrequest.ClosedBy.Name)
 		case "commit":
 			if pullrequest.MergeCommit != nil {
@@ -171,14 +171,16 @@ func (pullrequest PullRequest) GetRow(headers []string) []string {
 			row = append(row, strconv.FormatUint(pullrequest.CommentCount, 10))
 		case "tasks":
 			row = append(row, strconv.FormatUint(pullrequest.TaskCount, 10))
-		case "created on", "created_on", "created-on":
+		case "created_on":
 			row = append(row, pullrequest.CreatedOn.Format(common.TableTimeFormat))
-		case "updated on", "updated_on", "updated-on":
+		case "updated_on":
 			if !pullrequest.UpdatedOn.IsZero() {
 				row = append(row, pullrequest.UpdatedOn.Format(common.TableTimeFormat))
 			} else {
 				row = append(row, " ")
 			}
+		default:
+			row = append(row, " ")
 		}
 	}
 	return row
@@ -259,15 +261,27 @@ func reviewerCompletionFunc(cmd *cobra.Command, args []string, toComplete string
 }
 
 // expandAllReviewers implements the "all" sentinel for --reviewer/--add-reviewer: when the caller
-// passed exactly "all" and nothing else, every workspace member's nickname is substituted in its
-// place, then matched against the workspace like any other reviewer value. Any other combination
-// of values (e.g. "all,bob", or "all" alongside other flags) is left untouched, so a workspace
-// with no member literally named "all" failing to resolve it is expected, not a bug.
-func expandAllReviewers(values []string, members []workspace.Member) []string {
-	if len(values) == 1 && values[0] == "all" {
-		return core.Map(members, func(member workspace.Member) string { return member.User.Nickname })
+// passed exactly "all" and nothing else, every workspace member's Account UUID is substituted in
+// its place, then matched against the workspace like any other reviewer value (matchesMember
+// parses a UUID-shaped value and compares it against the member's ID directly, so this always
+// matches regardless of whether the member has a nickname). Any other combination of values (e.g.
+// "all,bob", or "all" alongside other flags) is left untouched, so a workspace with no member
+// literally named "all" failing to resolve it is expected, not a bug.
+//
+// membersErr is the error (if any) GetMembers returned resolving members: when "all" was
+// requested and the member list could not be resolved, there is nothing to expand it to, so that
+// is returned as a hard error instead of silently proceeding as if the workspace had no members --
+// which would otherwise create/update a pullrequest with zero reviewers at exit 0, the exact
+// silent no-op the ShouldStopOnError/ShouldWarnOnError/ShouldIgnoreErrors tolerance was introduced
+// to eliminate for every other reviewer resolution failure.
+func expandAllReviewers(values []string, members []workspace.Member, membersErr error) ([]string, error) {
+	if len(values) != 1 || values[0] != "all" {
+		return values, nil
 	}
-	return values
+	if membersErr != nil {
+		return nil, fmt.Errorf("cannot expand reviewer \"all\": failed to list workspace members: %w", membersErr)
+	}
+	return core.Map(members, func(member workspace.Member) string { return member.User.ID.String() }), nil
 }
 
 // matchesMember reports whether member is identified by id: a value that parses as a UUID is

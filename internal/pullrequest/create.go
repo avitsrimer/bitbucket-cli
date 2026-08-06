@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/branch"
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
@@ -146,15 +147,22 @@ func resolveCreateDefaultReviewers(ctx context.Context, cmd *cobra.Command, repo
 // with --warn-on-error/WarnOnError or --ignore-errors/IgnoreErrors it is tolerated (warned or
 // silently skipped) and the pullrequest is created with only the resolved reviewers.
 func resolveExplicitReviewers(ctx context.Context, cmd *cobra.Command, currentProfile *profile.Profile, repository *repository.Repository, values []string) ([]user.User, error) {
-	members, _ := repository.Workspace.GetMembers(ctx, cmd)
-	values = expandAllReviewers(values, members)
+	members, membersErr := repository.Workspace.GetMembers(ctx, cmd)
+	values, err := expandAllReviewers(values, members, membersErr)
+	if err != nil {
+		return nil, err
+	}
 	reviewers := make([]user.User, 0, len(values))
 	var errs []error
 	for _, reviewerNameOrID := range values {
 		matches := core.Filter(members, func(member workspace.Member) bool { return matchesMember(member, reviewerNameOrID) })
-		if len(matches) > 0 {
+		if len(matches) > 0 && !slices.ContainsFunc(reviewers, func(u user.User) bool { return u.ID == matches[0].User.ID }) {
 			lgr.Printf("[DEBUG] adding reviewer: %s", matches[0].User.ID)
 			reviewers = append(reviewers, matches[0].User)
+			continue
+		}
+		if len(matches) > 0 {
+			lgr.Printf("[DEBUG] reviewer %s (%s) already added, skipping duplicate", matches[0].User.ID, matches[0].User.Nickname)
 			continue
 		}
 		reviewerUser, userErr := user.GetUser(ctx, cmd, reviewerNameOrID)
