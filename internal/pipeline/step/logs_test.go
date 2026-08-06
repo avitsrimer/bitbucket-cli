@@ -57,7 +57,7 @@ func TestLogsProcessAPIError(t *testing.T) {
 	}
 }
 
-// TestLogsProcessDryRun proves the missing --dry-run check upstream skipped is now present.
+// TestLogsProcessDryRun proves logsProcess checks --dry-run before issuing any request.
 func TestLogsProcessDryRun(t *testing.T) {
 	var requestCount int
 	cmd := setupTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, true)

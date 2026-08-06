@@ -18,17 +18,14 @@ var meCmd = &cobra.Command{
 }
 
 var meOptions struct {
-	Emails  bool
-	Columns *common.EnumSliceFlag
+	Emails bool
 }
 
 func init() {
 	Command.AddCommand(meCmd)
 
-	meOptions.Columns = common.NewEnumSliceFlag(columns.Columns()...)
 	meCmd.Flags().BoolVar(&meOptions.Emails, "emails", false, "Display the email addresses of the current authenticated user")
-	meCmd.Flags().Var(meOptions.Columns, "columns", "Comma-separated list of columns to display")
-	_ = meCmd.RegisterFlagCompletionFunc(meOptions.Columns.CompletionFunc("columns"))
+	common.RegisterColumnsFlag(meCmd, columns)
 }
 
 func meProcess(cmd *cobra.Command, args []string) (err error) {

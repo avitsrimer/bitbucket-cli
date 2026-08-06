@@ -40,7 +40,7 @@ var updateOptions struct {
 func init() {
 	Command.AddCommand(updateCmd)
 
-	updateOptions.Destination = common.NewEnumFlagWithFunc(updateCmd, "", branch.GetBranchNames)
+	updateOptions.Destination = common.NewEnumFlagWithFunc("", branch.GetBranchNames)
 
 	updateCmd.Flags().StringVar(&updateOptions.Title, "title", "", "Title of the pullrequest")
 	updateCmd.Flags().StringVar(&updateOptions.Description, "description", "", "Description of the pullrequest")
@@ -182,14 +182,12 @@ func destinationWorkspaceSlug(ctx context.Context, cmd *cobra.Command, pr *PullR
 	var err error
 	if pr.Destination.Repository != nil {
 		lgr.Printf("[DEBUG] getting workspace of pullrequest destination repository %s", pr.Destination.Repository.FullName)
-		lgr.Printf("[DEBUG] pullrequest destination repository details")
 		workspaceSlug, err = pr.Destination.Repository.GetWorkspaceSlug(ctx, cmd)
 	} else {
 		lgr.Printf("[DEBUG] getting current workspace")
 		workspaceSlug, err = repo.GetWorkspaceSlug(ctx, cmd)
 	}
 	if err != nil {
-		lgr.Printf("[ERROR] failed to get workspace of pullrequest destination repository: %v", err)
 		return "", fmt.Errorf("failed to get workspace of pullrequest destination repository: %w", err)
 	}
 	return workspaceSlug, nil
@@ -227,8 +225,8 @@ func removeRequestedReviewers(ctx context.Context, cmd *cobra.Command, currentPr
 		}
 		errs = append(errs, reviewerErr)
 	}
-	if err := tolerateReviewerErrors(cmd, currentProfile, errs, "remove these reviewers"); err != nil {
-		return false, err
+	if err := common.TolerateErrors(cmd, currentProfile, errs, "remove these reviewers"); err != nil {
+		return false, err //nolint:wrapcheck // TolerateErrors returns the same joined error verbatim (or nil); wrapping would prefix it with redundant noise
 	}
 	return updateWanted, nil
 }
@@ -277,7 +275,7 @@ func addRequestedReviewers(ctx context.Context, cmd *cobra.Command, currentProfi
 
 	updateWanted := false
 	lgr.Printf("[DEBUG] getting all members from workspace %s", workspaceSlug)
-	members, membersErr := workspace.Workspace{Slug: workspaceSlug}.GetMembers(ctx, cmd)
+	members, membersErr := workspace.GetMembers(ctx, cmd, workspaceSlug)
 	lgr.Printf("[DEBUG] found %d members in workspace %s", len(members), workspaceSlug)
 	reviewerValues, err := expandAllReviewers(reviewerValues, members, membersErr)
 	if err != nil {
@@ -304,8 +302,8 @@ func addRequestedReviewers(ctx context.Context, cmd *cobra.Command, currentProfi
 		}
 		errs = append(errs, reviewerErr)
 	}
-	if err := tolerateReviewerErrors(cmd, currentProfile, errs, "resolve these reviewers"); err != nil {
-		return false, err
+	if err := common.TolerateErrors(cmd, currentProfile, errs, "resolve these reviewers"); err != nil {
+		return false, err //nolint:wrapcheck // TolerateErrors returns the same joined error verbatim (or nil); wrapping would prefix it with redundant noise
 	}
 	return updateWanted, nil
 }

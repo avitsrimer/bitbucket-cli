@@ -2,7 +2,6 @@ package commit_test
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"reflect"
 	"strings"
@@ -44,15 +43,7 @@ func (suite *CommitSuite) LoadTestData(filename string) []byte {
 	return data
 }
 
-func (suite *CommitSuite) UnmarshalData(filename string, v any) error {
-	data := suite.LoadTestData(filename)
-	if err := json.Unmarshal(data, v); err != nil {
-		return fmt.Errorf("cannot unmarshal test data: %w", err)
-	}
-	return nil
-}
-
-// *****************************************************************************
+// ***********************************************************************
 
 func (suite *CommitSuite) TestCanUnmarshal() {
 	payload := suite.LoadTestData("commit.json")
@@ -99,7 +90,7 @@ func (suite *CommitSuite) TestCommitReferenceGetShortHashEmptyHash() {
 // TestLongHashSorterComparesHash proves the "longhash" column's Compare sorts by Hash, matching
 // its purpose as a hash-based sorter exposed via "bb pr commits --sort longhash".
 func (suite *CommitSuite) TestLongHashSorterComparesHash() {
-	compare := commit.Commit{}.GetColumnDefinitions().SortBy("longhash")
+	compare := commit.Columns().SortBy("longhash")
 
 	a := commit.Commit{Hash: "aaaaaaa", Message: "zzz message"}
 	b := commit.Commit{Hash: "bbbbbbb", Message: "aaa message"}

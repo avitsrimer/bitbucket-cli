@@ -21,22 +21,10 @@ var commitsCmd = &cobra.Command{
 	RunE:              commitsProcess,
 }
 
-var commitsOptions struct {
-	Columns *common.EnumSliceFlag
-	SortBy  *common.EnumFlag
-}
-
 func init() {
 	Command.AddCommand(commitsCmd)
 
-	commitsOptions.Columns = common.NewEnumSliceFlagWithAllAllowed(commit.Commit{}.GetColumnDefinitions().Columns()...)
-	commitsOptions.SortBy = common.NewEnumFlag(commit.Commit{}.GetColumnDefinitions().Sorters()...)
-	commitsCmd.Flags().Var(commitsOptions.Columns, "columns", "Comma-separated list of columns to display")
-	commitsCmd.Flags().Var(commitsOptions.SortBy, "sort", "Column to sort by")
-	commitsCmd.Flags().Int("page-length", 0, "Number of items per page to retrieve from Bitbucket. Default is the profile's default page length")
-	commitsCmd.Flags().Int("limit", 0, "Maximum total number of commits to retrieve. Default is to retrieve all of them")
-	_ = commitsCmd.RegisterFlagCompletionFunc(commitsOptions.Columns.CompletionFunc("columns"))
-	_ = commitsCmd.RegisterFlagCompletionFunc(commitsOptions.SortBy.CompletionFunc("sort"))
+	common.RegisterListFlags(commitsCmd, commit.Columns(), "commits")
 }
 
 func commitsValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
@@ -76,7 +64,9 @@ func commitsProcess(cmd *cobra.Command, args []string) (err error) {
 	if err != nil {
 		return fmt.Errorf("failed to get the commits of pull request %s: %w", pullRequestID, err)
 	}
-	core.Sort(commits, commit.Commit{}.GetColumnDefinitions().SortBy(commitsOptions.SortBy.Value))
+	if sortValue := common.SortFlagValue(cmd); sortValue != "" {
+		core.Sort(commits, commit.Columns().SortBy(sortValue))
+	}
 	if err := profile.Current.Print(cmd.Context(), cmd, commit.Commits(commits)); err != nil {
 		return fmt.Errorf("cannot print result: %w", err)
 	}

@@ -201,7 +201,6 @@ func TestMembersProcessCurrentWorkspace(t *testing.T) {
 // carries a perfectly valid one, so the call can only fail if ctx was really the one used.
 func TestGetMembersUsesItsOwnContextParameterNotCmdContext(t *testing.T) {
 	const slug = "acme-members-ctx"
-	ws := Workspace{Slug: slug}
 
 	var requests int
 	cmd := setupTest(t, "workspace-members-ctx", func(http.ResponseWriter, *http.Request) {
@@ -211,7 +210,7 @@ func TestGetMembersUsesItsOwnContextParameterNotCmdContext(t *testing.T) {
 	canceledCtx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := ws.GetMembers(canceledCtx, cmd)
+	_, err := GetMembers(canceledCtx, cmd, slug)
 	if err == nil {
 		t.Fatal("GetMembers() expected an error from an already-canceled context, got nil")
 	}

@@ -22,19 +22,16 @@ var getCmd = &cobra.Command{
 
 var getOptions struct {
 	PullRequestID *common.EnumFlag
-	Columns       *common.EnumSliceFlag
 }
 
 func init() {
 	Command.AddCommand(getCmd)
 
-	getOptions.PullRequestID = common.NewEnumFlagWithFunc(getCmd, "", prcommon.GetPullRequestIDs)
-	getOptions.Columns = common.NewEnumSliceFlag(columns.Columns()...)
+	getOptions.PullRequestID = common.NewEnumFlagWithFunc("", prcommon.GetPullRequestIDs)
 	getCmd.Flags().Var(getOptions.PullRequestID, "pullrequest", "Pullrequest to get comments from")
-	getCmd.Flags().Var(getOptions.Columns, "columns", "Comma-separated list of columns to display")
+	common.RegisterColumnsFlag(getCmd, columns)
 	_ = getCmd.MarkFlagRequired("pullrequest")
 	_ = getCmd.RegisterFlagCompletionFunc(getOptions.PullRequestID.CompletionFunc("pullrequest"))
-	_ = getCmd.RegisterFlagCompletionFunc(getOptions.Columns.CompletionFunc("columns"))
 }
 
 func getValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {

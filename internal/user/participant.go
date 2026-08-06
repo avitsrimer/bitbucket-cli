@@ -20,6 +20,10 @@ type Participant struct {
 // GetHeaders gets the header for a table
 //
 // implements common.Tableable
+//
+// cmd's --columns flag is intentionally not consulted: a Participant is printed only as the
+// single result of a pullrequest approve/unapprove/decline/request-changes/remove-request-changes
+// action, none of which register a --columns flag, so there is never a value to read here.
 func (participant Participant) GetHeaders(cmd *cobra.Command) []string {
 	return []string{"ID", "Name", "participated on", "approved", "state"}
 }
@@ -37,13 +41,13 @@ func (participant Participant) GetRow(headers []string) []string {
 		case "name":
 			row = append(row, participant.User.Name)
 		case "participated_on":
-			row = append(row, participant.ParticipatedOn.Local().String())
+			row = append(row, common.TimeCell(participant.ParticipatedOn))
 		case "approved":
 			row = append(row, strconv.FormatBool(participant.Approved))
 		case "state":
 			row = append(row, participant.State)
 		default:
-			row = append(row, " ")
+			row = append(row, common.EmptyCell)
 		}
 	}
 	return row

@@ -24,6 +24,12 @@ func DisableUnsupportedFlags(command string, flagNames ...string) func(cmd *cobr
 // HideUnsupportedFlags returns a cobra SetHelpFunc function that hides flagNames from a command's
 // help output before delegating to its parent's help function, so a flag DisableUnsupportedFlags
 // rejects is not even advertised.
+//
+// The returned function panics if cmd has no parent (cmd.Parent() is nil): every real caller
+// wires SetHelpFunc(HideUnsupportedFlags(...)) on a command already added to a parent via
+// Command.AddCommand, so a parentless command reaching here is a wiring bug, not a normal
+// condition to handle gracefully -- unlike Verbose's "verbose" flag lookup, which nil-checks
+// because a command legitimately lacking that inherited flag is expected, not a bug.
 func HideUnsupportedFlags(flagNames ...string) func(cmd *cobra.Command, args []string) {
 	return func(cmd *cobra.Command, args []string) {
 		for _, name := range flagNames {

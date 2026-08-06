@@ -18,16 +18,10 @@ var getCmd = &cobra.Command{
 	RunE:              getProcess,
 }
 
-var getOptions struct {
-	Columns *common.EnumSliceFlag
-}
-
 func init() {
 	Command.AddCommand(getCmd)
 
-	getOptions.Columns = common.NewEnumSliceFlag(columns.Columns()...)
-	getCmd.Flags().Var(getOptions.Columns, "columns", "Comma-separated list of columns to display")
-	_ = getCmd.RegisterFlagCompletionFunc(getOptions.Columns.CompletionFunc("columns"))
+	common.RegisterColumnsFlag(getCmd, columns)
 }
 
 func getValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {

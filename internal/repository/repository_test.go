@@ -36,7 +36,7 @@ func TestRepositoryGetPath(t *testing.T) {
 // resolution branches (embedded Workspace, FullName split, --workspace flag fallback) never
 // reaches out to the network: cmd here carries no profile at all, so any code path that tried to
 // call the BitBucket API would panic or error instead of returning cleanly, structurally proving
-// field report FR-3's fix (a repository's workspace slug is resolved without a Workspace fetch).
+// a repository's workspace slug is resolved without a Workspace fetch.
 func TestRepositoryGetWorkspaceSlugNeverCallsTheNetwork(t *testing.T) {
 	newBareCmd := func() *cobra.Command {
 		cmd := &cobra.Command{Use: "test"}

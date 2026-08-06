@@ -17,20 +17,15 @@ var listCmd = &cobra.Command{
 	RunE:    listProcess,
 }
 
-var listOptions struct {
-	Columns *common.EnumSliceFlag
-	SortBy  *common.EnumFlag
-}
-
 func init() {
 	Command.AddCommand(listCmd)
 
-	listOptions.Columns = common.NewEnumSliceFlagWithAllAllowed(columns.Columns()...)
-	listOptions.SortBy = common.NewEnumFlag(columns.Sorters()...)
-	listCmd.Flags().Var(listOptions.Columns, "columns", "Comma-separated list of columns to display")
-	listCmd.Flags().Var(listOptions.SortBy, "sort", "Column to sort by")
-	_ = listCmd.RegisterFlagCompletionFunc(listOptions.Columns.CompletionFunc("columns"))
-	_ = listCmd.RegisterFlagCompletionFunc(listOptions.SortBy.CompletionFunc("sort"))
+	// profiles are read from the local config file, not paged from an API, so this registers
+	// only --columns/--sort via the two RegisterListFlags building blocks and skips
+	// common.RegisterListFlags itself, which also adds --page-length/--limit -- neither flag
+	// would do anything here.
+	common.RegisterColumnsFlag(listCmd, columns)
+	common.RegisterSortFlag(listCmd, columns)
 	listCmd.SetHelpFunc(hideUnsupportedFlags)
 }
 
@@ -53,7 +48,9 @@ func listProcess(cmd *cobra.Command, args []string) (err error) {
 	if err != nil {
 		return err
 	}
-	core.Sort(Profiles, columns.SortBy(listOptions.SortBy.Value))
+	if sortValue := common.SortFlagValue(cmd); sortValue != "" {
+		core.Sort(Profiles, columns.SortBy(sortValue))
+	}
 	Profiles = core.Map(Profiles, func(profile *Profile) *Profile {
 		_ = profile.Validate()
 		_ = profile.LoadSecrets(ctx)

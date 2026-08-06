@@ -2,8 +2,10 @@ package common
 
 import (
 	"strings"
+	"time"
 
 	"github.com/gildas/go-core"
+	"github.com/spf13/cobra"
 )
 
 // TableTimeFormat is the time layout used to render timestamps in table/csv/tsv output.
@@ -11,6 +13,30 @@ const TableTimeFormat = "2006-01-02 15:04:05"
 
 // JSONTimeFormat is the time layout used to render timestamps in json/yaml output.
 const JSONTimeFormat = "2006-01-02T15:04:05.999999999-07:00"
+
+// EmptyCell is the filler a GetRow implementation renders for a column with no value (a zero
+// timestamp, a nil pointer field, an unrecognized column key).
+const EmptyCell = " "
+
+// TimeCell renders when as common.TableTimeFormat, or EmptyCell when when is the zero time.
+func TimeCell(when time.Time) string {
+	if when.IsZero() {
+		return EmptyCell
+	}
+	return when.Format(TableTimeFormat)
+}
+
+// HeadersFromFlag returns the value of cmd's --columns flag, with underscores substituted for
+// spaces, when it was explicitly set, or defaults otherwise. It is the common GetHeaders body
+// shared by every Tableable that supports --columns.
+func HeadersFromFlag(cmd *cobra.Command, defaults ...string) []string {
+	if cmd != nil && cmd.Flag("columns") != nil && cmd.Flag("columns").Changed {
+		if values, err := cmd.Flags().GetStringSlice("columns"); err == nil {
+			return core.Map(values, func(value string) string { return strings.ReplaceAll(value, "_", " ") })
+		}
+	}
+	return defaults
+}
 
 // NormalizeColumnKey lowercases header and replaces spaces and hyphens with underscores, so a
 // --columns value (or a GetHeaders default label) can be matched against a single canonical,

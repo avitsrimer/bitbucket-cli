@@ -17,15 +17,10 @@ var listCmd = &cobra.Command{
 	RunE:  listProcess,
 }
 
-var listOptions struct {
-	Columns *common.EnumSliceFlag
-	SortBy  *common.EnumFlag
-}
-
 func init() {
 	Command.AddCommand(listCmd)
 
-	listOptions.Columns, listOptions.SortBy = common.RegisterListFlags(listCmd, columns, "commits")
+	common.RegisterListFlags(listCmd, columns, "commits")
 	// --query/--include/--exclude have no package-level destination: GetCommits reads them
 	// directly off the passed cmd (see commitsQuery), so bound variables here would only ever be
 	// write-only state.

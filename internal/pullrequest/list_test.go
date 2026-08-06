@@ -186,12 +186,12 @@ func TestListProcessRespectsLimitFlag(t *testing.T) {
 	}
 }
 
-// TestListProcessSucceedsWithWorkspaceFlagWhenWorkspaceListingIsForbidden reproduces a real
-// production failure (field report FR-1): a token scoped only for read:repository+read:pullrequest
-// could not run "pullrequest list --repository X --workspace Y" at all, because --workspace's
-// root-level EnumFlag validated the value by enumerating every allowed workspace (an endpoint
-// needing read:workspace) before the command itself -- which never needed that scope, since the
-// repository is already given explicitly -- ever ran. This drives the same shape of flag (a
+// TestListProcessSucceedsWithWorkspaceFlagWhenWorkspaceListingIsForbidden proves a token scoped
+// only for read:repository+read:pullrequest can still run "pullrequest list --repository X
+// --workspace Y": --workspace's root-level EnumFlag must not validate the value by enumerating
+// every allowed workspace (an endpoint needing read:workspace) before the command itself --
+// which never needs that scope, since the repository is already given explicitly -- ever runs.
+// This drives the same shape of flag (a
 // common.EnumFlag backed by an AllowedFunc that fails exactly the way an insufficient-scope 403
 // would) through cmd.Flags().Set the way pflag itself calls it while parsing the command line, then
 // runs listProcess to completion, proving the whole command succeeds despite the workspace-listing
@@ -213,14 +213,14 @@ func TestListProcessSucceedsWithWorkspaceFlagWhenWorkspaceListingIsForbidden(t *
 	}, false)
 
 	var workspaceListingCalls int
-	workspaceFlag := common.NewEnumFlagWithFunc(cmd, "", func(context.Context, *cobra.Command, []string, string) ([]string, error) {
+	workspaceFlag := common.NewEnumFlagWithFunc("", func(context.Context, *cobra.Command, []string, string) ([]string, error) {
 		workspaceListingCalls++
 		return nil, errors.New("Your credentials lack one or more required privilege scopes. (required: read:workspace:bitbucket)")
 	})
 	cmd.Flags().Var(workspaceFlag, "workspace", "")
 
 	// This is exactly what pflag does while parsing "--workspace sportpursuit" on the real
-	// command line -- the failure in the field report happened here, before listProcess ever ran.
+	// command line, before listProcess itself ever runs.
 	if err := cmd.Flags().Set("workspace", testutil.FixtureWorkspaceSlug); err != nil {
 		t.Fatalf("parsing --workspace failed even though the value was supplied explicitly: %v", err)
 	}

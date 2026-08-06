@@ -20,16 +20,14 @@ var listCmd = &cobra.Command{
 }
 
 var listOptions struct {
-	Role    *common.EnumFlag
-	Columns *common.EnumSliceFlag
-	SortBy  *common.EnumFlag
+	Role *common.EnumFlag
 }
 
 func init() {
 	Command.AddCommand(listCmd)
 
 	listOptions.Role = common.NewEnumFlag("all", "+owner", "admin", "contributor", "member")
-	listOptions.Columns, listOptions.SortBy = common.RegisterListFlags(listCmd, columns, "repositories")
+	common.RegisterListFlags(listCmd, columns, "repositories")
 	listCmd.Flags().Var(listOptions.Role, "role", "Role of the user in the repository (all, owner, admin, contributor, member). Default: owner")
 	_ = listCmd.RegisterFlagCompletionFunc(listOptions.Role.CompletionFunc("role"))
 	listCmd.SetHelpFunc(common.HideUnsupportedFlags("repository"))

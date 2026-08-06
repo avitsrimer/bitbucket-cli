@@ -26,7 +26,7 @@ var resolveOptions struct {
 func init() {
 	Command.AddCommand(resolveCmd)
 
-	resolveOptions.PullRequestID = common.NewEnumFlagWithFunc(resolveCmd, "", prcommon.GetPullRequestIDs)
+	resolveOptions.PullRequestID = common.NewEnumFlagWithFunc("", prcommon.GetPullRequestIDs)
 	resolveCmd.Flags().Var(resolveOptions.PullRequestID, "pullrequest", "Pullrequest to resolve comments from")
 	_ = resolveCmd.MarkFlagRequired("pullrequest")
 	_ = resolveCmd.RegisterFlagCompletionFunc(resolveOptions.PullRequestID.CompletionFunc("pullrequest"))

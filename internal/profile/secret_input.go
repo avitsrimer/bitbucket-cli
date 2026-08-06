@@ -94,7 +94,7 @@ func promptForSecret(cmd *cobra.Command, who string) (string, error) {
 	if !common.StdinIsInteractive(cmd) {
 		return "", fmt.Errorf("no password or access token given for %s: pass --password/--password-stdin (or --access-token/--access-token-stdin), or run this command interactively to be prompted for one", who)
 	}
-	secret, err := common.ReadSecret(fmt.Sprintf("Password or API token for %s:", who))
+	secret, err := common.ReadSecret(fmt.Sprintf("Password or API token for %s:", who), "use --password-stdin or --access-token-stdin instead")
 	if err != nil {
 		return "", fmt.Errorf("cannot read secret interactively: %w", err)
 	}

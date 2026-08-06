@@ -11,11 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRootWorkspaceFlagAcceptsExplicitValueWithoutCallingAllowedFunc reproduces field report FR-1
-// against the real RootCmd wiring: a workspace-scoped token missing read:workspace could not even
-// have "--workspace <value>" parsed, because the flag's AllowedFunc (workspace.GetWorkspaceAllowedSlugs,
-// which calls an endpoint needing read:workspace) ran during Set, before the requested command --
-// which might need no such scope at all -- ever got to run. Parsing an explicit value must never
+// TestRootWorkspaceFlagAcceptsExplicitValueWithoutCallingAllowedFunc proves, against the real
+// RootCmd wiring, that "--workspace <value>" parses without ever calling the flag's AllowedFunc
+// (workspace.GetWorkspaceAllowedSlugs, which calls an endpoint needing read:workspace) during
+// Set: a workspace-scoped token missing read:workspace must still be able to parse an explicit
+// value for a command that might need no such scope at all. Parsing an explicit value must never
 // depend on enumerating every candidate.
 func TestRootWorkspaceFlagAcceptsExplicitValueWithoutCallingAllowedFunc(t *testing.T) {
 	original := cmd.CmdOptions.Workspace.AllowedFunc

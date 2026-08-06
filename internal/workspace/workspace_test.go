@@ -2,7 +2,6 @@ package workspace_test
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"reflect"
 	"strings"
@@ -44,15 +43,7 @@ func (suite *WorkspaceSuite) LoadTestData(filename string) []byte {
 	return data
 }
 
-func (suite *WorkspaceSuite) UnmarshalData(filename string, v any) error {
-	data := suite.LoadTestData(filename)
-	if err := json.Unmarshal(data, v); err != nil {
-		return fmt.Errorf("cannot unmarshal test data: %w", err)
-	}
-	return nil
-}
-
-// *****************************************************************************
+// ***********************************************************************
 
 func (suite *WorkspaceSuite) TestCanUnmarshal() {
 	payload := suite.LoadTestData("workspace.json")

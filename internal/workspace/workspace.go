@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/avitsrimer/bitbucket-cli/internal/remote"
-	"github.com/gildas/go-core"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -55,12 +55,7 @@ func (workspace Workspace) GetType() string {
 //
 // implements common.Tableable
 func (workspace Workspace) GetHeaders(cmd *cobra.Command) []string {
-	if cmd != nil && cmd.Flag("columns") != nil && cmd.Flag("columns").Changed {
-		if values, err := cmd.Flags().GetStringSlice("columns"); err == nil {
-			return core.Map(values, func(column string) string { return strings.ReplaceAll(column, "_", " ") })
-		}
-	}
-	return []string{"ID", "Name", "Slug"}
+	return common.HeadersFromFlag(cmd, "ID", "Name", "Slug")
 }
 
 // GetRow gets the row for a table
@@ -163,9 +158,13 @@ func GetWorkspaceBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID st
 		slugOrID = parsedID.String()
 	}
 
+	// slugOrID is a caller/user-supplied identifier (a --workspace value, a git remote's
+	// workspace segment, or a profile default), so it is escaped before being interpolated into
+	// the request path: resolveRequestURL splits on "?", so an unescaped slug containing one
+	// would silently truncate the path and turn the remainder into a query string.
 	err = currentProfile.Get(
 		ctx,
-		"/workspaces/"+slugOrID,
+		"/workspaces/"+url.PathEscape(slugOrID),
 		&workspace,
 	)
 	if err != nil {
@@ -178,17 +177,19 @@ func GetWorkspaceBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID st
 	return workspace, nil
 }
 
-// GetMembers gets the members of the workspace
-func (workspace Workspace) GetMembers(ctx context.Context, cmd *cobra.Command) (members []Member, err error) {
-	members, err = profile.GetAll[Member](
+// GetMembers gets the members of the workspace identified by workspaceSlug. workspaceSlug is a
+// caller/user-supplied identifier, so it is escaped before being interpolated into the request
+// path (see GetWorkspaceBySlugOrID for why).
+func GetMembers(ctx context.Context, cmd *cobra.Command, workspaceSlug string) ([]Member, error) {
+	members, err := profile.GetAll[Member](
 		ctx,
 		cmd,
-		fmt.Sprintf("/workspaces/%s/members", workspace.Slug),
+		fmt.Sprintf("/workspaces/%s/members", url.PathEscape(workspaceSlug)),
 	)
 	if err != nil {
-		return []Member{}, err
+		return nil, fmt.Errorf("cannot get members of workspace %s: %w", workspaceSlug, err)
 	}
-	return
+	return members, nil
 }
 
 // MarshalJSON marshals the workspace to JSON

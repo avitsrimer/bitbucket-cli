@@ -22,7 +22,7 @@ func TestCommitGetHeadersDefault(t *testing.T) {
 	}
 }
 
-// TestCommitGetRowCoversEveryColumn iterates GetColumnDefinitions().Columns() (the single source
+// TestCommitGetRowCoversEveryColumn iterates commit.Columns().Columns() (the single source
 // of truth, not a hand-written header list) and requires every declared column to produce its
 // real value instead of falling through to GetRow's default " " arm.
 func TestCommitGetRowCoversEveryColumn(t *testing.T) {
@@ -34,7 +34,7 @@ func TestCommitGetRowCoversEveryColumn(t *testing.T) {
 		Repository: repository.Repository{Name: "widgets"},
 	}
 
-	for _, name := range target.GetColumnDefinitions().Columns() {
+	for _, name := range commit.Columns().Columns() {
 		row := target.GetRow([]string{name})
 		if len(row) != 1 {
 			t.Fatalf("GetRow([%q]) = %v, want exactly one cell", name, row)

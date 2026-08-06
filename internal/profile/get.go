@@ -21,16 +21,13 @@ var getCmd = &cobra.Command{
 
 var getOptions struct {
 	Current bool
-	Columns *common.EnumSliceFlag
 }
 
 func init() {
 	Command.AddCommand(getCmd)
-	getOptions.Columns = common.NewEnumSliceFlag(columns.Columns()...)
 
 	getCmd.Flags().BoolVar(&getOptions.Current, "current", false, "Get the current profile")
-	getCmd.Flags().Var(getOptions.Columns, "columns", "Comma-separated list of columns to display")
-	_ = getCmd.RegisterFlagCompletionFunc(getOptions.Columns.CompletionFunc("columns"))
+	common.RegisterColumnsFlag(getCmd, columns)
 	getCmd.SetHelpFunc(hideUnsupportedFlags)
 }
 

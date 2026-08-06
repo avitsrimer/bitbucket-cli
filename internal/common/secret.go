@@ -54,12 +54,14 @@ func StdinIsInteractive(cmd *cobra.Command) bool {
 //
 // Callers must check StdinIsInteractive (or an equivalent guard) before calling ReadSecret: a
 // missing controlling terminal (no /dev/tty -- CI, or any other non-interactive environment) is
-// reported as an error naming --password-stdin/--access-token-stdin as the alternative, rather than
-// left to hang.
-func ReadSecret(prompt string) (secret string, err error) {
+// reported as an error including nonInteractiveHint, the caller-supplied text naming its own
+// non-interactive alternative (e.g. "use --password-stdin or --access-token-stdin instead"),
+// rather than left to hang. common is the lower layer here (profile imports it, not the other way
+// around), so it names no flag of its own callers'.
+func ReadSecret(prompt, nonInteractiveHint string) (secret string, err error) {
 	tty, err := openControllingTTY()
 	if err != nil {
-		return "", fmt.Errorf("cannot prompt for a secret: no controlling terminal available (%w); use --password-stdin or --access-token-stdin instead", err)
+		return "", fmt.Errorf("cannot prompt for a secret: no controlling terminal available (%w); %s", err, nonInteractiveHint)
 	}
 	defer func() { _ = tty.Close() }()
 

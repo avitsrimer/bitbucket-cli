@@ -129,16 +129,11 @@ func init() {
 //
 // Description is deliberately not part of the default column set: a full, potentially
 // multi-paragraph pull request body adds little to a list view already showing Title/source/
-// destination/state, and the table renderer truncates whatever cell content there is a hard cap
-// (see profile.printTable), so a description column here would still print only a fixed-width
-// snippet of it. It remains available on demand via --columns description.
+// destination/state, and the table renderer caps every cell at a fixed width (see
+// profile.printTable), so a description column would still print only a fixed-width snippet of
+// it. It remains available on demand via --columns description.
 func (pullrequest PullRequest) GetHeaders(cmd *cobra.Command) []string {
-	if cmd != nil && cmd.Flag("columns") != nil && cmd.Flag("columns").Changed {
-		if columns, err := cmd.Flags().GetStringSlice("columns"); err == nil {
-			return core.Map(columns, func(column string) string { return strings.ReplaceAll(column, "_", " ") })
-		}
-	}
-	return []string{"ID", "Title", "source", "destination", "state"}
+	return common.HeadersFromFlag(cmd, "ID", "Title", "source", "destination", "state")
 }
 
 // GetRow gets the row for a table
@@ -169,7 +164,7 @@ func (pullrequest PullRequest) GetRow(headers []string) []string {
 			if pullrequest.MergeCommit != nil {
 				row = append(row, pullrequest.MergeCommit.GetShortHash())
 			} else {
-				row = append(row, " ")
+				row = append(row, common.EmptyCell)
 			}
 		case "reason":
 			row = append(row, pullrequest.Reason)
@@ -178,15 +173,11 @@ func (pullrequest PullRequest) GetRow(headers []string) []string {
 		case "tasks":
 			row = append(row, strconv.FormatUint(pullrequest.TaskCount, 10))
 		case "created_on":
-			row = append(row, pullrequest.CreatedOn.Format(common.TableTimeFormat))
+			row = append(row, common.TimeCell(pullrequest.CreatedOn))
 		case "updated_on":
-			if !pullrequest.UpdatedOn.IsZero() {
-				row = append(row, pullrequest.UpdatedOn.Format(common.TableTimeFormat))
-			} else {
-				row = append(row, " ")
-			}
+			row = append(row, common.TimeCell(pullrequest.UpdatedOn))
 		default:
-			row = append(row, " ")
+			row = append(row, common.EmptyCell)
 		}
 	}
 	return row
@@ -241,7 +232,7 @@ func GetReviewerNicknames(ctx context.Context, cmd *cobra.Command, args []string
 		return []string{}, fmt.Errorf("cannot get workspace: %w", err)
 	}
 	lgr.Printf("[DEBUG] getting members of workspace %s", workspaceSlug)
-	members, _ := workspace.Workspace{Slug: workspaceSlug}.GetMembers(ctx, cmd)
+	members, _ := workspace.GetMembers(ctx, cmd, workspaceSlug)
 	nicknames = core.Map(members, func(member workspace.Member) string { return member.User.Nickname })
 	core.Sort(nicknames, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
 	return common.FilterValidArgs(nicknames, args, toComplete), nil
@@ -279,9 +270,9 @@ func reviewerCompletionFunc(cmd *cobra.Command, args []string, toComplete string
 // membersErr is the error (if any) GetMembers returned resolving members: when "all" was
 // requested and the member list could not be resolved, there is nothing to expand it to, so that
 // is returned as a hard error instead of silently proceeding as if the workspace had no members --
-// which would otherwise create/update a pullrequest with zero reviewers at exit 0, the exact
-// silent no-op the ShouldStopOnError/ShouldWarnOnError/ShouldIgnoreErrors tolerance was introduced
-// to eliminate for every other reviewer resolution failure.
+// which would otherwise create/update a pullrequest with zero reviewers at exit 0, a silent no-op
+// that every other reviewer resolution failure avoids via the
+// ShouldStopOnError/ShouldWarnOnError/ShouldIgnoreErrors tolerance.
 func expandAllReviewers(values []string, members []workspace.Member, membersErr error) ([]string, error) {
 	if len(values) != 1 || values[0] != "all" {
 		return values, nil
@@ -317,7 +308,6 @@ func effectiveDefaultReviewers(ctx context.Context, cmd *cobra.Command, repo *re
 	lgr.Printf("[DEBUG] getting effective default reviewers of repository %s", repo)
 	reviewers, err := repo.GetEffectiveDefaultReviewers(ctx, cmd)
 	if err != nil {
-		lgr.Printf("[ERROR] failed to get default reviewers: %v", err)
 		return nil, errors.Join(fmt.Errorf("failed to get the default reviewers: %w", err), errMe)
 	}
 	lgr.Printf("[DEBUG] found %d default reviewers", len(reviewers))
@@ -328,18 +318,6 @@ func effectiveDefaultReviewers(ctx context.Context, cmd *cobra.Command, repo *re
 		lgr.Printf("[DEBUG] filtered reviewers to remove current user: %d reviewers remaining", len(reviewers))
 	}
 	return reviewers, nil
-}
-
-// tolerateReviewerErrors decides, given prof's ShouldWarnOnError/ShouldIgnoreErrors tolerance,
-// whether errs (aggregated reviewer resolution failures) should be returned as a hard error,
-// printed to stderr as a warning, or silently logged and ignored. summary describes the failed
-// action in lowercase (e.g. "resolve these reviewers") for both the stderr and log messages. It
-// returns nil whenever the profile's tolerance absorbs errs, or the joined error otherwise. This
-// is the reference implementation the same logic in artifact download and the comment/task
-// delete commands was lifted from into common.TolerateErrors; kept here as a thin wrapper so
-// existing call sites (create.go, update.go) need no change.
-func tolerateReviewerErrors(cmd *cobra.Command, prof *profile.Profile, errs []error, summary string) error {
-	return common.TolerateErrors(cmd, prof, errs, summary) //nolint:wrapcheck // TolerateErrors returns the same joined error verbatim (or nil); wrapping would prefix it with redundant noise
 }
 
 // MarshalJSON implements the json.Marshaler interface.

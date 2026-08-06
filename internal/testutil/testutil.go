@@ -3,7 +3,7 @@
 // captures the global lgr logger. Because this package itself imports internal/repository,
 // internal/user, and internal/workspace, only packages *outside* that trio (and outside anything
 // they import) can import it without a cycle -- currently the pullrequest command tree and its
-// comment/task/common subpackages, the user package, and the restored artifact, branch, commit,
+// comment/task/common subpackages, the user package, and the artifact, branch, commit,
 // pipeline, pipeline/step, and pipeline/common packages. internal/repository and
 // internal/workspace's own tests, which cannot import it, instead duplicate the specific helpers
 // they need in a local helpers_test.go (e.g. internal/repository/helpers_test.go); their external
@@ -147,14 +147,14 @@ func SetupProfile(t testing.TB, profileName string, handler http.HandlerFunc) *c
 
 // CaptureStdout redirects os.Stdout for the duration of fn and returns what was written; used to
 // assert on profile.Print's rendered output (it writes straight to os.Stdout).
-func CaptureStdout(t *testing.T, fn func()) string {
+func CaptureStdout(t testing.TB, fn func()) string {
 	t.Helper()
 	return captureStream(t, &os.Stdout, fn)
 }
 
 // CaptureStderr is CaptureStdout for os.Stderr; used to assert on warnings written directly to
-// stderr (e.g. tolerateReviewerErrors' --warn-on-error message), which profile.Print never touches.
-func CaptureStderr(t *testing.T, fn func()) string {
+// stderr (e.g. common.TolerateErrors' --warn-on-error message), which profile.Print never touches.
+func CaptureStderr(t testing.TB, fn func()) string {
 	t.Helper()
 	return captureStream(t, &os.Stderr, fn)
 }
@@ -165,7 +165,7 @@ func CaptureStderr(t *testing.T, fn func()) string {
 // previous logger as a slog.Handler and forwarding every record to it: that previous logger's own
 // Logf decides for itself whether a DEBUG line was really enabled, so a test run after this one
 // sees exactly the logging behavior it would have without this call, whatever that was.
-func CaptureLog(t *testing.T) *bytes.Buffer {
+func CaptureLog(t testing.TB) *bytes.Buffer {
 	t.Helper()
 	previous := lgr.Default()
 	var buf bytes.Buffer
@@ -183,7 +183,7 @@ func CaptureLog(t *testing.T) *bytes.Buffer {
 // buffer cannot deadlock the test, and *stream is restored via defer so a t.Fatalf inside fn
 // (which calls runtime.Goexit, skipping any code after it) still leaves it intact for the rest of
 // the test binary.
-func captureStream(t *testing.T, stream **os.File, fn func()) string {
+func captureStream(t testing.TB, stream **os.File, fn func()) string {
 	t.Helper()
 
 	r, w, err := os.Pipe()

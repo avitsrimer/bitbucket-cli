@@ -78,8 +78,8 @@ func TestTriggerProcessConfirmNoZeroHandlerHits(t *testing.T) {
 	if requestCount != 0 {
 		t.Errorf("expected no HTTP request when confirmation is declined, got %d", requestCount)
 	}
-	if !strings.Contains(stdout, "cancelled") {
-		t.Errorf("stdout = %q, want it to mention the trigger was cancelled", stdout)
+	if !strings.Contains(stdout, "canceled") {
+		t.Errorf("stdout = %q, want it to mention the trigger was canceled", stdout)
 	}
 }
 

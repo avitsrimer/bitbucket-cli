@@ -49,23 +49,14 @@ var activitiesCmd = &cobra.Command{
 }
 
 var activitiesOptions struct {
-	Query   string
-	Columns *common.EnumSliceFlag
-	SortBy  *common.EnumFlag
+	Query string
 }
 
 func init() {
 	Command.AddCommand(activitiesCmd)
 
-	activitiesOptions.Columns = common.NewEnumSliceFlagWithAllAllowed(activityColumns.Columns()...)
-	activitiesOptions.SortBy = common.NewEnumFlag(activityColumns.Sorters()...)
 	activitiesCmd.Flags().StringVar(&activitiesOptions.Query, "query", "", "Query string to filter activities")
-	activitiesCmd.Flags().Var(activitiesOptions.Columns, "columns", "Comma-separated list of columns to display")
-	activitiesCmd.Flags().Var(activitiesOptions.SortBy, "sort", "Column to sort by")
-	activitiesCmd.Flags().Int("page-length", 0, "Number of items per page to retrieve from Bitbucket. Default is the profile's default page length")
-	activitiesCmd.Flags().Int("limit", 0, "Maximum total number of activities to retrieve. Default is to retrieve all of them")
-	_ = activitiesCmd.RegisterFlagCompletionFunc(activitiesOptions.Columns.CompletionFunc("columns"))
-	_ = activitiesCmd.RegisterFlagCompletionFunc(activitiesOptions.SortBy.CompletionFunc("sort"))
+	common.RegisterListFlags(activitiesCmd, activityColumns, "activities")
 }
 
 func activitiesValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
@@ -116,7 +107,9 @@ func activitiesProcess(cmd *cobra.Command, args []string) (err error) {
 		lgr.Printf("[DEBUG] no activities found")
 		return nil
 	}
-	core.Sort(activities, activityColumns.SortBy(activitiesOptions.SortBy.Value))
+	if sortValue := common.SortFlagValue(cmd); sortValue != "" {
+		core.Sort(activities, activityColumns.SortBy(sortValue))
+	}
 	if err := currentProfile.Print(
 		cmd.Context(),
 		cmd,

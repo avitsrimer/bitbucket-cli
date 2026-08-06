@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
@@ -22,18 +23,23 @@ var cloneCmd = &cobra.Command{
 	RunE:              cloneProcess,
 }
 
-var cloneOptions struct {
-	Protocol       *common.EnumFlag
-	SSHKeyFilename string
-}
+// cloneProtocols are the transports buildCloneURL knows how to build a clone URL for -- the only
+// values --protocol and a profile's clone-protocol field ever validate against.
+const (
+	cloneProtocolGit   = "git"
+	cloneProtocolHTTPS = "https"
+	cloneProtocolSSH   = "ssh"
+)
+
+var cloneProtocols = []string{cloneProtocolGit, cloneProtocolHTTPS, cloneProtocolSSH}
 
 func init() {
 	Command.AddCommand(cloneCmd)
 
-	cloneOptions.Protocol = common.NewEnumFlag("git", "https", "ssh")
-	cloneCmd.Flags().Var(cloneOptions.Protocol, "protocol", "Protocol to use for cloning (git, https, or ssh). Default is the profile's clone-protocol, or git")
-	cloneCmd.Flags().StringVar(&cloneOptions.SSHKeyFilename, "ssh-key-file", "", "Path to the SSH private key file to use when cloning. Default is the profile's ssh-key-file, if any")
-	_ = cloneCmd.RegisterFlagCompletionFunc(cloneOptions.Protocol.CompletionFunc("protocol"))
+	protocolFlag := common.NewEnumFlag(cloneProtocols...)
+	cloneCmd.Flags().Var(protocolFlag, "protocol", "Protocol to use for cloning (git, https, or ssh). Default is the profile's clone-protocol, or git")
+	cloneCmd.Flags().String("ssh-key-file", "", "Path to the SSH private key file to use when cloning. Default is the profile's ssh-key-file, if any")
+	_ = cloneCmd.RegisterFlagCompletionFunc(protocolFlag.CompletionFunc("protocol"))
 	_ = cloneCmd.MarkFlagFilename("ssh-key-file")
 	cloneCmd.SetHelpFunc(common.HideUnsupportedFlags("repository"))
 }
@@ -63,7 +69,7 @@ func cloneProcess(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot get repository %s: %w", args[0], err)
 	}
 
-	workspaceSlug, err := repositoryWorkspaceSlug(target)
+	workspaceSlug, err := target.GetWorkspaceSlug(cmd.Context(), cmd)
 	if err != nil {
 		return err
 	}
@@ -73,7 +79,11 @@ func cloneProcess(cmd *cobra.Command, args []string) error {
 		destination = args[1]
 	}
 
-	protocol, err := resolveProtocol(cloneOptions.Protocol.Value, currentProfile.CloneProtocol)
+	protocolFlagValue, err := cmd.Flags().GetString("protocol")
+	if err != nil {
+		return fmt.Errorf("cannot read protocol flag: %w", err)
+	}
+	protocol, err := resolveProtocol(protocolFlagValue, currentProfile.CloneProtocol)
 	if err != nil {
 		return err
 	}
@@ -90,10 +100,15 @@ func cloneProcess(cmd *cobra.Command, args []string) error {
 	gitCmd.Stdout = os.Stdout
 	gitCmd.Stderr = os.Stderr
 
+	sshKeyFileFlagValue, err := cmd.Flags().GetString("ssh-key-file")
+	if err != nil {
+		return fmt.Errorf("cannot read ssh-key-file flag: %w", err)
+	}
+
 	// GIT_SSH_COMMAND is only meaningful for the git/ssh protocols: git never shells out over ssh
 	// for an https remote, and setting it unconditionally would be misleading (and, per the
 	// README, is documented as applying to git/ssh only).
-	if sshKeyFilename := resolveSSHKeyFilename(cloneOptions.SSHKeyFilename, currentProfile.SshKeyFilename); sshKeyFilename != "" && protocol != "https" {
+	if sshKeyFilename := resolveSSHKeyFilename(sshKeyFileFlagValue, currentProfile.SshKeyFilename); sshKeyFilename != "" && protocol != cloneProtocolHTTPS {
 		lgr.Printf("[DEBUG] using ssh key file %s", sshKeyFilename)
 		// git passes GIT_SSH_COMMAND to /bin/sh, not an argv vector, so the key path must be
 		// single-quoted and escaped here even though gitCmd's own argv above needs no quoting.
@@ -106,36 +121,21 @@ func cloneProcess(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// repositoryWorkspaceSlug resolves the workspace slug that owns repository, preferring its
-// embedded Workspace object and falling back to the first component of FullName
-// ("workspace-slug/repository-slug") when the API response omitted it.
-func repositoryWorkspaceSlug(repository *Repository) (string, error) {
-	if repository.Workspace != nil && repository.Workspace.Slug != "" {
-		return repository.Workspace.Slug, nil
-	}
-	if parts := strings.SplitN(repository.FullName, "/", 2); len(parts) == 2 && parts[0] != "" {
-		return parts[0], nil
-	}
-	return "", fmt.Errorf("cannot determine workspace for repository %s", repository.Slug)
-}
-
 // resolveProtocol resolves the clone protocol using --protocol, then profile.CloneProtocol, then
-// "git" as the final default. profileProtocol is validated against the same three values as
-// --protocol: an unrecognized value (e.g. a typo, or "http") is rejected rather than silently
-// falling through buildCloneURL's default "git" arm.
+// cloneProtocolGit as the final default. profileProtocol is validated against the same allowed
+// values as --protocol (cloneProtocols): an unrecognized value (e.g. a typo, or "http") is
+// rejected rather than silently falling through buildCloneURL's default arm.
 func resolveProtocol(flagValue, profileProtocol string) (string, error) {
 	if flagValue != "" {
 		return flagValue, nil
 	}
 	if profileProtocol != "" {
-		switch profileProtocol {
-		case "git", "https", "ssh":
-			return profileProtocol, nil
-		default:
-			return "", fmt.Errorf("invalid clone-protocol %q in profile, expected one of: git, https, ssh", profileProtocol)
+		if !slices.Contains(cloneProtocols, profileProtocol) {
+			return "", fmt.Errorf("invalid clone-protocol %q in profile, expected one of: %s", profileProtocol, strings.Join(cloneProtocols, ", "))
 		}
+		return profileProtocol, nil
 	}
-	return "git", nil
+	return cloneProtocolGit, nil
 }
 
 // shellQuoteSingle single-quotes s for safe inclusion in a string passed to /bin/sh (as
@@ -160,15 +160,15 @@ func resolveSSHKeyFilename(flagValue, profileSSHKeyFilename string) string {
 // never log it.
 func buildCloneURL(protocol, workspaceSlug, repositorySlug, cloneUser string) string {
 	switch protocol {
-	case "ssh":
+	case cloneProtocolSSH:
 		return fmt.Sprintf("ssh://git@bitbucket.org/%s/%s.git", workspaceSlug, repositorySlug)
-	case "https":
+	case cloneProtocolHTTPS:
 		target := url.URL{Scheme: "https", Host: "bitbucket.org", Path: fmt.Sprintf("/%s/%s.git", workspaceSlug, repositorySlug)}
 		if cloneUser != "" {
 			target.User = url.User(cloneUser)
 		}
 		return target.String()
-	default: // "git"
+	default: // cloneProtocolGit
 		return fmt.Sprintf("git@bitbucket.org:%s/%s.git", workspaceSlug, repositorySlug)
 	}
 }

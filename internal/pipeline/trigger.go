@@ -106,7 +106,7 @@ func triggerProcess(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot confirm pipeline trigger: %w", err)
 	}
 	if !proceed {
-		fmt.Println("Trigger cancelled")
+		fmt.Println("Trigger canceled")
 		return nil
 	}
 
@@ -131,8 +131,8 @@ func triggerProcess(cmd *cobra.Command, args []string) error {
 
 // buildTriggerTarget resolves the flat Target payload and a human-readable description of it from
 // cmd's own --branch/--commit/--pullrequest/--pattern flags (read directly off cmd, not a
-// package-level variable, so triggerProcess behaves identically whether cmd is the real triggerCmd
-// or a standalone test command carrying its own flags -- mirrors list.go's queryFlagValue). A pull
+// package-level variable, per CLAUDE.md's flag-reading rule, so triggerProcess behaves identically
+// whether cmd is the real triggerCmd or a standalone test command carrying its own flags). A pull
 // request target takes the pull request id alone (BitBucket derives its source/destination/commit
 // server-side); otherwise the target is a branch reference, defaulting to the current git branch
 // (branch.GetCurrentBranch) when --branch is not set, optionally pinned to --commit and/or
@@ -144,7 +144,7 @@ func buildTriggerTarget(cmd *cobra.Command) (target Target, description string, 
 		target = Target{Type: "pipeline_pullrequest_target", PullRequest: &pullRequestReference{Type: "pullrequest", ID: pullRequestID}}
 		description = fmt.Sprintf("pull request #%d", pullRequestID)
 	} else {
-		branchName, _ := cmd.Flags().GetString("branch")
+		branchName := common.StringFlagValue(cmd, "branch")
 		if branchName == "" {
 			branchName, err = branch.GetCurrentBranch(cmd.Context())
 			if err != nil {
@@ -156,12 +156,12 @@ func buildTriggerTarget(cmd *cobra.Command) (target Target, description string, 
 		description = fmt.Sprintf("branch %q", branchName)
 	}
 
-	commitHash, _ := cmd.Flags().GetString("commit")
+	commitHash := common.StringFlagValue(cmd, "commit")
 	if commitHash != "" {
 		target.Commit = &commit.CommitReference{Hash: commitHash}
 	}
 
-	pattern, _ := cmd.Flags().GetString("pattern")
+	pattern := common.StringFlagValue(cmd, "pattern")
 	if pattern != "" {
 		target.Selector = &common.Selector{Type: "custom", Pattern: pattern}
 		description = fmt.Sprintf("%s (custom pipeline %q)", description, pattern)
@@ -171,11 +171,7 @@ func buildTriggerTarget(cmd *cobra.Command) (target Target, description string, 
 
 // triggerVariablesFlagValue reads cmd's own --variable values.
 func triggerVariablesFlagValue(cmd *cobra.Command) []string {
-	values, err := cmd.Flags().GetStringArray("variable")
-	if err != nil {
-		return nil
-	}
-	return values
+	return common.StringArrayFlagValue(cmd, "variable")
 }
 
 // parseTriggerVariables converts "KEY=VALUE" strings into Variables, returning the keys separately

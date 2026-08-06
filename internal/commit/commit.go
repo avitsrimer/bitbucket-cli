@@ -12,7 +12,6 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
-	"github.com/gildas/go-core"
 	"github.com/spf13/cobra"
 )
 
@@ -79,8 +78,8 @@ func (commit Commit) GetType() string {
 	return "commit"
 }
 
-// GetColumnDefinitions gets the column definitions for commits
-func (commit Commit) GetColumnDefinitions() common.Columns[Commit] {
+// Columns gets the column definitions for commits.
+func Columns() common.Columns[Commit] {
 	return columns
 }
 
@@ -88,12 +87,7 @@ func (commit Commit) GetColumnDefinitions() common.Columns[Commit] {
 //
 // implements common.Tableable
 func (commit Commit) GetHeaders(cmd *cobra.Command) []string {
-	if cmd != nil && cmd.Flag("columns") != nil && cmd.Flag("columns").Changed {
-		if columns, err := cmd.Flags().GetStringSlice("columns"); err == nil {
-			return core.Map(columns, func(column string) string { return strings.ReplaceAll(column, "_", " ") })
-		}
-	}
-	return []string{"Hash", "Date", "Author", "Message"}
+	return common.HeadersFromFlag(cmd, "Hash", "Date", "Author", "Message")
 }
 
 // GetRow gets the row for a table
@@ -113,11 +107,11 @@ func (commit Commit) GetRow(headers []string) []string {
 		case "message":
 			row = append(row, commit.Message)
 		case "date":
-			row = append(row, commit.dateCell())
+			row = append(row, common.TimeCell(commit.Date))
 		case "repository":
 			row = append(row, commit.Repository.Name)
 		default:
-			row = append(row, " ")
+			row = append(row, common.EmptyCell)
 		}
 	}
 	return row
@@ -126,14 +120,6 @@ func (commit Commit) GetRow(headers []string) []string {
 // GetShortHash gets the short hash of this commit
 func (commit Commit) GetShortHash() string {
 	return shortHash(commit.Hash)
-}
-
-// dateCell returns Date formatted with common.TableTimeFormat, or " " when it is zero.
-func (commit Commit) dateCell() string {
-	if commit.Date.IsZero() {
-		return " "
-	}
-	return commit.Date.Format(common.TableTimeFormat)
 }
 
 // GetLatestCommit gets the single most recent commit of the repository, purely against the

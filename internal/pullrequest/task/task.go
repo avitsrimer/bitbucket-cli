@@ -85,12 +85,7 @@ var columns = common.Columns[Task]{
 //
 // implements common.Tableables
 func (task Task) GetHeaders(cmd *cobra.Command) []string {
-	if cmd != nil && cmd.Flag("columns") != nil && cmd.Flag("columns").Changed {
-		if columns, err := cmd.Flags().GetStringSlice("columns"); err == nil {
-			return core.Map(columns, func(column string) string { return strings.ReplaceAll(column, "_", " ") })
-		}
-	}
-	return []string{"id", "state", "creator", "created_on", "updated_on", "resolved_on", "resolved_by", "content"}
+	return common.HeadersFromFlag(cmd, "id", "state", "creator", "created_on", "updated_on", "resolved_on", "resolved_by", "content")
 }
 
 // GetRow returns the row to display for this task
@@ -105,8 +100,8 @@ func (task Task) GetRow(headers []string) []string {
 		"id":         strconv.Itoa(task.ID),
 		"content":    task.Content.Raw,
 		"creator":    task.Creator.String(),
-		"created_on": task.CreatedOn.Format(time.RFC3339),
-		"updated_on": task.UpdatedOn.Format(time.RFC3339),
+		"created_on": common.TimeCell(task.CreatedOn),
+		"updated_on": common.TimeCell(task.UpdatedOn),
 		"state":      task.State,
 		"pending":    strconv.FormatBool(task.IsPending),
 	}
@@ -116,21 +111,21 @@ func (task Task) GetRow(headers []string) []string {
 		switch key := common.NormalizeColumnKey(header); key {
 		case "resolved_on":
 			if task.ResolvedOn != nil {
-				row = append(row, task.ResolvedOn.Format(time.RFC3339))
+				row = append(row, common.TimeCell(*task.ResolvedOn))
 			} else {
-				row = append(row, " ")
+				row = append(row, common.EmptyCell)
 			}
 		case "resolved_by":
 			if task.ResolvedBy != nil {
 				row = append(row, task.ResolvedBy.String())
 			} else {
-				row = append(row, " ")
+				row = append(row, common.EmptyCell)
 			}
 		default:
 			if value, found := simple[key]; found {
 				row = append(row, value)
 			} else {
-				row = append(row, " ")
+				row = append(row, common.EmptyCell)
 			}
 		}
 	}

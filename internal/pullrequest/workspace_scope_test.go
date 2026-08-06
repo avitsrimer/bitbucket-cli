@@ -28,23 +28,17 @@ func setupWorkspaceScopeTest(t *testing.T, profileName, repositorySlug string, h
 }
 
 // forbidWorkspaceGet is an http.HandlerFunc wrapper that fails any request whose path contains
-// "/workspaces/" with a 403 shaped like BitBucket's actual scope error (see field report FR-3:
-// "cannot get repository: cannot get workspace: ... required: read:workspace"), while recording
-// every request so a test can assert none of them ever landed here. Requests to /user/workspaces
-// (the different, root--workspace-flag-validation endpoint FR-1 already covers) are unaffected
-// since that path does not contain "/workspaces/" as a segment of a slug lookup here -- this
-// helper only guards the workspace *object* endpoints this fix removes from these code paths.
+// "/workspaces/" with a 403 shaped like BitBucket's actual scope error, while recording every
+// request so a test can assert none of them ever landed here. Requests to /user/workspaces (the
+// different, root---workspace-flag-validation endpoint) are unaffected since that path does not
+// contain "/workspaces/" as a segment of a slug lookup here -- this helper only guards the
+// workspace *object* endpoints resolving --repository/--workspace must never fetch.
 func forbidWorkspaceGet(t *testing.T, requests *[]*http.Request, onOtherRequest http.HandlerFunc) http.HandlerFunc {
 	t.Helper()
+	deniedHandler := testutil.WorkspaceScopeDeniedHandler(t, onOtherRequest)
 	return func(w http.ResponseWriter, r *http.Request) {
 		*requests = append(*requests, r)
-		if strings.Contains(r.URL.Path, "/workspaces/") {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			_, _ = w.Write([]byte(`{"type":"error","error":{"message":"Your credentials lack one or more required privilege scopes. (required: read:workspace:bitbucket)"}}`))
-			return
-		}
-		onOtherRequest(w, r)
+		deniedHandler(w, r)
 	}
 }
 
@@ -60,11 +54,11 @@ func assertNoWorkspaceGetRequests(t *testing.T, requests []*http.Request) {
 	}
 }
 
-// TestListProcessResolvesRepositoryWithoutWorkspaceRequest is field report FR-3's end-to-end
-// regression test: "bb pullrequest list --repository <slug> --workspace <slug>" against a token
-// that can read the repository and its pullrequests but lacks read:workspace must succeed, because
-// resolving the repository must never fetch a Workspace object purely to read back the slug the
-// --workspace flag already supplied verbatim.
+// TestListProcessResolvesRepositoryWithoutWorkspaceRequest proves "bb pullrequest list
+// --repository <slug> --workspace <slug>" against a token that can read the repository and its
+// pullrequests but lacks read:workspace succeeds, because resolving the repository must never
+// fetch a Workspace object purely to read back the slug the --workspace flag already supplied
+// verbatim.
 func TestListProcessResolvesRepositoryWithoutWorkspaceRequest(t *testing.T) {
 	withListOptions(t, func() {
 		listOptions.Commit = ""

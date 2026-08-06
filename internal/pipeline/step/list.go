@@ -18,16 +18,11 @@ var listCmd = &cobra.Command{
 	RunE:  listProcess,
 }
 
-var listOptions struct {
-	Columns *common.EnumSliceFlag
-	SortBy  *common.EnumFlag
-}
-
 func init() {
 	Command.AddCommand(listCmd)
 
 	registerPipelineFlag(listCmd, "Pipeline to list steps from")
-	listOptions.Columns, listOptions.SortBy = common.RegisterListFlags(listCmd, columns, "steps")
+	common.RegisterListFlags(listCmd, columns, "steps")
 }
 
 func listProcess(cmd *cobra.Command, args []string) error {

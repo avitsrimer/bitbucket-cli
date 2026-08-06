@@ -23,26 +23,17 @@ var listCmd = &cobra.Command{
 var listOptions struct {
 	Query         string
 	PullRequestID *common.EnumFlag
-	Columns       *common.EnumSliceFlag
-	SortBy        *common.EnumFlag
 }
 
 func init() {
 	Command.AddCommand(listCmd)
 
-	listOptions.PullRequestID = common.NewEnumFlagWithFunc(listCmd, "", prcommon.GetPullRequestIDs)
-	listOptions.Columns = common.NewEnumSliceFlagWithAllAllowed(columns.Columns()...)
-	listOptions.SortBy = common.NewEnumFlag(columns.Sorters()...)
+	listOptions.PullRequestID = common.NewEnumFlagWithFunc("", prcommon.GetPullRequestIDs)
 	listCmd.Flags().Var(listOptions.PullRequestID, "pullrequest", "pullrequest to list comments from")
 	listCmd.Flags().StringVar(&listOptions.Query, "query", "", "Query string to filter comments")
-	listCmd.Flags().Var(listOptions.Columns, "columns", "Comma-separated list of columns to display")
-	listCmd.Flags().Var(listOptions.SortBy, "sort", "Column to sort by")
-	listCmd.Flags().Int("page-length", 0, "Number of items per page to retrieve from Bitbucket. Default is the profile's default page length")
-	listCmd.Flags().Int("limit", 0, "Maximum total number of comments to retrieve. Default is to retrieve all of them")
+	common.RegisterListFlags(listCmd, columns, "comments")
 	_ = listCmd.MarkFlagRequired("pullrequest")
 	_ = listCmd.RegisterFlagCompletionFunc(listOptions.PullRequestID.CompletionFunc("pullrequest"))
-	_ = listCmd.RegisterFlagCompletionFunc(listOptions.Columns.CompletionFunc("columns"))
-	_ = listCmd.RegisterFlagCompletionFunc(listOptions.SortBy.CompletionFunc("sort"))
 }
 
 func listProcess(cmd *cobra.Command, args []string) (err error) {
@@ -70,7 +61,9 @@ func listProcess(cmd *cobra.Command, args []string) (err error) {
 		lgr.Printf("[DEBUG] no comment found")
 		return nil
 	}
-	core.Sort(comments, columns.SortBy(listOptions.SortBy.Value))
+	if sortValue := common.SortFlagValue(cmd); sortValue != "" {
+		core.Sort(comments, columns.SortBy(sortValue))
+	}
 	if err := profile.Current.Print(
 		cmd.Context(),
 		cmd,

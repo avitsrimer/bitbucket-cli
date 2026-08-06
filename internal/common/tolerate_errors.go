@@ -27,9 +27,8 @@ type ErrorTolerance interface {
 //
 // It returns nil whenever errs joins to nil (nothing to tolerate in the first place) or whenever
 // tolerance absorbs the joined error; callers must not call ShouldWarnOnError/ShouldIgnoreErrors
-// themselves against a possibly-nil joined error, which is exactly the mistake this helper
-// exists to prevent (see internal/artifact/download.go's [WARN] with a literal "%!s(<nil>)" that
-// motivated lifting this out of three separate near-identical copies).
+// themselves against a possibly-nil joined error -- doing so risks logging a warning with a
+// literal "%!s(<nil>)" instead of skipping the message entirely.
 func TolerateErrors(cmd *cobra.Command, tolerance ErrorTolerance, errs []error, summary string) error {
 	joined := errors.Join(errs...)
 	if joined == nil {

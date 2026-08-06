@@ -18,15 +18,10 @@ var membersCmd = &cobra.Command{
 	RunE:              membersProcess,
 }
 
-var membersOptions struct {
-	Columns *common.EnumSliceFlag
-	SortBy  *common.EnumFlag
-}
-
 func init() {
 	Command.AddCommand(membersCmd)
 
-	membersOptions.Columns, membersOptions.SortBy = common.RegisterListFlags(membersCmd, memberColumns, "members")
+	common.RegisterListFlags(membersCmd, memberColumns, "members")
 }
 
 func membersProcess(cmd *cobra.Command, args []string) error {
@@ -34,8 +29,8 @@ func membersProcess(cmd *cobra.Command, args []string) error {
 	var err error
 
 	// The workspace here is only ever used to build the /workspaces/{slug}/members request path
-	// (via Workspace.GetMembers), so an explicit argument is used as-is and the no-argument case
-	// resolves the slug with no API call (GetWorkspaceName) instead of fetching a Workspace object.
+	// (via GetMembers), so an explicit argument is used as-is and the no-argument case resolves
+	// the slug with no API call (GetWorkspaceName) instead of fetching a Workspace object.
 	if len(args) == 0 {
 		workspaceSlug, err = GetWorkspaceName(cmd.Context(), cmd)
 		if err != nil {
@@ -50,7 +45,7 @@ func membersProcess(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	members, err := Workspace{Slug: workspaceSlug}.GetMembers(cmd.Context(), cmd)
+	members, err := GetMembers(cmd.Context(), cmd, workspaceSlug)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve members of workspace %s: %w", workspaceSlug, err)
 	}

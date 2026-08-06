@@ -19,15 +19,10 @@ var listCmd = &cobra.Command{
 	RunE:  listProcess,
 }
 
-var listOptions struct {
-	Columns *common.EnumSliceFlag
-	SortBy  *common.EnumFlag
-}
-
 func init() {
 	Command.AddCommand(listCmd)
 
-	listOptions.Columns, listOptions.SortBy = common.RegisterListFlags(listCmd, columns, "pipelines")
+	common.RegisterListFlags(listCmd, columns, "pipelines")
 	// --query has no package-level destination: listProcess reads it directly off cmd below, so a
 	// bound variable here would only ever be write-only state.
 	listCmd.Flags().String("query", "", "Query string to filter pipelines")
@@ -45,7 +40,7 @@ func listProcess(cmd *cobra.Command, args []string) error {
 	}
 
 	uriPath := repo.GetPath("pipelines") + "?sort=-created_on"
-	if query, _ := cmd.Flags().GetString("query"); query != "" {
+	if query := common.StringFlagValue(cmd, "query"); query != "" {
 		uriPath += "&q=" + url.QueryEscape(query)
 	}
 

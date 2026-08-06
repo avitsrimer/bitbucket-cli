@@ -4,10 +4,8 @@ import (
 	"fmt"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
-	"github.com/avitsrimer/bitbucket-cli/internal/profile"
-	"github.com/avitsrimer/bitbucket-cli/internal/pullrequest/common"
+	prcommon "github.com/avitsrimer/bitbucket-cli/internal/pullrequest/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
-	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -27,7 +25,7 @@ var deleteOptions struct {
 func init() {
 	Command.AddCommand(deleteCmd)
 
-	deleteOptions.PullRequestID = common.NewEnumFlagWithFunc(deleteCmd, "", prcommon.GetPullRequestIDs)
+	deleteOptions.PullRequestID = common.NewEnumFlagWithFunc("", prcommon.GetPullRequestIDs)
 	deleteCmd.Flags().Var(deleteOptions.PullRequestID, "pullrequest", "Pullrequest to delete comments from")
 	_ = deleteCmd.MarkFlagRequired("pullrequest")
 	_ = deleteCmd.RegisterFlagCompletionFunc(deleteOptions.PullRequestID.CompletionFunc("pullrequest"))
@@ -46,32 +44,10 @@ func deleteValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]st
 }
 
 func deleteProcess(cmd *cobra.Command, args []string) error {
-	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
-	if err != nil {
-		return fmt.Errorf("cannot get profile: %w", err)
-	}
-
-	repository, err := repository.GetRepository(cmd.Context(), cmd)
+	repo, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
 		return fmt.Errorf("cannot get repository: %w", err)
 	}
 
-	var errs []error
-	for _, commentID := range args {
-		if common.WhatIf(cmd, "Deleting comment %s from pullrequest %s", commentID, deleteOptions.PullRequestID.Value) {
-			err := profile.Delete(
-				cmd.Context(),
-				repository.GetPath("pullrequests", deleteOptions.PullRequestID.Value, "comments", commentID),
-				nil,
-			)
-			if err != nil {
-				if profile.ShouldStopOnError(cmd) {
-					return fmt.Errorf("failed to delete pullrequest comment %s: %w", commentID, err)
-				}
-				errs = append(errs, err)
-			}
-			lgr.Printf("[DEBUG] pullrequest comment %s deleted", commentID)
-		}
-	}
-	return common.TolerateErrors(cmd, profile, errs, "delete these comments") //nolint:wrapcheck // TolerateErrors returns the same joined error verbatim (or nil); wrapping would prefix it with redundant noise
+	return prcommon.DeleteSubResources(cmd, repo, deleteOptions.PullRequestID.Value, "comments", args, "comment", "comments") //nolint:wrapcheck // DeleteSubResources returns the same joined error TolerateErrors produces (or nil); wrapping would prefix it with redundant noise
 }

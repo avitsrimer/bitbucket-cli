@@ -23,9 +23,8 @@ var downloadCmd = &cobra.Command{
 		"directory), overwriting a file already there and creating it otherwise; the destination " +
 		"file is only created or replaced once its whole download has completed successfully, so " +
 		"a failed download never leaves a stray empty or partial file behind. Overwriting a file " +
-		"preserves its existing permissions; a newly created file gets the normal 0666 minus your " +
-		"umask, not a restricted mode. The destination directory itself is never created and must " +
-		"already exist.",
+		"preserves its existing permissions; a newly created file gets mode 0644, not a restricted " +
+		"mode. The destination directory itself is never created and must already exist.",
 	Args:              cobra.MinimumNArgs(1),
 	ValidArgsFunction: downloadValidArgs,
 	RunE:              downloadProcess,
@@ -83,20 +82,12 @@ func downloadProcess(cmd *cobra.Command, args []string) error {
 	return common.TolerateErrors(cmd, profileCurrent, errs, "download these artifacts") //nolint:wrapcheck // TolerateErrors returns the same joined error verbatim (or nil); wrapping would prefix it with redundant noise
 }
 
-// destinationFlagValue reads cmd's own --destination flag directly (rather than binding it to a
-// package-level variable, which would only ever be populated on the real downloadCmd instance), so
-// downloadProcess behaves the same whether cmd is downloadCmd itself or a standalone test command
-// carrying its own --destination flag.
+// destinationFlagValue reads cmd's own --destination flag via common.StringFlagValue (rather
+// than binding it to a package-level variable, which would only ever be populated on the real
+// downloadCmd instance), so downloadProcess behaves the same whether cmd is downloadCmd itself or
+// a standalone test command carrying its own --destination flag.
 func destinationFlagValue(cmd *cobra.Command) string {
-	flag := cmd.Flag("destination")
-	if flag == nil {
-		return ""
-	}
-	value, err := cmd.Flags().GetString("destination")
-	if err != nil {
-		return ""
-	}
-	return value
+	return common.StringFlagValue(cmd, "destination")
 }
 
 // downloadOne downloads a single artifact by name into destDir, naming the local file after
@@ -105,7 +96,7 @@ func destinationFlagValue(cmd *cobra.Command) string {
 // only renamed over the final destination path once the download completes successfully, so a
 // failed attempt neither leaves a stray file behind nor corrupts a file already at that
 // destination. The temp file's mode is adjusted before the rename to match the file it replaces
-// (or the process umask for a new file), so a download never silently downgrades an existing
+// (or defaultNewFileMode for a new file), so a download never silently downgrades an existing
 // destination file to os.CreateTemp's owner-only 0600.
 func downloadOne(cmd *cobra.Command, profileCurrent *profile.Profile, repo *repository.Repository, destDir, name string) error {
 	destPath := filepath.Join(destDir, filepath.Base(name))
@@ -140,29 +131,20 @@ func downloadOne(cmd *cobra.Command, profileCurrent *profile.Profile, repo *repo
 	return nil
 }
 
+// defaultNewFileMode is the mode a newly downloaded artifact gets when there is no existing file
+// at the destination whose mode to preserve instead. This is a fixed value, not the process
+// umask applied to a request for 0o666: probing the umask would mean creating a throwaway file
+// in the destination directory, a real filesystem side effect that can itself fail (e.g. a
+// read-only destination directory) or collide with a concurrent download in the same process --
+// for a value that only ever affects a downloaded file's cosmetic permissions.
+const defaultNewFileMode = os.FileMode(0o644)
+
 // destinationFileMode returns the mode of the file already at destPath, so overwriting it
-// preserves that mode; when destPath does not exist yet, it returns the mode the process's umask
-// would leave from a request for 0o666 (matching what os.Create/os.WriteFile would produce for a
-// brand-new file), rather than os.CreateTemp's fixed owner-only 0600.
+// preserves that mode; when destPath does not exist yet, it returns defaultNewFileMode rather
+// than os.CreateTemp's fixed owner-only 0600.
 func destinationFileMode(destPath string) os.FileMode {
 	if info, err := os.Stat(destPath); err == nil {
 		return info.Mode().Perm()
 	}
-	// os.CreateTemp always requests 0600 regardless of umask, so probe with os.OpenFile (which
-	// does apply the umask, like os.Create) against a name guaranteed not to collide. The 0666
-	// request is deliberate, not a hardening gap: it exists solely to read back what the umask
-	// leaves of it, and the probe file itself is removed immediately below, never left on disk.
-	probeName := filepath.Join(filepath.Dir(destPath), fmt.Sprintf(".artifact-mode-probe-%d", os.Getpid()))
-	probe, err := os.OpenFile(probeName, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o666) //nolint:gosec // G302: probing the umask-adjusted default for a *new* file requires requesting 0666 (matching os.Create's own default); see comment above
-	if err != nil {
-		return 0o644
-	}
-	defer func() {
-		_ = probe.Close()
-		_ = os.Remove(probeName)
-	}()
-	if info, err := probe.Stat(); err == nil {
-		return info.Mode().Perm()
-	}
-	return 0o644
+	return defaultNewFileMode
 }
