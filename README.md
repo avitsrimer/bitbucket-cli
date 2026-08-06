@@ -919,27 +919,32 @@ bb pipeline stop 123456
 #### Pipeline Steps
 
 > [!IMPORTANT]
-> `--pipeline` is required on every command in this subgroup — unlike `bb commit get`, there is no
-> "latest pipeline" fallback when it is omitted.
+> The pipeline is a required positional argument on every command in this subgroup — unlike `bb
+> commit get`, there is no "latest pipeline" fallback when it is omitted. `<pipeline-step-uuid-or-name>`
+> accepts either form: a UUID is used as-is, a name is resolved against the pipeline's steps
+> (case-insensitively, trimmed). An unknown name errors listing the available step names; a name
+> matching more than one step (BitBucket allows duplicate step names) errors listing the ambiguous
+> candidates and their UUIDs, and asks you to pass a UUID instead.
 
 You can list the steps of a pipeline with the `bb pipeline step list` command:
 
 ```bash
-bb pipeline step list --pipeline 123456
+bb pipeline step list 123456
 ```
 
 You can get the details of a step with the `bb pipeline step get` command:
 
 ```bash
-bb pipeline step get --pipeline 123456 {stepUUID}
+bb pipeline step get 123456 {stepUUID}
+bb pipeline step get 123456 "Build and Test"
 ```
 
 You can get the logs, test report, and test cases of a step with the `bb pipeline step logs`, `bb pipeline step report`, and `bb pipeline step cases` commands:
 
 ```bash
-bb pipeline step logs   --pipeline 123456 {stepUUID}
-bb pipeline step report --pipeline 123456 {stepUUID}
-bb pipeline step cases  --pipeline 123456 {stepUUID}
+bb pipeline step logs   123456 {stepUUID}
+bb pipeline step report 123456 {stepUUID}
+bb pipeline step cases  123456 {stepUUID}
 ```
 
 ### Artifacts

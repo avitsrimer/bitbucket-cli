@@ -20,8 +20,9 @@ func TestMain(m *testing.M) {
 
 // setupTest points the profile client at a fresh httptest server, primes the fixture workspace and
 // repository caches, and returns a standalone command carrying the flags this package's RunE
-// functions read: everything testutil.SetupProfile registers, plus this package's own pipeline,
-// columns, and sort flags.
+// functions read: everything testutil.SetupProfile registers, plus this package's own columns and
+// sort flags. The pipeline and step ids are read as positionals, not flags, so they are passed
+// directly in the args slice at each call site instead of being registered here.
 func setupTest(t *testing.T, handler http.HandlerFunc, dryRun bool) *cobra.Command {
 	t.Helper()
 
@@ -30,7 +31,6 @@ func setupTest(t *testing.T, handler http.HandlerFunc, dryRun bool) *cobra.Comma
 	if dryRun {
 		_ = cmd.Flags().Set("dry-run", "true")
 	}
-	cmd.Flags().String("pipeline", "", "")
 	cmd.Flags().StringSlice("columns", []string{}, "")
 	// "" mirrors columns' own lack of a DefaultSorter (no column here is marked DefaultSorter, so
 	// the real listCmd's --sort flag defaults to "" too), which is what makes listProcess skip
