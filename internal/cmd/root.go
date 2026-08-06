@@ -79,6 +79,7 @@ func init() {
 	RootCmd.AddCommand(profile.Command)
 	RootCmd.AddCommand(pullrequest.Command)
 	RootCmd.AddCommand(user.Command)
+	RootCmd.AddCommand(workspace.Command)
 
 	RootCmd.SilenceUsage = true // Do not show usage when an error occurs
 	cobra.OnInitialize(func() {
