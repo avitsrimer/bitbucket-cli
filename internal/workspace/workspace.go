@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/avitsrimer/bitbucket-cli/internal/remote"
+	"github.com/gildas/go-core"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -23,11 +25,63 @@ type Workspace struct {
 
 var WorkspaceCache = common.NewCache[Workspace]()
 
+// Command represents this folder's command
+var Command = &cobra.Command{
+	Use:   "workspace",
+	Short: "Manage workspaces",
+	Run:   common.SubcommandRequired("Workspace"),
+}
+
+var columns = common.Columns[Workspace]{
+	{Name: "id", DefaultSorter: false, Compare: func(a, b Workspace) bool {
+		return strings.ToLower(a.ID.String()) < strings.ToLower(b.ID.String())
+	}},
+	{Name: "name", DefaultSorter: true, Compare: func(a, b Workspace) bool {
+		return strings.ToLower(a.Name) < strings.ToLower(b.Name)
+	}},
+	{Name: "slug", DefaultSorter: false, Compare: func(a, b Workspace) bool {
+		return strings.ToLower(a.Slug) < strings.ToLower(b.Slug)
+	}},
+}
+
 // GetType gets the type of the workspace
 //
 // implements core.TypeCarrier
 func (workspace Workspace) GetType() string {
 	return "workspace"
+}
+
+// GetHeaders gets the header for a table
+//
+// implements common.Tableable
+func (workspace Workspace) GetHeaders(cmd *cobra.Command) []string {
+	if cmd != nil && cmd.Flag("columns") != nil && cmd.Flag("columns").Changed {
+		if values, err := cmd.Flags().GetStringSlice("columns"); err == nil {
+			return core.Map(values, func(column string) string { return strings.ReplaceAll(column, "_", " ") })
+		}
+	}
+	return []string{"ID", "Name", "Slug"}
+}
+
+// GetRow gets the row for a table
+//
+// implements common.Tableable
+func (workspace Workspace) GetRow(headers []string) []string {
+	var row []string
+
+	for _, header := range headers {
+		switch common.NormalizeColumnKey(header) {
+		case "id":
+			row = append(row, workspace.ID.String())
+		case "name":
+			row = append(row, workspace.Name)
+		case "slug":
+			row = append(row, workspace.Slug)
+		default:
+			row = append(row, " ")
+		}
+	}
+	return row
 }
 
 // String returns the string representation of the workspace
