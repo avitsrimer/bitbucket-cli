@@ -1,8 +1,10 @@
 package pullrequest
 
 import (
+	"context"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
@@ -99,13 +101,17 @@ func activitiesProcess(cmd *cobra.Command, args []string) (err error) {
 		return nil
 	}
 
-	// GetAllUnbounded, not GetAll: an unknown activity kind is dropped by filterUnknownActivityKinds
-	// below, after the fetch. Fetching with GetAll's own --limit-bounded pagination would apply
-	// --limit to the RAW page (known and unknown kinds together), so a feed containing unrecognized
-	// entries could return fewer than --limit known activities, or even zero, despite --limit
-	// activities actually existing. Filtering happens first here, then activityLimit below applies
-	// --limit to the filtered result, exactly like GetAll would have applied it to an all-known feed.
-	activities, err := profile.GetAllUnbounded[Activity](cmd.Context(), cmd, uripath)
+	// fetchActivityPages, not profile.GetAll: an unknown activity kind is dropped by
+	// filterUnknownActivityKinds below, after the fetch. Fetching with GetAll's own
+	// --limit-bounded pagination would apply --limit to the RAW page (known and unknown kinds
+	// together), so a feed containing unrecognized entries could return fewer than --limit known
+	// activities, or even zero, despite --limit activities actually existing. fetchActivityPages
+	// instead stops paginating once it has collected --limit KNOWN activities (or the feed is
+	// exhausted, when --limit is unset), so --limit still bounds the number of requests made.
+	// activityLimit below then trims the last page's overshoot down to exactly --limit, exactly
+	// like GetAll would have applied it to an all-known feed.
+	pageLength, limit := activityPageLengthAndLimit(cmd, currentProfile.DefaultPageLength)
+	activities, err := fetchActivityPages(cmd.Context(), currentProfile, uripath, pageLength, limit)
 	if err != nil {
 		return err
 	}
@@ -126,6 +132,71 @@ func activitiesProcess(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("cannot print result: %w", err)
 	}
 	return nil
+}
+
+// activityPageLengthAndLimit reads cmd's own --page-length and --limit flags, mirroring
+// profile.resolvePageLengthAndLimit (unexported, so not reusable directly): pageLength defaults to
+// defaultPageLength (the profile's own default), overridden by --page-length when explicitly set;
+// limit is 0 (unbounded) unless --limit is explicitly set to a positive value. Unlike an internal
+// id-resolution query, activitiesProcess's own --limit legitimately bounds THIS query's output, so
+// it is always honored here -- there is no GetAllUnbounded-style case to avoid. When limit is
+// smaller than pageLength, pageLength shrinks to it so the final page does not overfetch.
+func activityPageLengthAndLimit(cmd *cobra.Command, defaultPageLength int) (pageLength, limit int) {
+	pageLength = defaultPageLength
+	if flag := cmd.Flag("page-length"); flag != nil && flag.Changed {
+		if length, err := cmd.Flags().GetInt("page-length"); err == nil && length > 0 {
+			pageLength = length
+		}
+	}
+	if flag := cmd.Flag("limit"); flag != nil && flag.Changed {
+		if limitValue, err := cmd.Flags().GetInt("limit"); err == nil && limitValue > 0 {
+			limit = limitValue
+		}
+	}
+	if limit > 0 && (pageLength == 0 || limit < pageLength) {
+		pageLength = limit
+	}
+	return pageLength, limit
+}
+
+// fetchActivityPages fetches the activity feed at uripath page by page via currentProfile,
+// stopping as soon as it has collected limit KNOWN-kind activities (or the feed is exhausted, when
+// limit is 0) -- restoring --limit's original round-trip-bounding behavior (see the comment at its
+// call site) without re-introducing the bug --limit counting unknown-kind entries caused: an
+// unrecognized activity kind is never excluded from the returned slice here, only from the count
+// this function stops on, so filterUnknownActivityKinds (run once, by the caller, on the returned
+// slice) still sees -- and warns about -- every unknown-kind entry actually fetched, deduped across
+// every page instead of per page.
+func fetchActivityPages(ctx context.Context, currentProfile *profile.Profile, uripath string, pageLength, limit int) ([]Activity, error) {
+	var activities []Activity
+	if pageLength > 0 && !strings.Contains(uripath, "pagelen") {
+		separator := "?"
+		if strings.Contains(uripath, "?") {
+			separator = "&"
+		}
+		uripath = fmt.Sprintf("%s%spagelen=%d", uripath, separator, pageLength)
+	}
+
+	knownCount := 0
+	for {
+		var paginated profile.PaginatedResources[Activity]
+		if getErr := currentProfile.Get(ctx, uripath, &paginated); getErr != nil {
+			return nil, fmt.Errorf("cannot get activities: %w", getErr)
+		}
+		activities = append(activities, paginated.Values...)
+		for _, activity := range paginated.Values {
+			if activity.unknownVariant == "" {
+				knownCount++
+			}
+		}
+		if limit > 0 && knownCount >= limit {
+			return activities, nil
+		}
+		if paginated.Next == "" {
+			return activities, nil
+		}
+		uripath = paginated.Next
+	}
 }
 
 // filterUnknownActivityKinds drops any activity Activity.UnmarshalJSON could not match to a known

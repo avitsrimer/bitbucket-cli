@@ -135,7 +135,7 @@ func GetWorkspaceName(context context.Context, cmd *cobra.Command) (workspaceNam
 		lgr.Printf("[DEBUG] workspace name found in profile: %s", currentProfile.DefaultWorkspace)
 		return currentProfile.DefaultWorkspace, nil
 	}
-	return "", errors.New("argument workspace is missing: pass --workspace, run from a Bitbucket git checkout, or set a default workspace with `bb profile update --default-workspace`")
+	return "", errors.New("argument workspace is missing: pass --workspace, run from a Bitbucket git checkout, or set a default workspace with `bb profile create --default-workspace` (or `bb profile update --default-workspace` if your token has the read:workspace scope)")
 }
 
 // GetWorkspace gets the current workspace as a full Workspace object, fetching it via

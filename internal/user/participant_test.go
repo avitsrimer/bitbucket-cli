@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestParticipantUnmarshalsFromTestdata(t *testing.T) {
@@ -90,5 +92,48 @@ func TestParticipantMarshalJSONKeepsNonZeroParticipatedOn(t *testing.T) {
 	}
 	if !strings.Contains(string(marshaled), "2023-12-01") {
 		t.Errorf("marshaled json = %s, want the real participated_on timestamp preserved", marshaled)
+	}
+}
+
+// TestParticipantMarshalYAMLOmitsZeroParticipatedOn is
+// TestParticipantMarshalJSONOmitsZeroParticipatedOn for -o yaml: FR-9 requires the zero-timestamp
+// omission on both formats, but yaml.Marshal never consults a type's json.Marshaler, so this needs
+// its own Participant.MarshalYAML to not regress independently of the json one.
+//
+// This only asserts on the "participatedon" key itself, not a blanket absence of "0001-01-01"
+// anywhere in the document: the embedded zero-value User also yaml-encodes its own unrelated
+// zero-time CreatedOn field (User has no MarshalYAML, only MarshalJSON), which is a pre-existing
+// gap outside FR-9's scope (Participant.ParticipatedOn specifically).
+func TestParticipantMarshalYAMLOmitsZeroParticipatedOn(t *testing.T) {
+	participant := Participant{Role: "REVIEWER", State: ""}
+
+	data, err := yaml.Marshal(participant)
+	if err != nil {
+		t.Fatalf("cannot marshal participant: %v", err)
+	}
+	if strings.Contains(string(data), "participatedon") {
+		t.Errorf("marshaled yaml = %s, want no participatedon field for a zero time", data)
+	}
+}
+
+// TestParticipantMarshalYAMLKeepsNonZeroParticipatedOn is
+// TestParticipantMarshalJSONKeepsNonZeroParticipatedOn for -o yaml: a reviewer who has actually
+// participated still carries their participated_on timestamp in yaml output.
+func TestParticipantMarshalYAMLKeepsNonZeroParticipatedOn(t *testing.T) {
+	data, err := os.ReadFile("../../testdata/participant.json")
+	if err != nil {
+		t.Fatalf("cannot read testdata: %v", err)
+	}
+	var participant Participant
+	if unmarshalErr := json.Unmarshal(data, &participant); unmarshalErr != nil {
+		t.Fatalf("cannot unmarshal participant: %v", unmarshalErr)
+	}
+
+	marshaled, err := yaml.Marshal(participant)
+	if err != nil {
+		t.Fatalf("cannot marshal participant: %v", err)
+	}
+	if !strings.Contains(string(marshaled), "2023-12-01") {
+		t.Errorf("marshaled yaml = %s, want the real participated_on timestamp preserved", marshaled)
 	}
 }

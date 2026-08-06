@@ -266,3 +266,29 @@ func TestResolveStepIDUnknownNameNoNamedStepsAtAll(t *testing.T) {
 		t.Errorf("error = %q, want it to name the unresolved value", err.Error())
 	}
 }
+
+// TestResolveStepIDUnknownNameExcludesWhitespaceOnlyNames proves a whitespace-only step name is
+// never advertised as an available candidate: the zero-match error's "available step names" list
+// must agree with the match loop above it, which already skips a whitespace-only name via
+// strings.TrimSpace(step.Name) != "" -- listing it with the untrimmed step.Name != "" check would
+// otherwise falsely tell the caller a whitespace-only name is a matchable value.
+func TestResolveStepIDUnknownNameExcludesWhitespaceOnlyNames(t *testing.T) {
+	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[` +
+			`{"type":"pipeline_step","uuid":"{11111111-1111-1111-1111-111111111111}","name":"   "},` +
+			`{"type":"pipeline_step","uuid":"{22222222-2222-2222-2222-222222222222}"}` +
+			`]}`))
+	}, false)
+
+	_, err := resolveStepID(cmd.Context(), cmd, mustRepo(t, cmd), "42", "Deploy")
+	if err == nil {
+		t.Fatal("resolveStepID() expected an error, got nil")
+	}
+	if strings.Contains(err.Error(), "available step names: ") {
+		t.Errorf("error = %q, want no available step names listed (the only step.Name is whitespace-only)", err.Error())
+	}
+	if !strings.Contains(err.Error(), "none of its steps have a name") {
+		t.Errorf("error = %q, want it to say no steps have a name", err.Error())
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/spf13/cobra"
 )
@@ -41,17 +42,28 @@ func TestGetWorkspaceNameErrorNamesAllThreeWaysWhenEveryRungFails(t *testing.T) 
 func TestGetWorkspaceNameLogsWarnOnProfileLoadError(t *testing.T) {
 	chdirToFakeGitConfig(t, "[core]\n\tbare = false\n")
 
-	oldCurrent, oldProfiles := profile.Current, profile.Profiles
+	oldCurrent, oldProfiles, oldConfig := profile.Current, profile.Profiles, common.CurrentConfig()
 	profile.Current = nil
 	profile.Profiles = nil
 	t.Cleanup(func() {
 		profile.Current = oldCurrent
 		profile.Profiles = oldProfiles
+		common.SetCurrentConfig(oldConfig)
 	})
 
 	cmd := &cobra.Command{Use: "test"}
 	cmd.Flags().String("workspace", "", "")
 	cmd.Flags().String("profile", "bogus-profile", "")
+
+	// Warm up common.CurrentConfig() before installing captureLog's buffer: profile.Profiles.Load
+	// (reached below via GetWorkspaceName -> profile.GetProfileFromCommand) only calls
+	// common.Initialize -- which unconditionally resets the global lgr logger to os.Stderr -- when
+	// common.CurrentConfig() is nil. Relying on an earlier test in the package having already
+	// primed it left this test order-dependent (it failed under -run and -shuffle); priming it here
+	// up front keeps it self-sufficient regardless of run order.
+	if err := common.Initialize(cmd); err != nil {
+		t.Fatalf("cannot warm up config: %v", err)
+	}
 
 	logs := captureLog(t)
 

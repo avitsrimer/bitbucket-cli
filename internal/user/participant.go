@@ -8,6 +8,7 @@ import (
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 type Participant struct {
@@ -40,6 +41,30 @@ func (participant Participant) MarshalJSON() (data []byte, err error) {
 		return nil, fmt.Errorf("cannot marshal participant to json: %w", err)
 	}
 	return data, nil
+}
+
+// MarshalYAML implements the yaml.Marshaler interface.
+//
+// ParticipatedOn is only included when non-zero, mirroring MarshalJSON's omission of the same
+// year-1 "0001-01-01T00:00:00Z" timestamp for a reviewer who has not yet acted: yaml.Marshal never
+// consults a type's json.Marshaler, so without this a `-o yaml` reviewer list would still leak the
+// zero value MarshalJSON already hides from `-o json`.
+func (participant Participant) MarshalYAML() (any, error) {
+	type surrogate Participant
+
+	var node yaml.Node
+	if err := node.Encode(surrogate(participant)); err != nil {
+		return nil, fmt.Errorf("cannot encode participant: %w", err)
+	}
+	if participant.ParticipatedOn.IsZero() {
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			if node.Content[i].Value == "participatedon" {
+				node.Content = append(node.Content[:i], node.Content[i+2:]...)
+				break
+			}
+		}
+	}
+	return &node, nil
 }
 
 // GetHeaders gets the header for a table

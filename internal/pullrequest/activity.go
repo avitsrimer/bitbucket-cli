@@ -118,58 +118,34 @@ var activityColumns = common.Columns[Activity]{
 		return !a.summarize().approved && b.summarize().approved
 	}},
 	{Name: "description", DefaultSorter: false, Compare: func(a, b Activity) bool {
-		if a.Update != nil && b.Update != nil {
-			return strings.ToLower(a.Update.Description) < strings.ToLower(b.Update.Description)
-		}
-		return false
+		return strings.ToLower(a.summarize().description) < strings.ToLower(b.summarize().description)
 	}},
 	{Name: "state", DefaultSorter: false, Compare: func(a, b Activity) bool {
 		return strings.ToLower(a.summarize().state) < strings.ToLower(b.summarize().state)
 	}},
 	{Name: "author", DefaultSorter: false, Compare: func(a, b Activity) bool {
-		if a.Update != nil && b.Update != nil {
-			return strings.ToLower(a.Update.Author.Name) < strings.ToLower(b.Update.Author.Name)
-		}
-		return false
+		return strings.ToLower(a.summarize().author) < strings.ToLower(b.summarize().author)
 	}},
 	{Name: "closed_by", DefaultSorter: false, Compare: func(a, b Activity) bool {
-		if a.Update != nil && b.Update != nil {
-			return strings.ToLower(a.Update.ClosedBy.Name) < strings.ToLower(b.Update.ClosedBy.Name)
-		}
-		return false
+		return strings.ToLower(a.summarize().closedBy) < strings.ToLower(b.summarize().closedBy)
 	}},
 	{Name: "reason", DefaultSorter: false, Compare: func(a, b Activity) bool {
-		if a.Update != nil && b.Update != nil {
-			return strings.ToLower(a.Update.Reason) < strings.ToLower(b.Update.Reason)
-		}
-		return false
+		return strings.ToLower(a.summarize().reason) < strings.ToLower(b.summarize().reason)
 	}},
 	{Name: "user", DefaultSorter: false, Compare: func(a, b Activity) bool {
 		return strings.ToLower(a.summarize().actor.Name) < strings.ToLower(b.summarize().actor.Name)
 	}},
 	{Name: "destination", DefaultSorter: false, Compare: func(a, b Activity) bool {
-		if a.Update != nil && b.Update != nil && a.Update.Destination.Repository != nil && b.Update.Destination.Repository != nil {
-			return strings.ToLower(a.Update.Destination.Repository.Name) < strings.ToLower(b.Update.Destination.Repository.Name)
-		}
-		return false
+		return strings.ToLower(a.summarize().destination) < strings.ToLower(b.summarize().destination)
 	}},
 	{Name: "source", DefaultSorter: false, Compare: func(a, b Activity) bool {
-		if a.Update != nil && b.Update != nil && a.Update.Source.Repository != nil && b.Update.Source.Repository != nil {
-			return strings.ToLower(a.Update.Source.Repository.Name) < strings.ToLower(b.Update.Source.Repository.Name)
-		}
-		return false
+		return strings.ToLower(a.summarize().source) < strings.ToLower(b.summarize().source)
 	}},
 	{Name: "created_on", DefaultSorter: false, Compare: func(a, b Activity) bool {
-		if a.Update != nil && b.Update != nil {
-			return a.Update.CreatedOn.Before(b.Update.CreatedOn)
-		}
-		return false
+		return a.summarize().createdOn.Before(b.summarize().createdOn)
 	}},
 	{Name: "updated_on", DefaultSorter: false, Compare: func(a, b Activity) bool {
-		if a.Update != nil && b.Update != nil && !a.Update.UpdatedOn.IsZero() && !b.Update.UpdatedOn.IsZero() {
-			return a.Update.UpdatedOn.Before(b.Update.UpdatedOn)
-		}
-		return false
+		return a.summarize().updatedOn.Before(b.summarize().updatedOn)
 	}},
 }
 
@@ -180,19 +156,33 @@ func (activity Activity) GetHeaders(cmd *cobra.Command) []string {
 	return common.HeadersFromFlag(cmd, "Date", "Approved", "State", "User")
 }
 
-// activitySummary holds the per-variant fields GetRow's per-column switch renders the same way
-// regardless of which variant activity carries, resolved once by summarize instead of inline in
-// GetRow (which keeps GetRow's own per-column switch, already the bulk of its complexity, from
-// also carrying the per-variant one).
+// activitySummary holds every field activityColumns' comparators and GetRow's per-column switch
+// need, resolved once by summarize (instead of inline in either) so both stay variant-agnostic:
+// a field this activity's variant has no value for (e.g. description on an Approval) simply
+// resolves to its zero value, which sorts and renders consistently against every other variant
+// instead of requiring a same-variant guard. GetRow still renders description/author/closed_by/
+// reason/destination/source/created_on/updated_on as common.EmptyCell for a non-Update activity
+// (via updateField) -- summarize's zero-valued fields only drive ordering, not that cell text.
 type activitySummary struct {
-	date     time.Time
-	approved bool
-	state    string
-	actor    user.User
+	date        time.Time
+	approved    bool
+	state       string
+	actor       user.User
+	description string
+	author      string
+	closedBy    string
+	reason      string
+	destination string
+	source      string
+	createdOn   time.Time
+	updatedOn   time.Time
 }
 
-// summarize resolves activity's date/approved/state/actor from whichever variant it carries. A
+// summarize resolves every activitySummary field from whichever variant activity carries. A
 // variant this type does not recognize (unknownVariant set) resolves to the zero activitySummary.
+// Only ActivityUpdate populates description/author/closed_by/reason/destination/source/
+// created_on/updated_on -- every other variant leaves them at their zero value, which is exactly
+// what makes the comparators in activityColumns that sort by those fields variant-agnostic.
 func (activity Activity) summarize() activitySummary {
 	switch {
 	case activity.Approval != nil:
@@ -202,10 +192,32 @@ func (activity Activity) summarize() activitySummary {
 	case activity.Comment != nil:
 		return activitySummary{date: activity.Comment.CreatedOn, actor: activity.Comment.User, state: "N/A"}
 	case activity.Update != nil:
-		return activitySummary{date: activity.Update.Date, state: activity.Update.State, actor: activity.Update.Author}
+		return activitySummary{
+			date:        activity.Update.Date,
+			state:       activity.Update.State,
+			actor:       activity.Update.Author,
+			description: activity.Update.Description,
+			author:      activity.Update.Author.Name,
+			closedBy:    activity.Update.ClosedBy.Name,
+			reason:      activity.Update.Reason,
+			destination: endpointRepositoryName(activity.Update.Destination),
+			source:      endpointRepositoryName(activity.Update.Source),
+			createdOn:   activity.Update.CreatedOn,
+			updatedOn:   activity.Update.UpdatedOn,
+		}
 	default:
 		return activitySummary{}
 	}
+}
+
+// endpointRepositoryName returns endpoint.Repository's Name, or "" when endpoint carries no
+// repository (e.g. a source/destination whose repository was deleted after the pull request was
+// opened).
+func endpointRepositoryName(endpoint Endpoint) string {
+	if endpoint.Repository == nil {
+		return ""
+	}
+	return endpoint.Repository.Name
 }
 
 // GetRow gets the row for a table
