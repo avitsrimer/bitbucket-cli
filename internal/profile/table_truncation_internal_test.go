@@ -132,6 +132,25 @@ func TestTruncateTableRow(t *testing.T) {
 	}
 }
 
+// TestTruncateTableRowCapsParticipants proves the "participants" column -- a pull request's
+// per-reviewer "nickname:state" summary, whose rendered length grows with the reviewer count --
+// is capped by the same freeTextColumnKeys mechanism as description/title/etc., so a PR with many
+// reviewers cannot blow the table out to an unreadable width (the same class of regression FR-4
+// fixed for other free-text columns).
+func TestTruncateTableRowCapsParticipants(t *testing.T) {
+	headers := []string{"id", "participants"}
+	longParticipants := strings.Repeat("reviewer_name:changes_requested, ", 10)
+
+	got := truncateTableRow(headers, []string{"1", longParticipants})
+
+	if got[1] == longParticipants {
+		t.Errorf("truncateTableRow()[1] (participants) = %q, want it truncated", got[1])
+	}
+	if runewidth.StringWidth(got[1]) > maxTableCellWidth {
+		t.Errorf("truncateTableRow()[1] (participants) display width = %d, want <= %d", runewidth.StringWidth(got[1]), maxTableCellWidth)
+	}
+}
+
 // TestPrintTableTruncatesLongCellAndCapsEveryRenderedLine proves a table cell built from a
 // 5000-character description does not blow the rendered table out to an unreadable width: it
 // must be ellipsized, and no line printTable renders may exceed a bounded width (the cap itself

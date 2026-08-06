@@ -65,6 +65,68 @@ func TestPullRequestGetRow(t *testing.T) {
 	}, row)
 }
 
+// TestPullRequestGetRowParticipants proves the "participants" column renders one
+// "nickname:state" pair per participant (state readable per reviewer, the whole point of FR-9),
+// falls back to the display name when a participant has no nickname, and reports "pending" for a
+// participant who has not yet reviewed (an empty State from the API).
+func TestPullRequestGetRowParticipants(t *testing.T) {
+	target := pullrequest.PullRequest{
+		Participants: []user.Participant{
+			{User: user.User{Nickname: "jane_doe"}, State: "approved"},
+			{User: user.User{Nickname: "john_doe"}, State: "changes_requested"},
+			{User: user.User{Name: "No Nickname"}, State: ""},
+		},
+	}
+
+	row := target.GetRow([]string{"participants"})
+
+	assert.Equal(t, []string{"jane_doe:approved, john_doe:changes_requested, No Nickname:pending"}, row)
+}
+
+// TestPullRequestGetRowParticipantsEmpty proves an empty/nil participant slice renders the shared
+// common.EmptyCell filler rather than an empty string, matching every other empty-optional column.
+func TestPullRequestGetRowParticipantsEmpty(t *testing.T) {
+	target := pullrequest.PullRequest{}
+
+	row := target.GetRow([]string{"participants"})
+
+	assert.Equal(t, []string{" "}, row)
+}
+
+// TestPullRequestGetRowCoversEveryColumn iterates every column name GetHeaders can produce via
+// --columns (the participants column above already covers the one entry needing a non-trivial
+// fixture) and requires each declared column to produce its real value instead of falling through
+// to GetRow's default " " arm for a populated field.
+func TestPullRequestGetRowCoversEveryColumn(t *testing.T) {
+	createdOn := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
+	target := pullrequest.PullRequest{
+		ID:           42,
+		Title:        "Add feature",
+		Description:  "some description",
+		State:        "OPEN",
+		Author:       user.User{Name: "Jane Doe"},
+		ClosedBy:     user.User{Name: "John Doe"},
+		Reason:       "declined by reviewer",
+		CommentCount: 3,
+		TaskCount:    1,
+		Participants: []user.Participant{{User: user.User{Nickname: "jane_doe"}, State: "approved"}},
+		CreatedOn:    createdOn,
+		UpdatedOn:    createdOn,
+		Source:       pullrequest.Endpoint{Branch: pullrequest.Branch{Name: "feature"}},
+		Destination:  pullrequest.Endpoint{Branch: pullrequest.Branch{Name: "master"}},
+		MergeCommit:  &commit.CommitReference{Hash: "abcdef0123456789"},
+	}
+
+	for _, name := range []string{
+		"id", "title", "description", "source", "destination", "state", "author", "closed_by",
+		"commit", "reason", "comments", "tasks", "participants", "created_on", "updated_on",
+	} {
+		row := target.GetRow([]string{name})
+		require.Len(t, row, 1)
+		assert.NotEqual(t, " ", row[0], "column %q hit GetRow's default arm instead of a real case", name)
+	}
+}
+
 func TestPullRequestGetRowWithoutUpdatedOnOrMergeCommit(t *testing.T) {
 	target := pullrequest.PullRequest{}
 

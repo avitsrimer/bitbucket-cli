@@ -56,6 +56,35 @@ func (suite *PullRequestSuite) TestCanUnmarshal() {
 	suite.JSONEq(string(payload), string(data))
 }
 
+// TestCanUnmarshalParticipants is FR-9's regression: the API returns a "participants" array
+// carrying each reviewer's approval state, but PullRequest had no field for it, making
+// approval-state-per-reviewer unreachable in every output format. This proves the field decodes
+// and that the resolved approval state survives round-tripping back out to json.
+func (suite *PullRequestSuite) TestCanUnmarshalParticipants() {
+	payload := suite.LoadTestData("pullrequest-with-participants.json")
+	var pr pullrequest.PullRequest
+	err := json.Unmarshal(payload, &pr)
+	suite.Require().NoError(err)
+	suite.Require().Len(pr.Participants, 2)
+	suite.Equal("jane_doe", pr.Participants[0].User.Nickname)
+	suite.Equal("approved", pr.Participants[0].State)
+	suite.True(pr.Participants[0].Approved)
+	suite.Equal("john_smith", pr.Participants[1].User.Nickname)
+	suite.Equal("changes_requested", pr.Participants[1].State)
+	suite.False(pr.Participants[1].Approved)
+
+	data, err := json.Marshal(pr)
+	suite.Require().NoError(err)
+	var raw map[string]any
+	suite.Require().NoError(json.Unmarshal(data, &raw))
+	participants, ok := raw["participants"].([]any)
+	suite.Require().True(ok, "marshaled pullrequest is missing a \"participants\" array")
+	suite.Require().Len(participants, 2)
+	first, ok := participants[0].(map[string]any)
+	suite.Require().True(ok)
+	suite.Equal("approved", first["state"], "approval state per reviewer must be reachable in json output")
+}
+
 func (suite *PullRequestSuite) TestCanUnmarshalWithNilDestinationRepository() {
 	payload := suite.LoadTestData("pullrequest-no-dest-repo.json")
 	var pr pullrequest.PullRequest
