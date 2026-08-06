@@ -28,23 +28,31 @@ func reopenProcess(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("cannot reopen comment: %w", validateErr)
 	}
 
-	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
+	ctx := cmd.Context()
+
+	profile, err := profile.GetProfileFromCommand(ctx, cmd)
 	if err != nil {
 		return fmt.Errorf("cannot get profile: %w", err)
 	}
 
-	repository, err := repository.GetRepository(cmd.Context(), cmd)
+	repository, err := repository.GetRepository(ctx, cmd)
 	if err != nil {
 		return fmt.Errorf("cannot get repository: %w", err)
 	}
 
-	if !common.WhatIf(cmd, "Reopening comment %s from pullrequest %s", commentID, pullRequestID) {
+	if err = existsComment(ctx, cmd, repository, pullRequestID, commentID); err != nil {
+		return fmt.Errorf("cannot reopen comment: %w", err)
+	}
+
+	uripath := repository.GetPath("pullrequests", pullRequestID, "comments", commentID, "resolve")
+
+	if !common.WhatIfPayload(cmd, uripath, nil, "Reopening comment %s from pullrequest %s", commentID, pullRequestID) {
 		return nil
 	}
 
 	err = profile.Delete(
-		cmd.Context(),
-		repository.GetPath("pullrequests", pullRequestID, "comments", commentID, "resolve"),
+		ctx,
+		uripath,
 		nil,
 	)
 	if err != nil {

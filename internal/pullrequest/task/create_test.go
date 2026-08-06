@@ -22,32 +22,57 @@ func withCreateOptions(t *testing.T, mutate func()) {
 	mutate()
 }
 
+// taskCreateHandler wraps handleGet/handleWrite the same way comment package's
+// createProcessHandler does: a GET (the preflight pull request existence check) is dispatched to
+// handleGet, and any other method to handleWrite, decoding its body into gotBody first.
+func taskCreateHandler(requests *[]*http.Request, gotBody *TaskCreator, handleGet, handleWrite http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		*requests = append(*requests, r)
+		if r.Method == http.MethodGet {
+			handleGet(w, r)
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(gotBody)
+		handleWrite(w, r)
+	}
+}
+
+func okGetHandler(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(`{"id":42}`))
+}
+
 // TestCreateProcess covers createProcess's success, API-error, and dry-run paths.
 func TestCreateProcess(t *testing.T) {
 	tests := []struct {
 		name          string
-		handler       http.HandlerFunc
+		handleGet     http.HandlerFunc
+		handleWrite   http.HandlerFunc
 		dryRun        bool
 		wantErrSubstr []string
 		validate      func(t *testing.T, requests []*http.Request, gotBody TaskCreator, stdout string)
 	}{
 		{
-			name: "success",
-			handler: func(w http.ResponseWriter, _ *http.Request) {
+			name:      "success",
+			handleGet: okGetHandler,
+			handleWrite: func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = w.Write([]byte(`{"id":99,"content":{"raw":"please fix"}}`))
 			},
 			validate: func(t *testing.T, requests []*http.Request, gotBody TaskCreator, stdout string) {
 				t.Helper()
-				if len(requests) != 1 {
-					t.Fatalf("expected exactly 1 request, got %d", len(requests))
+				if len(requests) != 2 {
+					t.Fatalf("expected exactly 2 requests (preflight GET, task POST), got %d", len(requests))
+				}
+				if requests[0].Method != http.MethodGet {
+					t.Errorf("first request method = %s, want GET (preflight existence check)", requests[0].Method)
 				}
 				wantPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/pullrequests/42/tasks"
-				if requests[0].URL.Path != wantPath {
-					t.Errorf("path = %s, want %s", requests[0].URL.Path, wantPath)
+				if requests[1].URL.Path != wantPath {
+					t.Errorf("path = %s, want %s", requests[1].URL.Path, wantPath)
 				}
-				if requests[0].Method != http.MethodPost {
-					t.Errorf("method = %s, want POST", requests[0].Method)
+				if requests[1].Method != http.MethodPost {
+					t.Errorf("method = %s, want POST", requests[1].Method)
 				}
 				if gotBody.Content.Raw != "please fix" {
 					t.Errorf("posted content = %q, want %q", gotBody.Content.Raw, "please fix")
@@ -65,8 +90,9 @@ func TestCreateProcess(t *testing.T) {
 			},
 		},
 		{
-			name: "api error",
-			handler: func(w http.ResponseWriter, _ *http.Request) {
+			name:      "api error",
+			handleGet: okGetHandler,
+			handleWrite: func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusBadRequest)
 				_, _ = w.Write([]byte(`{"type":"error","error":{"message":"pull request is not open"}}`))
@@ -74,13 +100,30 @@ func TestCreateProcess(t *testing.T) {
 			wantErrSubstr: []string{"failed to create pull request task on pull request 42", "pull request is not open"},
 		},
 		{
-			name:    "dry run",
-			handler: func(http.ResponseWriter, *http.Request) {},
-			dryRun:  true,
+			name: "preflight error: pull request does not exist",
+			handleGet: func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"type":"error","error":{"message":"pull request not found"}}`))
+			},
+			handleWrite:   func(http.ResponseWriter, *http.Request) {},
+			wantErrSubstr: []string{"cannot create task", "failed to get pullrequest 42", "pull request not found"},
 			validate: func(t *testing.T, requests []*http.Request, _ TaskCreator, _ string) {
 				t.Helper()
-				if len(requests) != 0 {
-					t.Errorf("expected no HTTP request in dry-run mode, got %d", len(requests))
+				if len(requests) != 1 || requests[0].Method != http.MethodGet {
+					t.Errorf("requests = %v, want exactly one preflight GET and no task POST", requests)
+				}
+			},
+		},
+		{
+			name:        "dry run",
+			handleGet:   okGetHandler,
+			handleWrite: func(http.ResponseWriter, *http.Request) {},
+			dryRun:      true,
+			validate: func(t *testing.T, requests []*http.Request, _ TaskCreator, _ string) {
+				t.Helper()
+				if len(requests) != 1 || requests[0].Method != http.MethodGet {
+					t.Errorf("requests = %v, want exactly one preflight GET and no task POST in dry-run mode", requests)
 				}
 			},
 		},
@@ -88,43 +131,70 @@ func TestCreateProcess(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			withCreateOptions(t, func() {
-				createOptions.Content = "please fix"
-				createOptions.CommentID.Value = ""
-				createOptions.Pending = false
-			})
-
-			var requests []*http.Request
-			var gotBody TaskCreator
-			cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
-				requests = append(requests, r)
-				_ = json.NewDecoder(r.Body).Decode(&gotBody)
-				tt.handler(w, r)
-			}, tt.dryRun)
-
-			var err error
-			stdout := testutil.CaptureStdout(t, func() {
-				err = createProcess(cmd, []string{"42"})
-			})
-
-			if len(tt.wantErrSubstr) > 0 {
-				if err == nil {
-					t.Fatal("createProcess() expected an error, got nil")
-				}
-				for _, substr := range tt.wantErrSubstr {
-					if !strings.Contains(err.Error(), substr) {
-						t.Errorf("error = %q, want it to contain %q", err.Error(), substr)
-					}
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("createProcess() error = %v", err)
-			}
-			if tt.validate != nil {
-				tt.validate(t, requests, gotBody, stdout)
-			}
+			runTaskCreateProcessCase(t, tt.handleGet, tt.handleWrite, tt.dryRun, tt.wantErrSubstr, tt.validate)
 		})
+	}
+}
+
+// runTaskCreateProcessCase drives one TestCreateProcess table entry: sets up createOptions and the
+// fixture server, runs createProcess, and asserts either the expected error substrings or success,
+// then hands requests/gotBody/stdout to validate (when given) either way.
+func runTaskCreateProcessCase(t *testing.T, handleGet, handleWrite http.HandlerFunc, dryRun bool, wantErrSubstr []string, validate func(t *testing.T, requests []*http.Request, gotBody TaskCreator, stdout string)) {
+	t.Helper()
+	withCreateOptions(t, func() {
+		createOptions.Content = "please fix"
+		createOptions.CommentID.Value = ""
+		createOptions.Pending = false
+	})
+
+	var requests []*http.Request
+	var gotBody TaskCreator
+	cmd := setupTest(t, taskCreateHandler(&requests, &gotBody, handleGet, handleWrite), dryRun)
+
+	var err error
+	stdout := testutil.CaptureStdout(t, func() {
+		err = createProcess(cmd, []string{"42"})
+	})
+
+	if len(wantErrSubstr) > 0 {
+		if err == nil {
+			t.Fatal("createProcess() expected an error, got nil")
+		}
+		for _, substr := range wantErrSubstr {
+			if !strings.Contains(err.Error(), substr) {
+				t.Errorf("error = %q, want it to contain %q", err.Error(), substr)
+			}
+		}
+	} else if err != nil {
+		t.Fatalf("createProcess() error = %v", err)
+	}
+	if validate != nil {
+		validate(t, requests, gotBody, stdout)
+	}
+}
+
+// TestCreateProcessEmptyContentErrors verifies that an empty --content value (which passes
+// cobra's MarkFlagRequired check, since that only requires the flag be set) fails FR-6's full
+// preflight before any HTTP request is sent.
+func TestCreateProcessEmptyContentErrors(t *testing.T) {
+	withCreateOptions(t, func() {
+		createOptions.Content = "   "
+		createOptions.CommentID.Value = ""
+		createOptions.Pending = false
+	})
+
+	var requestCount int
+	cmd := setupTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, false)
+
+	err := createProcess(cmd, []string{"42"})
+	if err == nil {
+		t.Fatal("createProcess() expected an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "task content is empty") {
+		t.Errorf("error = %q, want it to mention the empty task content", err.Error())
+	}
+	if requestCount != 0 {
+		t.Errorf("expected no HTTP request for empty task content, got %d", requestCount)
 	}
 }
 

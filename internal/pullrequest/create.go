@@ -108,16 +108,17 @@ func createProcess(cmd *cobra.Command, args []string) (err error) {
 		}
 	}
 
+	uripath := repository.GetPath("pullrequests")
+
 	lgr.Printf("[DEBUG] creating pullrequest")
-	if !common.WhatIf(cmd, "Creating pullrequest") {
-		fmt.Printf("Dry run: reviewers: %v\n", payload.Reviewers)
+	if !common.WhatIfPayload(cmd, uripath, payload, "Creating pullrequest") {
 		return nil
 	}
 	var pullrequest PullRequest
 
 	err = profile.Post(
 		cmd.Context(),
-		repository.GetPath("pullrequests"),
+		uripath,
 		payload,
 		&pullrequest,
 	)

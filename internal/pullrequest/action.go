@@ -77,11 +77,15 @@ func runAction(cmd *cobra.Command, args []string, spec actionSpec) error {
 		return fmt.Errorf("cannot %s pull request: %w", spec.errVerb, err)
 	}
 
-	if !common.WhatIf(cmd, "%s pullrequest %s", spec.whatIf, pullRequestID) {
-		return nil
+	if err := prcommon.ExistsPullRequest(cmd.Context(), cmd, repository, pullRequestID); err != nil {
+		return fmt.Errorf("cannot %s pull request: %w", spec.errVerb, err)
 	}
 
 	uripath := repository.GetPath("pullrequests", pullRequestID, spec.endpoint)
+
+	if !common.WhatIfPayload(cmd, uripath, nil, "%s pullrequest %s", spec.whatIf, pullRequestID) {
+		return nil
+	}
 
 	if spec.post {
 		var participant user.Participant

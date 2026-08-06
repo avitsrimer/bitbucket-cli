@@ -126,8 +126,10 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 	pullrequest.Summary.Markup = ""
 	pullrequest.Summary.HTML = ""
 
+	uripath := repository.GetPath("pullrequests", args[0])
+
 	lgr.Printf("[DEBUG] updating pullrequest %s", args[0])
-	if !common.WhatIf(cmd, "Updating pullrequest %d", pullrequest.ID) {
+	if !common.WhatIfPayload(cmd, uripath, pullrequest, "Updating pullrequest %d", pullrequest.ID) {
 		return nil
 	}
 
@@ -135,7 +137,7 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 
 	err = profile.Put(
 		cmd.Context(),
-		repository.GetPath("pullrequests", args[0]),
+		uripath,
 		pullrequest,
 		&updated,
 	)

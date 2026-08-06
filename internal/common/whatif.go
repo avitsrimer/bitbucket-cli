@@ -1,6 +1,7 @@
 package common
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -19,6 +20,31 @@ func WhatIf(cmd *cobra.Command, format string, args ...any) (proceed bool) {
 	}
 	lgr.Printf("[DEBUG] dry run: "+format, args...)
 	fmt.Fprintf(os.Stderr, "Dry run: "+format+"\n", args...)
+	return false
+}
+
+// WhatIfPayload behaves exactly like WhatIf (same gate, same "Dry run: <format>" line, same single
+// report) but additionally, only when the gate trips, echoes the resolved request a real
+// invocation would have sent: targetPath always, and payload's indented JSON encoding whenever
+// payload is non-nil. Every IN-scope mutating command calls this once it has finished resolving
+// its request (validating identifiers, fetching related resources, building the request body) so
+// a dry run reports what the real call would actually send instead of a fixed, input-independent
+// line (see the FR-6 section of docs/plans/field-report-findings.md). A payload carrying a secret
+// (e.g. a pipeline trigger's variables) must be redacted by the caller before it reaches here --
+// this function only renders what it is given.
+func WhatIfPayload(cmd *cobra.Command, targetPath string, payload any, format string, args ...any) (proceed bool) {
+	if WhatIf(cmd, format, args...) {
+		return true
+	}
+	fmt.Fprintf(os.Stderr, "Dry run: target %s\n", targetPath)
+	if payload != nil {
+		data, err := json.MarshalIndent(payload, "", "  ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Dry run: cannot render payload: %s\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "Dry run: payload\n%s\n", data)
+		}
+	}
 	return false
 }
 

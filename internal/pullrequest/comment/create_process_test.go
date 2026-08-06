@@ -9,32 +9,59 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 )
 
+// createProcessHandler wraps handler so a GET (the preflight pull request existence check) always
+// succeeds with a minimal pullrequest body, leaving handler to see only the actual write request --
+// unless handler itself wants to special-case the GET (e.g. to simulate a nonexistent pull
+// request), in which case pass handleGet.
+func createProcessHandler(t *testing.T, requests *[]*http.Request, gotBody *CommentPayload, handleGet, handleWrite http.HandlerFunc) http.HandlerFunc {
+	t.Helper()
+	return func(w http.ResponseWriter, r *http.Request) {
+		*requests = append(*requests, r)
+		if r.Method == http.MethodGet {
+			handleGet(w, r)
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(gotBody)
+		handleWrite(w, r)
+	}
+}
+
+func okGetHandler(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(`{"id":42}`))
+}
+
 // TestCreateProcess covers createProcess's success, API-error, and dry-run paths.
 func TestCreateProcess(t *testing.T) {
 	tests := []struct {
 		name          string
-		handler       http.HandlerFunc
+		handleGet     http.HandlerFunc
+		handleWrite   http.HandlerFunc
 		dryRun        bool
 		wantErrSubstr []string
 		validate      func(t *testing.T, requests []*http.Request, gotBody CommentPayload, stdout string)
 	}{
 		{
-			name: "success",
-			handler: func(w http.ResponseWriter, _ *http.Request) {
+			name:      "success",
+			handleGet: okGetHandler,
+			handleWrite: func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = w.Write([]byte(`{"id":1,"content":{"raw":"looks good"}}`))
 			},
 			validate: func(t *testing.T, requests []*http.Request, gotBody CommentPayload, stdout string) {
 				t.Helper()
-				if len(requests) != 1 {
-					t.Fatalf("expected exactly 1 request, got %d", len(requests))
+				if len(requests) != 2 {
+					t.Fatalf("expected exactly 2 requests (preflight GET, comment POST), got %d", len(requests))
+				}
+				if requests[0].Method != http.MethodGet {
+					t.Errorf("first request method = %s, want GET (preflight existence check)", requests[0].Method)
 				}
 				wantPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/pullrequests/42/comments"
-				if requests[0].URL.Path != wantPath {
-					t.Errorf("path = %s, want %s", requests[0].URL.Path, wantPath)
+				if requests[1].URL.Path != wantPath {
+					t.Errorf("path = %s, want %s", requests[1].URL.Path, wantPath)
 				}
-				if requests[0].Method != http.MethodPost {
-					t.Errorf("method = %s, want POST", requests[0].Method)
+				if requests[1].Method != http.MethodPost {
+					t.Errorf("method = %s, want POST", requests[1].Method)
 				}
 				if gotBody.Content.Raw != "looks good" {
 					t.Errorf("posted content.raw = %q, want %q", gotBody.Content.Raw, "looks good")
@@ -52,8 +79,9 @@ func TestCreateProcess(t *testing.T) {
 			},
 		},
 		{
-			name: "api error",
-			handler: func(w http.ResponseWriter, _ *http.Request) {
+			name:      "api error",
+			handleGet: okGetHandler,
+			handleWrite: func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusBadRequest)
 				_, _ = w.Write([]byte(`{"type":"error","error":{"message":"pull request is not open"}}`))
@@ -61,13 +89,30 @@ func TestCreateProcess(t *testing.T) {
 			wantErrSubstr: []string{"failed to create comment", "pull request is not open"},
 		},
 		{
-			name:    "dry run",
-			handler: func(http.ResponseWriter, *http.Request) {},
-			dryRun:  true,
+			name: "preflight error: pull request does not exist",
+			handleGet: func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"type":"error","error":{"message":"pull request not found"}}`))
+			},
+			handleWrite:   func(http.ResponseWriter, *http.Request) {},
+			wantErrSubstr: []string{"cannot create comment", "failed to get pullrequest 42", "pull request not found"},
 			validate: func(t *testing.T, requests []*http.Request, _ CommentPayload, _ string) {
 				t.Helper()
-				if len(requests) != 0 {
-					t.Errorf("expected no HTTP request in dry-run mode, got %d", len(requests))
+				if len(requests) != 1 || requests[0].Method != http.MethodGet {
+					t.Errorf("requests = %v, want exactly one preflight GET and no comment POST", requests)
+				}
+			},
+		},
+		{
+			name:        "dry run",
+			handleGet:   okGetHandler,
+			handleWrite: func(http.ResponseWriter, *http.Request) {},
+			dryRun:      true,
+			validate: func(t *testing.T, requests []*http.Request, _ CommentPayload, _ string) {
+				t.Helper()
+				if len(requests) != 1 || requests[0].Method != http.MethodGet {
+					t.Errorf("requests = %v, want exactly one preflight GET and no comment POST in dry-run mode", requests)
 				}
 			},
 		},
@@ -75,41 +120,43 @@ func TestCreateProcess(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			withCommentEditOptions(t, &createOptions, func() {
-				createOptions.Comment = "looks good"
-			})
-
-			var requests []*http.Request
-			var gotBody CommentPayload
-			cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
-				requests = append(requests, r)
-				_ = json.NewDecoder(r.Body).Decode(&gotBody)
-				tt.handler(w, r)
-			}, tt.dryRun)
-
-			var err error
-			stdout := testutil.CaptureStdout(t, func() {
-				err = createProcess(cmd, []string{"42"})
-			})
-
-			if len(tt.wantErrSubstr) > 0 {
-				if err == nil {
-					t.Fatal("createProcess() expected an error, got nil")
-				}
-				for _, substr := range tt.wantErrSubstr {
-					if !strings.Contains(err.Error(), substr) {
-						t.Errorf("error = %q, want it to contain %q", err.Error(), substr)
-					}
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("createProcess() error = %v", err)
-			}
-			if tt.validate != nil {
-				tt.validate(t, requests, gotBody, stdout)
-			}
+			runCreateProcessCase(t, tt.handleGet, tt.handleWrite, tt.dryRun, tt.wantErrSubstr, tt.validate)
 		})
+	}
+}
+
+// runCreateProcessCase drives one TestCreateProcess table entry: sets up createOptions and the
+// fixture server, runs createProcess, and asserts either the expected error substrings or success,
+// then hands requests/gotBody/stdout to validate (when given) either way.
+func runCreateProcessCase(t *testing.T, handleGet, handleWrite http.HandlerFunc, dryRun bool, wantErrSubstr []string, validate func(t *testing.T, requests []*http.Request, gotBody CommentPayload, stdout string)) {
+	t.Helper()
+	withCommentEditOptions(t, &createOptions, func() {
+		createOptions.Comment = "looks good"
+	})
+
+	var requests []*http.Request
+	var gotBody CommentPayload
+	cmd := setupTest(t, createProcessHandler(t, &requests, &gotBody, handleGet, handleWrite), dryRun)
+
+	var err error
+	stdout := testutil.CaptureStdout(t, func() {
+		err = createProcess(cmd, []string{"42"})
+	})
+
+	if len(wantErrSubstr) > 0 {
+		if err == nil {
+			t.Fatal("createProcess() expected an error, got nil")
+		}
+		for _, substr := range wantErrSubstr {
+			if !strings.Contains(err.Error(), substr) {
+				t.Errorf("error = %q, want it to contain %q", err.Error(), substr)
+			}
+		}
+	} else if err != nil {
+		t.Fatalf("createProcess() error = %v", err)
+	}
+	if validate != nil {
+		validate(t, requests, gotBody, stdout)
 	}
 }
 
@@ -123,11 +170,18 @@ func TestCreateProcessWithFileAnchor(t *testing.T) {
 
 	var gotBody CommentPayload
 	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
-		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
-			t.Errorf("cannot decode request body: %v", err)
-		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":2}`))
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/diffstat"):
+			_, _ = w.Write([]byte(`{"values":[{"old":{"path":"main.go"},"new":{"path":"main.go"}}]}`))
+		case r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"id":42}`))
+		default:
+			if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+				t.Errorf("cannot decode request body: %v", err)
+			}
+			_, _ = w.Write([]byte(`{"id":2}`))
+		}
 	}, false)
 
 	testutil.CaptureStdout(t, func() {
@@ -141,6 +195,66 @@ func TestCreateProcessWithFileAnchor(t *testing.T) {
 	}
 	if gotBody.Anchor.Path != "main.go" || gotBody.Anchor.From != 10 || gotBody.Anchor.To != 12 {
 		t.Errorf("posted anchor = %+v, want {Path:main.go From:10 To:12}", gotBody.Anchor)
+	}
+}
+
+// TestCreateProcessUnknownFileAnchorErrors verifies that a --file path not present in the pull
+// request's diffstat fails the full preflight (FR-6), deliberately stricter than what the write
+// endpoint itself might accept, and sends no comment POST.
+func TestCreateProcessUnknownFileAnchorErrors(t *testing.T) {
+	withCommentEditOptions(t, &createOptions, func() {
+		createOptions.Comment = "fix this"
+		createOptions.File = "does-not-exist.go"
+	})
+
+	var requests []*http.Request
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/diffstat"):
+			_, _ = w.Write([]byte(`{"values":[{"old":{"path":"main.go"},"new":{"path":"main.go"}}]}`))
+		case r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"id":42}`))
+		default:
+			t.Error("no write request expected")
+		}
+	}, false)
+
+	err := createProcess(cmd, []string{"42"})
+	if err == nil {
+		t.Fatal("createProcess() expected an error, got nil")
+	}
+	if !strings.Contains(err.Error(), `file "does-not-exist.go" is not part of the diff of pullrequest 42`) {
+		t.Errorf("error = %q, want it to name the unknown file anchor", err.Error())
+	}
+	for _, req := range requests {
+		if req.Method == http.MethodPost {
+			t.Errorf("unexpected POST request: %s", req.URL.Path)
+		}
+	}
+}
+
+// TestCreateProcessEmptyCommentBodyErrors verifies that an empty --comment value (which passes
+// cobra's MarkFlagRequired check, since that only requires the flag be set) fails FR-6's full
+// preflight before any HTTP request is sent.
+func TestCreateProcessEmptyCommentBodyErrors(t *testing.T) {
+	withCommentEditOptions(t, &createOptions, func() {
+		createOptions.Comment = "   "
+	})
+
+	var requestCount int
+	cmd := setupTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, false)
+
+	err := createProcess(cmd, []string{"42"})
+	if err == nil {
+		t.Fatal("createProcess() expected an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "comment body is empty") {
+		t.Errorf("error = %q, want it to mention the empty comment body", err.Error())
+	}
+	if requestCount != 0 {
+		t.Errorf("expected no HTTP request for an empty comment body, got %d", requestCount)
 	}
 }
 

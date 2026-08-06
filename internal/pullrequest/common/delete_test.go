@@ -25,7 +25,11 @@ func TestDeleteSubResourcesWarnOnErrorNamesTheFailingIDAndSkipsItsSuccessLog(t *
 			_, _ = w.Write([]byte(`{"type":"error","error":{"message":"Not Found"}}`))
 			return
 		}
-		deletedPaths = append(deletedPaths, r.URL.Path)
+		// the preflight existence GET for id 1 also hits this branch; only the DELETE itself
+		// counts as an actual deletion.
+		if r.Method == http.MethodDelete {
+			deletedPaths = append(deletedPaths, r.URL.Path)
+		}
 	})
 	if err := cmd.Flags().Set("warn-on-error", "true"); err != nil {
 		t.Fatalf("cannot set warn-on-error flag: %v", err)

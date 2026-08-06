@@ -44,8 +44,14 @@ type commentEditOptions struct {
 
 // payload builds the request body for a create/update comment request from o, resolving the
 // --file/--line/--from/--to file anchor and the --parent/--pending flags. Returns an error when
-// --line/--from/--to was given without --file.
+// the comment body is empty (--comment is required by cobra, but an empty string still passes
+// that check, and FR-6's full preflight rejects an empty body explicitly) or when --line/--from/
+// --to was given without --file.
 func (o commentEditOptions) payload(cmd *cobra.Command) (CommentPayload, error) {
+	if strings.TrimSpace(o.Comment) == "" {
+		return CommentPayload{}, errors.New("comment body is empty")
+	}
+
 	payload := CommentPayload{
 		Content: CommentContent{Raw: o.Comment},
 	}
@@ -87,6 +93,59 @@ func registerCommentEditFlags(cmd *cobra.Command, options *commentEditOptions, c
 	cmd.MarkFlagsMutuallyExclusive("line", "from")
 	cmd.MarkFlagsMutuallyExclusive("line", "to")
 	_ = cmd.MarkFlagRequired("comment")
+}
+
+// diffstatEntry is the shape of one entry of a pull request's diffstat (GET
+// pullrequests/{id}/diffstat) that validateFileAnchor needs: the old/new file each entry touched.
+// old is absent for a pure addition, new for a pure deletion.
+type diffstatEntry struct {
+	Old *diffstatFile `json:"old"`
+	New *diffstatFile `json:"new"`
+}
+
+// diffstatFile is the "old"/"new" side of a diffstatEntry.
+type diffstatFile struct {
+	Path string `json:"path"`
+}
+
+// validateFileAnchor confirms anchor.Path names a file actually changed by the pull request
+// identified by pullRequestID, via a GET of its diffstat. This is the full-preflight validation
+// FR-6 requires for --file, deliberately stricter than what the write endpoint itself enforces
+// (see the FR-6 section of docs/plans/field-report-findings.md): --file is a diff anchor path
+// inside the pull request, not a local file, so this checks the pull request's actual diffstat
+// rather than os.Stat-ing anything on disk.
+func validateFileAnchor(ctx context.Context, cmd *cobra.Command, repo *repository.Repository, pullRequestID string, anchor *common.FileAnchor) error {
+	if anchor == nil {
+		return nil
+	}
+	entries, err := profile.GetAllUnbounded[diffstatEntry](ctx, cmd, repo.GetPath("pullrequests", pullRequestID, "diffstat"))
+	if err != nil {
+		return fmt.Errorf("cannot get diffstat of pullrequest %s: %w", pullRequestID, err)
+	}
+	for _, entry := range entries {
+		if entry.Old != nil && entry.Old.Path == anchor.Path {
+			return nil
+		}
+		if entry.New != nil && entry.New.Path == anchor.Path {
+			return nil
+		}
+	}
+	return fmt.Errorf("file %q is not part of the diff of pullrequest %s", anchor.Path, pullRequestID)
+}
+
+// existsComment validates via a GET that commentID names an existing comment on the pull request
+// identified by pullRequestID, returning the same error a write against that id would produce.
+// This validates the parent pull request's existence too, so update/reopen/resolve/delete each
+// need only this one check.
+func existsComment(ctx context.Context, cmd *cobra.Command, repo *repository.Repository, pullRequestID, commentID string) error {
+	currentProfile, err := profile.GetProfileFromCommand(ctx, cmd)
+	if err != nil {
+		return fmt.Errorf("cannot get profile: %w", err)
+	}
+	if err := currentProfile.Get(ctx, repo.GetPath("pullrequests", pullRequestID, "comments", commentID), nil); err != nil {
+		return fmt.Errorf("failed to get comment %s of pullrequest %s: %w", commentID, pullRequestID, err)
+	}
+	return nil
 }
 
 type Comment struct {

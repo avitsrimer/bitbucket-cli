@@ -13,28 +13,33 @@ import (
 func TestUpdateProcess(t *testing.T) {
 	tests := []struct {
 		name          string
-		handler       http.HandlerFunc
+		handleGet     http.HandlerFunc
+		handleWrite   http.HandlerFunc
 		dryRun        bool
 		wantErrSubstr []string
 		validate      func(t *testing.T, requests []*http.Request, gotBody CommentPayload, stdout string)
 	}{
 		{
-			name: "success",
-			handler: func(w http.ResponseWriter, _ *http.Request) {
+			name:      "success",
+			handleGet: okGetHandler,
+			handleWrite: func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = w.Write([]byte(`{"id":7,"content":{"raw":"updated comment"}}`))
 			},
 			validate: func(t *testing.T, requests []*http.Request, gotBody CommentPayload, stdout string) {
 				t.Helper()
-				if len(requests) != 1 {
-					t.Fatalf("expected exactly 1 request, got %d", len(requests))
+				if len(requests) != 2 {
+					t.Fatalf("expected exactly 2 requests (preflight GET, comment PUT), got %d", len(requests))
+				}
+				if requests[0].Method != http.MethodGet {
+					t.Errorf("first request method = %s, want GET (preflight existence check)", requests[0].Method)
 				}
 				wantPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/pullrequests/42/comments/7"
-				if requests[0].URL.Path != wantPath {
-					t.Errorf("path = %s, want %s", requests[0].URL.Path, wantPath)
+				if requests[1].URL.Path != wantPath {
+					t.Errorf("path = %s, want %s", requests[1].URL.Path, wantPath)
 				}
-				if requests[0].Method != http.MethodPut {
-					t.Errorf("method = %s, want PUT", requests[0].Method)
+				if requests[1].Method != http.MethodPut {
+					t.Errorf("method = %s, want PUT", requests[1].Method)
 				}
 				if gotBody.Content.Raw != "updated comment" {
 					t.Errorf("posted content.raw = %q, want %q", gotBody.Content.Raw, "updated comment")
@@ -49,22 +54,40 @@ func TestUpdateProcess(t *testing.T) {
 			},
 		},
 		{
-			name: "api error",
-			handler: func(w http.ResponseWriter, _ *http.Request) {
+			name:      "api error",
+			handleGet: okGetHandler,
+			handleWrite: func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"type":"error","error":{"message":"pull request is not open"}}`))
+			},
+			wantErrSubstr: []string{"failed to update comment", "pull request is not open"},
+		},
+		{
+			name: "preflight error: comment does not exist",
+			handleGet: func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusNotFound)
 				_, _ = w.Write([]byte(`{"type":"error","error":{"message":"comment not found"}}`))
 			},
-			wantErrSubstr: []string{"failed to update comment", "comment not found"},
-		},
-		{
-			name:    "dry run",
-			handler: func(http.ResponseWriter, *http.Request) {},
-			dryRun:  true,
+			handleWrite:   func(http.ResponseWriter, *http.Request) {},
+			wantErrSubstr: []string{"cannot update comment", "failed to get comment 7 of pullrequest 42", "comment not found"},
 			validate: func(t *testing.T, requests []*http.Request, _ CommentPayload, _ string) {
 				t.Helper()
-				if len(requests) != 0 {
-					t.Errorf("expected no HTTP request in dry-run mode, got %d", len(requests))
+				if len(requests) != 1 || requests[0].Method != http.MethodGet {
+					t.Errorf("requests = %v, want exactly one preflight GET and no comment PUT", requests)
+				}
+			},
+		},
+		{
+			name:        "dry run",
+			handleGet:   okGetHandler,
+			handleWrite: func(http.ResponseWriter, *http.Request) {},
+			dryRun:      true,
+			validate: func(t *testing.T, requests []*http.Request, _ CommentPayload, _ string) {
+				t.Helper()
+				if len(requests) != 1 || requests[0].Method != http.MethodGet {
+					t.Errorf("requests = %v, want exactly one preflight GET and no comment PUT in dry-run mode", requests)
 				}
 			},
 		},
@@ -78,11 +101,7 @@ func TestUpdateProcess(t *testing.T) {
 
 			var requests []*http.Request
 			var gotBody CommentPayload
-			cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
-				requests = append(requests, r)
-				_ = json.NewDecoder(r.Body).Decode(&gotBody)
-				tt.handler(w, r)
-			}, tt.dryRun)
+			cmd := setupTest(t, createProcessHandler(t, &requests, &gotBody, tt.handleGet, tt.handleWrite), tt.dryRun)
 
 			var err error
 			stdout := testutil.CaptureStdout(t, func() {
@@ -98,6 +117,9 @@ func TestUpdateProcess(t *testing.T) {
 						t.Errorf("error = %q, want it to contain %q", err.Error(), substr)
 					}
 				}
+				if tt.validate != nil {
+					tt.validate(t, requests, gotBody, stdout)
+				}
 				return
 			}
 			if err != nil {
@@ -107,6 +129,28 @@ func TestUpdateProcess(t *testing.T) {
 				tt.validate(t, requests, gotBody, stdout)
 			}
 		})
+	}
+}
+
+// TestUpdateProcessEmptyCommentBodyErrors mirrors the create-side check: an empty --comment value
+// fails FR-6's full preflight before any HTTP request is sent.
+func TestUpdateProcessEmptyCommentBodyErrors(t *testing.T) {
+	withCommentEditOptions(t, &updateOptions, func() {
+		updateOptions.Comment = "   "
+	})
+
+	var requestCount int
+	cmd := setupTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, false)
+
+	err := updateProcess(cmd, []string{"42", "7"})
+	if err == nil {
+		t.Fatal("updateProcess() expected an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "comment body is empty") {
+		t.Errorf("error = %q, want it to mention the empty comment body", err.Error())
+	}
+	if requestCount != 0 {
+		t.Errorf("expected no HTTP request for an empty comment body, got %d", requestCount)
 	}
 }
 
