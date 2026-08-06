@@ -282,6 +282,25 @@ Profiles support the following authentications:
 - ~~[App passwords](https://support.atlassian.com/bitbucket-cloud/docs/app-passwords/) with the `--user` and `--password` flags.~~ [App passwords are deprecated by Atlassian in favour of API tokens as of June 9, 2025 and will stop working entirely on June 9, 2026](https://www.atlassian.com/blog/bitbucket/bitbucket-cloud-transitions-to-api-tokens-enhancing-security-with-app-password-deprecation). Use API tokens instead.
 - [Repository Access Tokens](https://support.atlassian.com/bitbucket-cloud/docs/repository-access-tokens/), [Project Access Tokens](https://support.atlassian.com/bitbucket-cloud/docs/project-access-tokens/), [Workspace Access Tokens](https://support.atlassian.com/bitbucket-cloud/docs/workspace-access-tokens/) with the `--access-token` flags. Using Project/Workspace Access Tokens requires a Premium plan on Bitbucket Cloud. Using Repository Access Tokens does not require a Premium plan, but the token will only have access to the repository it was created for.
 
+##### Passing secrets without shell history
+
+`--password` and `--access-token` both take their value directly on the command line, where most shells record it in history and any other local process can see it for as long as the command runs. `bb profile create` and `bb profile update` also accept `--password-stdin` and `--access-token-stdin`, which read the secret from stdin instead (the whole input, trimmed of its trailing newline/whitespace) -- the same convention as `docker login --password-stdin` and `gh auth login --with-token`:
+
+```bash
+op read op://vault/bitbucket/token | bb profile create -n work -u me@corp.com --password-stdin
+```
+
+`--password-stdin` is mutually exclusive with `--password`, `--access-token-stdin` is mutually exclusive with `--access-token`, and the two `-stdin` flags are mutually exclusive with each other (only one secret can be piped in at a time).
+
+If you run `bb profile create` with `-u/--user` set but no password source at all (neither `--password` nor `--password-stdin`), or with none of `--user`, `--client-id`/`--client-secret`, or `--access-token`/`--access-token-stdin` given, `bb` prompts for it interactively instead, with terminal echo disabled:
+
+```console
+$ bb profile create -n work -u me@corp.com
+Password or API token for me@corp.com:
+```
+
+`bb profile update` prompts the same way when `-u/--user` is given without a password source. This interactive prompt requires a real terminal; in a non-interactive context (CI, a script, a piped command) `bb` fails fast with an error naming `--password-stdin`/`--access-token-stdin` instead of hanging.
+
 Permission Scopes:
 
 - [OAuth 2.0 scopes](https://developer.atlassian.com/cloud/bitbucket/rest/intro/#bitbucket-oauth-2-0-scopes)
