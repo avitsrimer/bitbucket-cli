@@ -3,6 +3,8 @@ package comment
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -174,5 +176,64 @@ func TestUpdateProcessToWithoutFileReturnsError(t *testing.T) {
 	}
 	if requestCount != 0 {
 		t.Errorf("expected no HTTP request when the anchor is invalid, got %d", requestCount)
+	}
+}
+
+// TestUpdateProcessCommentFromFileVerbatim mirrors the create-side check: --comment-file's
+// content lands in the PUT body verbatim, including backticks and $().
+func TestUpdateProcessCommentFromFileVerbatim(t *testing.T) {
+	body := "Actually, run `go vet ./...` too, and check $(git status) before merging.\n"
+	path := filepath.Join(t.TempDir(), "comment.md")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("cannot write fixture file: %v", err)
+	}
+
+	withCommentEditOptions(t, &updateOptions, func() {
+		updateOptions.Comment = ""
+		updateOptions.CommentFile = path
+	})
+
+	var gotBody CommentPayload
+	cmd := setupTest(t, createProcessHandler(t, &[]*http.Request{}, &gotBody, okGetHandler, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":7}`))
+	}), false)
+
+	testutil.CaptureStdout(t, func() {
+		if err := updateProcess(cmd, []string{"42", "7"}); err != nil {
+			t.Fatalf("updateProcess() error = %v", err)
+		}
+	})
+
+	if gotBody.Content.Raw != body {
+		t.Errorf("posted content.raw = %q, want %q (verbatim)", gotBody.Content.Raw, body)
+	}
+}
+
+// TestUpdateProcessEmptyCommentFileBodyErrors mirrors the create-side check: an empty
+// --comment-file body fails the same preflight check as an empty --comment value.
+func TestUpdateProcessEmptyCommentFileBodyErrors(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "empty.md")
+	if err := os.WriteFile(path, []byte("\n"), 0o600); err != nil {
+		t.Fatalf("cannot write fixture file: %v", err)
+	}
+
+	withCommentEditOptions(t, &updateOptions, func() {
+		updateOptions.Comment = ""
+		updateOptions.CommentFile = path
+	})
+
+	var requestCount int
+	cmd := setupTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, false)
+
+	err := updateProcess(cmd, []string{"42", "7"})
+	if err == nil {
+		t.Fatal("updateProcess() expected an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "comment body is empty") {
+		t.Errorf("error = %q, want it to mention the empty comment body", err.Error())
+	}
+	if requestCount != 0 {
+		t.Errorf("expected no HTTP request for an empty comment-file body, got %d", requestCount)
 	}
 }

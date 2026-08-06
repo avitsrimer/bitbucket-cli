@@ -3,6 +3,8 @@ package comment
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -278,5 +280,132 @@ func TestCreateProcessFromWithoutFileReturnsError(t *testing.T) {
 	}
 	if requestCount != 0 {
 		t.Errorf("expected no HTTP request when the anchor is invalid, got %d", requestCount)
+	}
+}
+
+// TestCreateProcessCommentFromFileVerbatim verifies that --comment-file's content lands in the
+// posted comment body verbatim, including the shell-quoting hazard class (backticks and $()) that
+// --comment-file exists to route around.
+func TestCreateProcessCommentFromFileVerbatim(t *testing.T) {
+	body := "Looks good, but run `go test ./...` and check $(pwd) first.\n"
+	path := filepath.Join(t.TempDir(), "comment.md")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("cannot write fixture file: %v", err)
+	}
+
+	withCommentEditOptions(t, &createOptions, func() {
+		createOptions.Comment = ""
+		createOptions.CommentFile = path
+	})
+
+	var gotBody CommentPayload
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"id":42}`))
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Errorf("cannot decode request body: %v", err)
+		}
+		_, _ = w.Write([]byte(`{"id":1}`))
+	}, false)
+
+	testutil.CaptureStdout(t, func() {
+		if err := createProcess(cmd, []string{"42"}); err != nil {
+			t.Fatalf("createProcess() error = %v", err)
+		}
+	})
+
+	if gotBody.Content.Raw != body {
+		t.Errorf("posted content.raw = %q, want %q (verbatim)", gotBody.Content.Raw, body)
+	}
+}
+
+// TestCreateProcessCommentFromStdin verifies the --comment-file - stdin variant.
+func TestCreateProcessCommentFromStdin(t *testing.T) {
+	body := "stdin comment with `backticks` and $(command) untouched\n"
+
+	withCommentEditOptions(t, &createOptions, func() {
+		createOptions.Comment = ""
+		createOptions.CommentFile = "-"
+	})
+
+	var gotBody CommentPayload
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"id":42}`))
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Errorf("cannot decode request body: %v", err)
+		}
+		_, _ = w.Write([]byte(`{"id":1}`))
+	}, false)
+	cmd.SetIn(strings.NewReader(body))
+
+	testutil.CaptureStdout(t, func() {
+		if err := createProcess(cmd, []string{"42"}); err != nil {
+			t.Fatalf("createProcess() error = %v", err)
+		}
+	})
+
+	if gotBody.Content.Raw != body {
+		t.Errorf("posted content.raw = %q, want %q (verbatim)", gotBody.Content.Raw, body)
+	}
+}
+
+// TestCreateProcessEmptyCommentFileBodyErrors verifies that a --comment-file pointing at an empty
+// (or whitespace-only) file fails the same "comment body is empty" preflight check as an empty
+// --comment value, and sends no request.
+func TestCreateProcessEmptyCommentFileBodyErrors(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "empty.md")
+	if err := os.WriteFile(path, []byte("   \n"), 0o600); err != nil {
+		t.Fatalf("cannot write fixture file: %v", err)
+	}
+
+	withCommentEditOptions(t, &createOptions, func() {
+		createOptions.Comment = ""
+		createOptions.CommentFile = path
+	})
+
+	var requestCount int
+	cmd := setupTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, false)
+
+	err := createProcess(cmd, []string{"42"})
+	if err == nil {
+		t.Fatal("createProcess() expected an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "comment body is empty") {
+		t.Errorf("error = %q, want it to mention the empty comment body", err.Error())
+	}
+	if requestCount != 0 {
+		t.Errorf("expected no HTTP request for an empty comment-file body, got %d", requestCount)
+	}
+}
+
+// TestCreateProcessCommentFileNonexistentErrors verifies that a --comment-file naming a
+// nonexistent path fails with an error naming that path, and sends no request.
+func TestCreateProcessCommentFileNonexistentErrors(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "does-not-exist.md")
+
+	withCommentEditOptions(t, &createOptions, func() {
+		createOptions.Comment = ""
+		createOptions.CommentFile = path
+	})
+
+	var requestCount int
+	cmd := setupTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, false)
+
+	err := createProcess(cmd, []string{"42"})
+	if err == nil {
+		t.Fatal("createProcess() expected an error, got nil")
+	}
+	if !strings.Contains(err.Error(), path) {
+		t.Errorf("error = %q, want it to name the path %q", err.Error(), path)
+	}
+	if requestCount != 0 {
+		t.Errorf("expected no HTTP request for an unreadable comment-file, got %d", requestCount)
 	}
 }

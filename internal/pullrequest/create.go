@@ -39,6 +39,7 @@ var createCmd = &cobra.Command{
 var createOptions struct {
 	Title             string
 	Description       string
+	DescriptionFile   string
 	Source            *common.EnumFlag
 	Destination       *common.EnumFlag
 	Reviewers         []string
@@ -54,6 +55,7 @@ func init() {
 
 	createCmd.Flags().StringVar(&createOptions.Title, "title", "", "Title of the pullrequest")
 	createCmd.Flags().StringVar(&createOptions.Description, "description", "", "Description of the pullrequest")
+	registerDescriptionFileFlag(createCmd, &createOptions.DescriptionFile)
 	createCmd.Flags().Var(createOptions.Source, "source", "Source branch of the pullrequest")
 	createCmd.Flags().Var(createOptions.Destination, "destination", "Destination branch of the pullrequest")
 	createCmd.Flags().StringSliceVar(&createOptions.Reviewers, "reviewer", nil, "Reviewer(s) of the pullrequest. Can be specified multiple times, or as a comma-separated list. Can be the user Account ID, UUID, name, or nickname. If the first reviewer is `default`, the command will try to find the default reviewers from the repository or project settings.")
@@ -83,9 +85,14 @@ func createProcess(cmd *cobra.Command, args []string) (err error) {
 		return errors.New("argument title is missing")
 	}
 
+	description, err := resolveDescriptionBody(cmd, createOptions.Description, createOptions.DescriptionFile)
+	if err != nil {
+		return err
+	}
+
 	payload := PullRequestCreator{
 		Title:             createOptions.Title,
-		Description:       createOptions.Description,
+		Description:       description,
 		Source:            Endpoint{Branch: Branch{Name: createOptions.Source.Value}},
 		CloseSourceBranch: createOptions.CloseSourceBranch,
 		Draft:             createOptions.Draft,

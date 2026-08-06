@@ -614,6 +614,29 @@ bb pullrequest create \
 
 If the first reviewer is `default`, the command will try to get the default reviewers from the project settings.
 
+Writing a markdown description on the command line means fighting shell quoting -- backticks and
+`$(...)` inside double quotes are a live command-substitution hazard. `--description-file` reads
+the description from a file instead, or from stdin with `-`, and is mutually exclusive with
+`--description`:
+
+```bash
+bb pullrequest create \
+  --title "My pull request" \
+  --source "my-branch" \
+  --destination "master" \
+  --description-file description.md
+```
+
+```bash
+bb pullrequest create \
+  --title "My pull request" \
+  --source "my-branch" \
+  --destination "master" \
+  --description-file -  <<'EOF'
+Fixes the flaky test by running `go test -race ./...` and checking $(git diff) first.
+EOF
+```
+
 You can get the details of a pull request with the `bb pullrequest get` or `bb pullrequest show` command:
 
 ```bash
@@ -627,6 +650,8 @@ bb pullrequest update 1 \
   --title "My pull request" \
   --description "My pull request description"
 ```
+
+`--description-file`/`-` work the same way on `update` as they do on `create`.
 
 To add or remove reviewers from a pull request, you can use the `--add-reviewer` and `--remove-reviewer` flags:
 
@@ -749,6 +774,23 @@ bb pullrequest comment add 1 \
   --file    README.md \
   --line    404
 ```
+
+A markdown comment body containing backticks or `$(...)` is a shell command-substitution hazard
+on the command line. `--comment-file <path>` reads the body from a file instead, or from stdin
+with `--comment-file -`; it is mutually exclusive with `--comment`, and exactly one of the two is
+required:
+
+```bash
+bb pullrequest comment add 1 --comment-file review-notes.md
+```
+
+```bash
+bb pullrequest comment add 1 --comment-file -  <<'EOF'
+Looks good, but run `go test ./...` and check $(git diff) first.
+EOF
+```
+
+`bb pullrequest comment update` accepts the same `--comment`/`--comment-file` pair.
 
 You can resolve a comment with the `bb pullrequest comment resolve` command:
 

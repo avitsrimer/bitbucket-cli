@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -16,13 +17,14 @@ import (
 // at init) so tests can set the values they need without leaking state across other tests.
 func withCreateOptions(t *testing.T, mutate func()) {
 	t.Helper()
-	oldTitle, oldDescription := createOptions.Title, createOptions.Description
+	oldTitle, oldDescription, oldDescriptionFile := createOptions.Title, createOptions.Description, createOptions.DescriptionFile
 	oldSourceValue, oldDestinationValue := createOptions.Source.Value, createOptions.Destination.Value
 	oldReviewerValues := createOptions.Reviewers
 	oldCloseSourceBranch, oldDraft := createOptions.CloseSourceBranch, createOptions.Draft
 	t.Cleanup(func() {
 		createOptions.Title = oldTitle
 		createOptions.Description = oldDescription
+		createOptions.DescriptionFile = oldDescriptionFile
 		createOptions.Source.Value = oldSourceValue
 		createOptions.Destination.Value = oldDestinationValue
 		createOptions.Reviewers = oldReviewerValues
@@ -469,6 +471,83 @@ func TestCreateProcessDryRun(t *testing.T) {
 	}
 	if pullrequestRequests != 0 {
 		t.Errorf("expected no pullrequest creation request in dry-run mode, got %d", pullrequestRequests)
+	}
+}
+
+// TestCreateProcessDescriptionFromFileVerbatim verifies that --description-file's content lands
+// in the POSTed description verbatim, including the shell-quoting hazard class (backticks and
+// $()) that --description-file exists to route around.
+func TestCreateProcessDescriptionFromFileVerbatim(t *testing.T) {
+	body := "Fixes the flaky test by running `go test -race ./...` and checking $(git diff) first.\n"
+	path := filepath.Join(t.TempDir(), "description.md")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("cannot write fixture file: %v", err)
+	}
+
+	withCreateOptions(t, func() {
+		createOptions.Title = "Add feature"
+		createOptions.Description = ""
+		createOptions.DescriptionFile = path
+		createOptions.Source.Value = "feature"
+		createOptions.Destination.Value = ""
+		createOptions.Reviewers = nil
+	})
+
+	var postBody PullRequestCreator
+	mux := http.NewServeMux()
+	mux.HandleFunc("/2.0/repositories/"+testutil.FixtureRepositoryFlag+"/effective-default-reviewers", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[]}`))
+	})
+	mux.HandleFunc("/2.0/repositories/"+testutil.FixtureRepositoryFlag+"/pullrequests", func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&postBody); err != nil {
+			t.Errorf("cannot decode POST body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":99,"title":"Add feature"}`))
+	})
+
+	cmd := setupTestNamed(t, "create-description-file", mux.ServeHTTP, false)
+
+	testutil.CaptureStdout(t, func() {
+		if err := createProcess(cmd, nil); err != nil {
+			t.Fatalf("createProcess() error = %v", err)
+		}
+	})
+
+	if postBody.Description != body {
+		t.Errorf("posted description = %q, want %q (verbatim)", postBody.Description, body)
+	}
+}
+
+// TestCreateProcessEmptyDescriptionFileBodyErrors verifies that a --description-file pointing at
+// an empty (or whitespace-only) file is rejected before any HTTP request, consistent with FR-6's
+// empty-body rule.
+func TestCreateProcessEmptyDescriptionFileBodyErrors(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "empty.md")
+	if err := os.WriteFile(path, []byte("  \n"), 0o600); err != nil {
+		t.Fatalf("cannot write fixture file: %v", err)
+	}
+
+	withCreateOptions(t, func() {
+		createOptions.Title = "Add feature"
+		createOptions.Description = ""
+		createOptions.DescriptionFile = path
+		createOptions.Source.Value = "feature"
+	})
+
+	var requestCount int
+	cmd := setupTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, false)
+
+	err := createProcess(cmd, nil)
+	if err == nil {
+		t.Fatal("createProcess() expected an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "description body is empty") {
+		t.Errorf("error = %q, want it to mention the empty description body", err.Error())
+	}
+	if requestCount != 0 {
+		t.Errorf("expected no HTTP request for an empty description-file body, got %d", requestCount)
 	}
 }
 
