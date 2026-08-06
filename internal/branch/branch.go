@@ -3,9 +3,12 @@ package branch
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/commit"
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
+	"github.com/gildas/go-core"
+	"github.com/spf13/cobra"
 )
 
 type Branch struct {
@@ -16,9 +19,66 @@ type Branch struct {
 	DefaultMergeStrategy string        `json:"default_merge_strategy,omitempty"`
 }
 
+// Command represents this folder's command
+var Command = &cobra.Command{
+	Use:   "branch",
+	Short: "Manage branches",
+	Run:   common.SubcommandRequired("Branch"),
+}
+
+var columns = common.Columns[Branch]{
+	{Name: "name", DefaultSorter: true, Compare: func(a, b Branch) bool {
+		return strings.ToLower(a.Name) < strings.ToLower(b.Name)
+	}},
+	{Name: "target", DefaultSorter: false, Compare: func(a, b Branch) bool {
+		return strings.ToLower(a.Target.Hash) < strings.ToLower(b.Target.Hash)
+	}},
+	{Name: "default_merge_strategy", DefaultSorter: false, Compare: func(a, b Branch) bool {
+		return strings.ToLower(a.DefaultMergeStrategy) < strings.ToLower(b.DefaultMergeStrategy)
+	}},
+	{Name: "merge_strategies", DefaultSorter: false, Compare: func(a, b Branch) bool {
+		return strings.ToLower(strings.Join(a.MergeStrategies, ",")) < strings.ToLower(strings.Join(b.MergeStrategies, ","))
+	}},
+}
+
 // GetType returns the branch type
 func (branch Branch) GetType() string {
 	return "branch"
+}
+
+// GetHeaders gets the header for a table
+//
+// implements common.Tableable
+func (branch Branch) GetHeaders(cmd *cobra.Command) []string {
+	if cmd != nil && cmd.Flag("columns") != nil && cmd.Flag("columns").Changed {
+		if values, err := cmd.Flags().GetStringSlice("columns"); err == nil {
+			return core.Map(values, func(column string) string { return strings.ReplaceAll(column, "_", " ") })
+		}
+	}
+	return []string{"Name"}
+}
+
+// GetRow gets the row for a table
+//
+// implements common.Tableable
+func (branch Branch) GetRow(headers []string) []string {
+	var row []string
+
+	for _, header := range headers {
+		switch common.NormalizeColumnKey(header) {
+		case "name":
+			row = append(row, branch.Name)
+		case "target":
+			row = append(row, branch.Target.Hash)
+		case "default_merge_strategy":
+			row = append(row, branch.DefaultMergeStrategy)
+		case "merge_strategies":
+			row = append(row, strings.Join(branch.MergeStrategies, ", "))
+		default:
+			row = append(row, " ")
+		}
+	}
+	return row
 }
 
 // String gets a string representation of this Branch
