@@ -227,7 +227,7 @@ func TestListProcessSucceedsWithWorkspaceFlagWhenWorkspaceListingIsForbidden(t *
 	})
 	cmd.Flags().Var(workspaceFlag, "workspace", "")
 
-	// This is exactly what pflag does while parsing "--workspace sportpursuit" on the real
+	// This is exactly what pflag does while parsing "--workspace acme" on the real
 	// command line, before listProcess itself ever runs.
 	if err := cmd.Flags().Set("workspace", testutil.FixtureWorkspaceSlug); err != nil {
 		t.Fatalf("parsing --workspace failed even though the value was supplied explicitly: %v", err)

@@ -31,9 +31,9 @@ func TestRootWorkspaceFlagAcceptsExplicitValueWithoutCallingAllowedFunc(t *testi
 		return nil, errors.New("Your credentials lack one or more required privilege scopes. (required: read:workspace:bitbucket)")
 	}
 
-	err := cmd.RootCmd.PersistentFlags().Set("workspace", "sportpursuit")
+	err := cmd.RootCmd.PersistentFlags().Set("workspace", "acme")
 
 	require.NoError(t, err, "parsing --workspace must succeed even when the workspace-listing endpoint is forbidden")
 	assert.Equal(t, 0, calls, "the workspace-listing AllowedFunc must not be called while parsing an explicit --workspace value")
-	assert.Equal(t, "sportpursuit", cmd.CmdOptions.Workspace.Value)
+	assert.Equal(t, "acme", cmd.CmdOptions.Workspace.Value)
 }
