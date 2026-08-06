@@ -63,6 +63,7 @@ func newIsolatedUpdateCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&updateOptions.ToVault, "to-vault", false, "")
 	cmd.Flags().BoolVar(&updateOptions.NoVault, "no-vault", false, "")
 	cmd.Flags().Var(updateOptions.DefaultWorkspace, "default-workspace", "")
+	cmd.Flags().StringVar(&updateOptions.DefaultRepository, "default-repository", "", "")
 	cmd.Flags().Var(updateOptions.DefaultProject, "default-project", "")
 	cmd.Flags().IntVar(&updateOptions.DefaultPageLength, "default-page-length", 0, "")
 	cmd.Flags().Var(&updateOptions.ErrorProcessing, "error-processing", "")
@@ -528,4 +529,34 @@ func TestUpdateProcessValidatesDefaultWorkspaceAgainstLiveWorkspaces(t *testing.
 			t.Errorf("DefaultWorkspace = %q, want %q", updated.DefaultWorkspace, "acme")
 		}
 	})
+}
+
+// TestUpdateProcessStoresDefaultRepositoryWithoutLiveValidation proves `bb profile update
+// --default-repository <value>` lands the plain string value onto the profile without any
+// dynamic EnumFlag/live-lookup validation (unlike --default-workspace above): the repository
+// identifier space is unbounded, per FR-1's rule against demanding broader token scope just to
+// validate a value the user typed explicitly.
+func TestUpdateProcessStoresDefaultRepositoryWithoutLiveValidation(t *testing.T) {
+	withUpdateOptions(t)
+	withIsolatedProfilesConfig(t)
+
+	const profileName = "default-repository-update-test"
+	target := &Profile{Name: profileName, AccessToken: "dummy-token"}
+	Profiles = append(Profiles, target)
+
+	cmd := newIsolatedUpdateCmd()
+	cmd.SetArgs([]string{profileName, "--default-repository", "acme/myrepo"})
+	cmd.SetContext(context.Background())
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("cmd.Execute() error = %v, want --default-repository accepted with no live lookup", err)
+	}
+
+	updated, found := Profiles.Find(profileName)
+	if !found {
+		t.Fatal("profile not found after update")
+	}
+	if updated.DefaultRepository != "acme/myrepo" {
+		t.Errorf("DefaultRepository = %q, want %q", updated.DefaultRepository, "acme/myrepo")
+	}
 }

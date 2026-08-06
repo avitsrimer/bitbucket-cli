@@ -35,6 +35,7 @@ func newIsolatedCreateCmd() *cobra.Command {
 	cmd.Flags().Bool("password-stdin", false, "")
 	cmd.Flags().StringVar(&createOptions.AccessToken, "access-token", "", "")
 	cmd.Flags().Bool("access-token-stdin", false, "")
+	cmd.Flags().StringVar(&createOptions.DefaultRepository, "default-repository", "", "")
 	cmd.Flags().String("profile", "", "")
 	cmd.Flags().String("config", "", "")
 	cmd.Flags().Bool("dry-run", false, "")
@@ -120,5 +121,49 @@ func TestCreateProcessNeverPersistsVaultLoadedClientSecret(t *testing.T) {
 	}
 	if created.ClientSecret != vaultSecret {
 		t.Errorf("created profile's in-memory ClientSecret = %q, want the vault-loaded value %q so the rest of this process can still use it", created.ClientSecret, vaultSecret)
+	}
+}
+
+// TestCreateProcessStoresDefaultRepository proves `bb profile create --default-repository
+// <value>` lands the plain string value, unvalidated (no dynamic EnumFlag lookup, unlike
+// --default-workspace/--default-project), onto the created profile.
+func TestCreateProcessStoresDefaultRepository(t *testing.T) {
+	keyring.MockInit()
+
+	oldProfiles, oldCurrent := Profiles, Current
+	oldConfig := common.CurrentConfig()
+	oldOptions := createOptions
+	t.Cleanup(func() {
+		Profiles = oldProfiles
+		Current = oldCurrent
+		common.SetCurrentConfig(oldConfig)
+		createOptions = oldOptions
+	})
+	Profiles = nil
+	Current = nil
+
+	configPath := filepath.Join(t.TempDir(), "config-cli.yml")
+	common.SetCurrentConfig(&common.Config{Path: configPath, Data: map[string]any{}})
+
+	const profileName = "default-repository-create-test"
+
+	cmd := newIsolatedCreateCmd()
+	cmd.SetArgs([]string{
+		"--name", profileName,
+		"--access-token", "dummy-token",
+		"--default-repository", "acme/myrepo",
+	})
+	cmd.SetContext(context.Background())
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("profile create error = %v", err)
+	}
+
+	created, found := Profiles.Find(profileName)
+	if !found {
+		t.Fatalf("profile %q was not created", profileName)
+	}
+	if created.DefaultRepository != "acme/myrepo" {
+		t.Errorf("created profile's DefaultRepository = %q, want %q", created.DefaultRepository, "acme/myrepo")
 	}
 }

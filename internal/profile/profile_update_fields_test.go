@@ -58,3 +58,26 @@ func TestProfileUpdateLeavesFieldsUnchangedWhenOtherIsZero(t *testing.T) {
 		t.Errorf("ErrorProcessing = %v, want unchanged %v", target.ErrorProcessing, common.WarnOnError)
 	}
 }
+
+// TestProfileUpdateCopiesDefaultRepository proves updateSimpleFields (reached through
+// Profile.Update) copies DefaultRepository the same way it already copies DefaultWorkspace, and
+// leaves it unchanged when other's value is the zero value (an absent --default-repository flag).
+func TestProfileUpdateCopiesDefaultRepository(t *testing.T) {
+	target := profile.Profile{Name: "p", DefaultRepository: "acme/old"}
+
+	err := target.Update(profile.Profile{DefaultRepository: "acme/new"})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if target.DefaultRepository != "acme/new" {
+		t.Errorf("DefaultRepository = %q, want %q", target.DefaultRepository, "acme/new")
+	}
+
+	err = target.Update(profile.Profile{})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if target.DefaultRepository != "acme/new" {
+		t.Errorf("DefaultRepository = %q, want unchanged %q", target.DefaultRepository, "acme/new")
+	}
+}

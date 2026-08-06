@@ -230,7 +230,19 @@ func (repository Repository) String() string {
 	return repository.Name
 }
 
-// GetRepositoryName gets the name of the repository from the command line or from the git config
+// GetRepositoryName gets the repository name the user already supplied, with no API call: the
+// --repository flag, a Bitbucket git remote, or the profile's default repository, in that order.
+//
+// remote.GetRemote already rejects a remote whose URL is not bitbucket.org (see
+// remote.GetRemoteFromReader/GetRemoteFromGitConfig), so a checkout whose "origin" points at
+// GitHub or any other non-Bitbucket host falls through to the profile default here exactly like a
+// checkout with no remote configured at all -- there is no separate Bitbucket-detection step to
+// add on top of it.
+//
+// The repository is determined by the following order:
+//  1. The repository flag in the command
+//  2. The git config (Bitbucket remotes only)
+//  3. The default repository in the profile
 func GetRepositoryName(context context.Context, cmd *cobra.Command) (repositoryName string, err error) {
 	if cmd.Flag("repository") != nil {
 		if repositoryName = cmd.Flag("repository").Value.String(); repositoryName != "" {
@@ -238,9 +250,14 @@ func GetRepositoryName(context context.Context, cmd *cobra.Command) (repositoryN
 		}
 	}
 	if remote, err := remote.GetRemote(context, cmd); err == nil {
+		lgr.Printf("[DEBUG] repository name found in git config: %s, from remote: %s", remote.RepositoryName(), remote.URL)
 		return remote.RepositoryName(), nil
 	}
-	return "", errors.New("argument repository is missing")
+	if profile.Current != nil && profile.Current.DefaultRepository != "" {
+		lgr.Printf("[DEBUG] repository name found in profile: %s", profile.Current.DefaultRepository)
+		return profile.Current.DefaultRepository, nil
+	}
+	return "", errors.New("argument repository is missing: pass --repository, run from a Bitbucket git checkout, or set a default repository with `bb profile update --default-repository`")
 }
 
 // GetRepository gets a repository by its slug

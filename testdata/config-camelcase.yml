@@ -2,6 +2,7 @@ profiles:
     - name: camel
       user: user1
       defaultWorkspace: myworkspace
+      defaultRepository: myrepo
       clientID: abc123
       clientSecret: s3cr3t
       accessToken: t0k3n

@@ -115,6 +115,7 @@ func (suite *ProfileSuite) TestLoadParsesCamelCaseConfigKeys() {
 	suite.Equal("camel", got.Name)
 	suite.Equal("user1", got.User)
 	suite.Equal("myworkspace", got.DefaultWorkspace)
+	suite.Equal("myrepo", got.DefaultRepository)
 	suite.Equal("abc123", got.ClientID)
 	suite.Equal("s3cr3t", got.ClientSecret)
 	suite.Equal("t0k3n", got.AccessToken)

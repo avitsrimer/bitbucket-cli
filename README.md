@@ -109,7 +109,7 @@ All commands that would modify something on Bitbucket now allow you to preview t
 bb pullrequest decline 1 --dry-run
 ```
 
-Most commands will support the `--workspace` and `--repository` flags to specify the workspace and repository to use. If not provided, the workspace and repository will be determined from the git configuration or the profile configuration (in that order). The workspace and repository can be combined in the `--repository` flag in the form `workspace/repository`. For example:
+Most commands will support the `--workspace` and `--repository` flags to specify the workspace and repository to use. If not provided, each is resolved independently in the same three-rung order: the flag itself, then a Bitbucket git remote in the current checkout (a GitHub or other non-Bitbucket remote is ignored and falls through), then the profile's default (`--default-workspace`/`--default-repository` on `bb profile create`/`update`). If all three rungs come up empty, the error names all three ways to supply the value. The workspace and repository can be combined in the `--repository` flag in the form `workspace/repository`. For example:
 
 ```bash
 bb pullrequest list --repository myrepository
@@ -284,7 +284,7 @@ bb profile create \
   --callback-port     8080
 ```
 
-You should define the default workspace for the profile with the `--default-workspace` flag. This will allow you to use `bb` without specifying the workspace every time.
+You should define the default workspace for the profile with the `--default-workspace` flag. This will allow you to use `bb` without specifying the workspace every time. Likewise, `--default-repository` sets a default repository, used whenever `--repository` is not given and the current directory has no Bitbucket git remote to fall back to.
 
 You can also pass the `--default` flag to make this profile the default one, or pass a `--output` flag to change the profile output format. If you use only one profile, it will be used as the default profile.
 
