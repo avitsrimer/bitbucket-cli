@@ -22,6 +22,7 @@ func setupTriggerTest(t *testing.T, handler http.HandlerFunc, dryRun bool) *cobr
 	cmd.Flags().String("branch", "", "")
 	cmd.Flags().String("commit", "", "")
 	cmd.Flags().Uint64("pullrequest", 0, "")
+	cmd.Flags().String("pattern", "", "")
 	cmd.Flags().StringArray("variable", []string{}, "")
 	cmd.Flags().Bool("force", false, "")
 	return cmd
@@ -273,6 +274,57 @@ func TestTriggerProcessCommitPinsBranchTarget(t *testing.T) {
 	}
 	if sent.Target.Commit == nil || sent.Target.Commit.Hash != "abc1234" {
 		t.Errorf("target.Commit = %+v, want a commit reference pinning hash abc1234", sent.Target.Commit)
+	}
+}
+
+// TestTriggerProcessPatternSelectsCustomPipeline proves --pattern is restored and wired: it is the
+// only way to trigger one of a repository's *custom* pipeline definitions (as opposed to its
+// default/branch pipelines), and BitBucket selects one via a Selector{Type:"custom",Pattern:...}
+// attached to the ref target, alongside (not instead of) the branch.
+func TestTriggerProcessPatternSelectsCustomPipeline(t *testing.T) {
+	var body []byte
+	cmd := setupTriggerTest(t, func(w http.ResponseWriter, r *http.Request) {
+		body, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(pipelineTriggeredResponse))
+	}, false)
+	_ = cmd.Flags().Set("branch", "main")
+	_ = cmd.Flags().Set("pattern", "deploy-to-prod")
+	_ = cmd.Flags().Set("force", "true")
+
+	testutil.CaptureStdout(t, func() {
+		if err := triggerProcess(cmd, nil); err != nil {
+			t.Fatalf("triggerProcess() error = %v", err)
+		}
+	})
+
+	var sent triggerBody
+	if err := json.Unmarshal(body, &sent); err != nil {
+		t.Fatalf("cannot unmarshal POST body: %v", err)
+	}
+	if sent.Target.Type != "pipeline_ref_target" || sent.Target.RefName != "main" {
+		t.Errorf("target = %+v, want a branch ref target for main", sent.Target)
+	}
+	if sent.Target.Selector == nil || sent.Target.Selector.Type != "custom" || sent.Target.Selector.Pattern != "deploy-to-prod" {
+		t.Errorf("target.Selector = %+v, want type custom / pattern deploy-to-prod", sent.Target.Selector)
+	}
+}
+
+// TestTriggerCmdRejectsPatternWithPullRequest proves the real triggerCmd rejects --pattern
+// combined with --pullrequest: a custom pipeline selector has no meaning for a pull-request
+// target.
+func TestTriggerCmdRejectsPatternWithPullRequest(t *testing.T) {
+	if err := triggerCmd.Flags().Set("pattern", "deploy-to-prod"); err != nil {
+		t.Fatalf("cannot set --pattern: %v", err)
+	}
+	t.Cleanup(func() { _ = triggerCmd.Flags().Set("pattern", "") })
+	if err := triggerCmd.Flags().Set("pullrequest", "1"); err != nil {
+		t.Fatalf("cannot set --pullrequest: %v", err)
+	}
+	t.Cleanup(func() { _ = triggerCmd.Flags().Set("pullrequest", "0") })
+
+	if err := triggerCmd.ValidateFlagGroups(); err == nil {
+		t.Error("ValidateFlagGroups() expected an error for --pattern with --pullrequest, got nil")
 	}
 }
 
