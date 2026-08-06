@@ -94,7 +94,12 @@ func (workspace Workspace) String() string {
 	return workspace.Name
 }
 
-// GetWorkspaceName gets the workspace name from the command flag or git config
+// GetWorkspaceName gets the workspace slug the user already supplied, with no API call: the
+// --workspace flag, the git remote, or the profile's default workspace, in that order. Callers
+// that only need the slug (to build a request path, for example) should call this instead of
+// GetWorkspace: GetWorkspace additionally fetches the Workspace object via GET /workspaces/{slug},
+// which requires the read:workspace scope that a repository-scoped or narrowly-scoped token
+// typically lacks, for a value the caller already has as a string.
 //
 // The workspace is determined by the following order:
 //  1. The workspace flag in the command
@@ -118,7 +123,10 @@ func GetWorkspaceName(context context.Context, cmd *cobra.Command) (workspaceNam
 	return "", errors.New("argument workspace is missing")
 }
 
-// GetWorkspace gets the current workspace
+// GetWorkspace gets the current workspace as a full Workspace object, fetching it via
+// GET /workspaces/{slug} (see GetWorkspaceBySlugOrID) when it is not already cached. Callers that
+// only need the workspace slug, not its other fields (ID, Name), should call GetWorkspaceName
+// instead: it never reaches the API, so it works with tokens that lack read:workspace.
 //
 // The workspace is determined by the following order:
 // 1. The workspace flag in the command

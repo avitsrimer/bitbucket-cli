@@ -30,29 +30,29 @@ func init() {
 }
 
 func membersProcess(cmd *cobra.Command, args []string) error {
-	var target *Workspace
+	var workspaceSlug string
 	var err error
 
+	// The workspace here is only ever used to build the /workspaces/{slug}/members request path
+	// (via Workspace.GetMembers), so an explicit argument is used as-is and the no-argument case
+	// resolves the slug with no API call (GetWorkspaceName) instead of fetching a Workspace object.
 	if len(args) == 0 {
-		target, err = GetWorkspace(cmd.Context(), cmd)
+		workspaceSlug, err = GetWorkspaceName(cmd.Context(), cmd)
 		if err != nil {
 			return fmt.Errorf("cannot get current workspace: %w", err)
 		}
 	} else {
-		target, err = GetWorkspaceBySlugOrID(cmd.Context(), cmd, args[0])
-		if err != nil {
-			return fmt.Errorf("cannot get workspace %s: %w", args[0], err)
-		}
+		workspaceSlug = args[0]
 	}
 
-	lgr.Printf("[DEBUG] listing members of workspace %s", target.Slug)
-	if !common.WhatIf(cmd, "Showing members of workspace "+target.Slug) {
+	lgr.Printf("[DEBUG] listing members of workspace %s", workspaceSlug)
+	if !common.WhatIf(cmd, "Showing members of workspace "+workspaceSlug) {
 		return nil
 	}
 
-	members, err := target.GetMembers(cmd.Context(), cmd)
+	members, err := Workspace{Slug: workspaceSlug}.GetMembers(cmd.Context(), cmd)
 	if err != nil {
-		return fmt.Errorf("failed to retrieve members of workspace %s: %w", target.Slug, err)
+		return fmt.Errorf("failed to retrieve members of workspace %s: %w", workspaceSlug, err)
 	}
 	if len(members) == 0 {
 		fmt.Println("No member found")

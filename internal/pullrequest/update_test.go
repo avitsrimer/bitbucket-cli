@@ -279,7 +279,7 @@ func TestResolveDefaultReviewersDoesNotMutateSharedAddReviewersValues(t *testing
 // TestResolveDefaultReviewersRealFixtureSourceRepositoryHasNoWorkspace verifies that a
 // pullrequest's source.repository, as BitBucket actually sends it (see testdata/pullrequest.json)
 // with no "workspace" field, still resolves its effective default reviewers by going through
-// Repository.GetWorkspace's cached/FullName fallback chain.
+// Repository.GetWorkspaceSlug's cached/FullName fallback chain.
 func TestResolveDefaultReviewersRealFixtureSourceRepositoryHasNoWorkspace(t *testing.T) {
 	withUpdateOptions(t, func() {
 		updateOptions.AddReviewers = []string{"default"}
@@ -342,9 +342,9 @@ func TestResolveDefaultReviewersRealFixtureSourceRepositoryHasNoWorkspace(t *tes
 // effective-default-reviewers path is built from the repository's FullName, not its Slug: this
 // fixture's Name differs from the repository's real slug (Validate backfills Slug from Name when
 // BitBucket omits "slug" on a pullrequest's source/destination repository) and leaves
-// WorkspaceCache empty for its workspace, so building the path from Slug instead of FullName, or
-// falling back to a live GetWorkspace call, would either hit the wrong path or the
-// RAT-simulating 403 this test's server returns for any /workspaces/ request.
+// WorkspaceCache empty for its workspace, so building the path from Slug instead of FullName would
+// hit the wrong path; the server's 403 on any /workspaces/ request additionally guards against a
+// regression that reintroduces a live workspace fetch anywhere in that resolution.
 func TestResolveDefaultReviewersUsesFullNameWhenSlugWasBackfilledFromName(t *testing.T) {
 	withUpdateOptions(t, func() {
 		updateOptions.AddReviewers = []string{"default"}
@@ -562,9 +562,7 @@ func TestAddReviewerFlagAcceptsDefaultSentinelThroughRealFlagParsing(t *testing.
 		ID: id, Name: "Widgets", FullName: testutil.FixtureRepositoryFlag, Slug: testutil.FixtureRepositorySlug,
 		Workspace: &workspace.Workspace{Slug: testutil.FixtureWorkspaceSlug},
 	}}}
-	pullrequestWorkspace := &workspace.Workspace{Slug: testutil.FixtureWorkspaceSlug}
-
-	added, err := addRequestedReviewers(cmd.Context(), cmd, profile.Current, pr, pullrequestWorkspace)
+	added, err := addRequestedReviewers(cmd.Context(), cmd, profile.Current, pr, testutil.FixtureWorkspaceSlug)
 	if err != nil {
 		t.Fatalf("addRequestedReviewers() error = %v", err)
 	}

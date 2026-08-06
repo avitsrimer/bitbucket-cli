@@ -40,24 +40,26 @@ func (repositories Repositories) Size() int {
 }
 
 // GetRepositoriesWithQuery gets the repositories of the current workspace matching query,
-// honoring cmd's own --page-length and --limit flags (see profile.GetAll).
+// honoring cmd's own --page-length and --limit flags (see profile.GetAll). The workspace slug
+// comes from workspace.GetWorkspaceName, not a fetched Workspace object: nothing here reads any
+// field but the slug the user already supplied.
 func GetRepositoriesWithQuery(ctx context.Context, cmd *cobra.Command, query url.Values) ([]Repository, error) {
-	ws, err := workspace.GetWorkspace(ctx, cmd)
+	workspaceSlug, err := workspace.GetWorkspaceName(ctx, cmd)
 	if err != nil {
 		return nil, fmt.Errorf("cannot get workspace: %w", err)
 	}
 
-	uriPath := "/repositories/" + ws.Slug
+	uriPath := "/repositories/" + workspaceSlug
 	if len(query) > 0 {
 		uriPath += "?" + query.Encode()
 	}
 
-	lgr.Printf("[DEBUG] getting repositories in workspace %s with query %s", ws.Slug, query.Encode())
+	lgr.Printf("[DEBUG] getting repositories in workspace %s with query %s", workspaceSlug, query.Encode())
 	repositories, err := profile.GetAll[Repository](ctx, cmd, uriPath)
 	if err != nil {
 		return nil, fmt.Errorf("cannot get repositories: %w", err)
 	}
-	lgr.Printf("[DEBUG] found %d repositories in workspace %s", len(repositories), ws.Slug)
+	lgr.Printf("[DEBUG] found %d repositories in workspace %s", len(repositories), workspaceSlug)
 	return repositories, nil
 }
 
@@ -66,15 +68,17 @@ func GetRepositoriesWithQuery(ctx context.Context, cmd *cobra.Command, query url
 //
 // This uses profile.GetAllUnbounded, not profile.GetAll: cmd here is frequently the very command
 // whose own --limit flag is meant to bound a different, later query, and this enumeration must
-// resolve every repository regardless of it.
+// resolve every repository regardless of it. The workspace slug comes from
+// workspace.GetWorkspaceName, not a fetched Workspace object, for the same reason as
+// GetRepositoriesWithQuery above.
 func GetRepositorySlugs(ctx context.Context, cmd *cobra.Command) (slugs []string, err error) {
-	ws, err := workspace.GetWorkspace(ctx, cmd)
+	workspaceSlug, err := workspace.GetWorkspaceName(ctx, cmd)
 	if err != nil {
 		return nil, fmt.Errorf("cannot get workspace: %w", err)
 	}
 
-	lgr.Printf("[DEBUG] getting all repositories in workspace %s", ws.Slug)
-	repositories, err := profile.GetAllUnbounded[Repository](ctx, cmd, "/repositories/"+ws.Slug)
+	lgr.Printf("[DEBUG] getting all repositories in workspace %s", workspaceSlug)
+	repositories, err := profile.GetAllUnbounded[Repository](ctx, cmd, "/repositories/"+workspaceSlug)
 	if err != nil {
 		return nil, err
 	}
