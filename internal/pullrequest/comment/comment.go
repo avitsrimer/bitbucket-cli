@@ -236,11 +236,6 @@ func (comment Comment) GetRow(headers []string) []string {
 	return row
 }
 
-// Validate validates a Comment
-func (comment *Comment) Validate() error {
-	return nil
-}
-
 // String gets a string representation of this pullrequest
 //
 // implements fmt.Stringer

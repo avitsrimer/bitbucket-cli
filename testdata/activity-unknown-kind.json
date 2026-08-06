@@ -1,0 +1,20 @@
+{
+  "pull_request": {
+    "type": "pullrequest",
+    "id": 1650,
+    "title": "Add README.md",
+    "draft": false,
+    "links": {
+      "self": {
+        "href": "https://api.bitbucket.org/2.0/repositories/dummyworkspace/dummyrepo/pullrequests/1650"
+      },
+      "html": {
+        "href": "https://bitbucket.org/dummyworkspace/dummyrepo/pull-requests/1650"
+      }
+    }
+  },
+  "some_future_activity_kind": {
+    "date": "2026-08-06T07:10:57.603622+00:00",
+    "note": "a synthetic activity variant this Activity struct does not recognize"
+  }
+}

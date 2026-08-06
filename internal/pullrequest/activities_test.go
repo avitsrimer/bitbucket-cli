@@ -104,3 +104,46 @@ func (suite *ActivitySuite) TestShouldFailUnmarshalWithoutApprovalNorCommentNorU
 	err := json.Unmarshal(payload, &activity)
 	suite.Require().Error(err)
 }
+
+// TestCanUnmarshalChangesRequested reproduces FR-5: BitBucket's "changes_requested" activity kind
+// (emitted by the request-changes review action) must decode into its own field rather than the
+// hard failure the pre-fix Activity.Validate produced for anything that was not
+// approval/comment/update.
+func (suite *ActivitySuite) TestCanUnmarshalChangesRequested() {
+	payload := suite.LoadTestData("activity-changes-requested.json")
+	var activity pullrequest.Activity
+	err := json.Unmarshal(payload, &activity)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(activity)
+	_, err = json.Marshal(activity)
+	suite.Require().NoError(err)
+	suite.Empty(activity.Approval)
+	suite.Empty(activity.Comment)
+	suite.Empty(activity.Update)
+	suite.NotEmpty(activity.ChangesRequested)
+}
+
+// TestUnmarshalTeleratesUnrecognizedActivityKind reproduces FR-5's core fix: an activity entry
+// BitBucket sends with a variant key this type does not (yet) model must decode successfully
+// instead of blinding the whole feed, and the unrecognized-kind marker must never leak into
+// marshaled output.
+func (suite *ActivitySuite) TestUnmarshalToleratesUnrecognizedActivityKind() {
+	payload := suite.LoadTestData("activity-unknown-kind.json")
+	var activity pullrequest.Activity
+	err := json.Unmarshal(payload, &activity)
+	suite.Require().NoError(err)
+	suite.Empty(activity.Approval)
+	suite.Empty(activity.Comment)
+	suite.Empty(activity.Update)
+	suite.Empty(activity.ChangesRequested)
+
+	data, err := json.Marshal(activity)
+	suite.Require().NoError(err)
+	var raw map[string]any
+	suite.Require().NoError(json.Unmarshal(data, &raw))
+	suite.Contains(raw, "pull_request")
+	suite.NotContains(raw, "some_future_activity_kind")
+	suite.NotContains(raw, "unknownVariant")
+	suite.NotContains(raw, "unknown_variant")
+	suite.Len(raw, 1, "marshaled activity must carry only the fields it recognizes")
+}

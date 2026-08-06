@@ -1,0 +1,100 @@
+{
+  "values": [
+    {
+      "pull_request": {
+        "type": "pullrequest",
+        "id": 1650,
+        "title": "Add README.md"
+      },
+      "approval": {
+        "date": "2026-08-01T07:10:57.603622+00:00",
+        "user": {
+          "display_name": "Approving User",
+          "type": "user",
+          "uuid": "{ddc4305b-23d8-479b-9c17-eda2543808b2}",
+          "nickname": "Approving User"
+        },
+        "pullrequest": {
+          "type": "pullrequest",
+          "id": 1650,
+          "title": "Add README.md"
+        }
+      }
+    },
+    {
+      "pull_request": {
+        "type": "pullrequest",
+        "id": 1650,
+        "title": "Add README.md"
+      },
+      "changes_requested": {
+        "date": "2026-08-02T07:10:57.603622+00:00",
+        "user": {
+          "display_name": "Requesting Changes User",
+          "type": "user",
+          "uuid": "{ddc4305b-23d8-479b-9c17-eda2543808b3}",
+          "nickname": "Requesting Changes User"
+        },
+        "pullrequest": {
+          "type": "pullrequest",
+          "id": 1650,
+          "title": "Add README.md"
+        }
+      }
+    },
+    {
+      "pull_request": {
+        "type": "pullrequest",
+        "id": 1650,
+        "title": "Add README.md"
+      },
+      "update": {
+        "state": "OPEN",
+        "title": "Add README.md",
+        "description": "some description",
+        "reason": "",
+        "author": {
+          "display_name": "Author User",
+          "type": "user",
+          "uuid": "{ddc4305b-23d8-479b-9c17-eda2543808b4}",
+          "nickname": "Author User"
+        },
+        "date": "2026-08-03T07:10:57.603622+00:00"
+      }
+    },
+    {
+      "pull_request": {
+        "type": "pullrequest",
+        "id": 1650,
+        "title": "Add README.md"
+      },
+      "some_future_activity_kind": {
+        "date": "2026-08-04T07:10:57.603622+00:00",
+        "note": "first occurrence of an unrecognized variant"
+      }
+    },
+    {
+      "pull_request": {
+        "type": "pullrequest",
+        "id": 1650,
+        "title": "Add README.md"
+      },
+      "some_future_activity_kind": {
+        "date": "2026-08-05T07:10:57.603622+00:00",
+        "note": "second occurrence of the SAME unrecognized variant -- must warn only once"
+      }
+    },
+    {
+      "pull_request": {
+        "type": "pullrequest",
+        "id": 1650,
+        "title": "Add README.md"
+      },
+      "another_new_activity_kind": {
+        "date": "2026-08-06T07:10:57.603622+00:00",
+        "note": "a DIFFERENT unrecognized variant -- must warn separately"
+      }
+    }
+  ],
+  "next": ""
+}

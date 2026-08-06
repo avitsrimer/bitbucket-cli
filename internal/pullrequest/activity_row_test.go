@@ -23,6 +23,23 @@ func TestActivityGetRowForApproval(t *testing.T) {
 	assert.Equal(t, []string{"2024-01-02 03:04:05", "true", "N/A", "Jane Doe", " "}, row)
 }
 
+// TestActivityGetRowForChangesRequested proves GetRow renders a "changes_requested" activity
+// (added for FR-5) distinctly from an approval: same date/user shape, but not counted as approved
+// and with its own "state" value rather than approval's "N/A".
+func TestActivityGetRowForChangesRequested(t *testing.T) {
+	when := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
+	target := pullrequest.Activity{
+		ChangesRequested: &pullrequest.ActivityChangesRequested{
+			Date: when,
+			User: user.User{Name: "Jane Doe"},
+		},
+	}
+
+	row := target.GetRow([]string{"date", "approved", "state", "user"})
+
+	assert.Equal(t, []string{"2024-01-02 03:04:05", "false", "CHANGES_REQUESTED", "Jane Doe"}, row)
+}
+
 func TestActivityGetRowForUpdate(t *testing.T) {
 	when := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
 	target := pullrequest.Activity{
