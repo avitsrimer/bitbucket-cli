@@ -131,8 +131,8 @@ func resolveStepID(ctx context.Context, cmd *cobra.Command, repo *repository.Rep
 	case 0:
 		var names []string
 		for _, step := range steps {
-			if step.Name != "" {
-				names = append(names, step.Name)
+			if name := strings.TrimSpace(step.Name); name != "" {
+				names = append(names, name)
 			}
 		}
 		if len(names) == 0 {
