@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+
+	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 )
 
 // TestListCmdRegistersLimitFlag proves --limit is registered on the real "pr comment list"
@@ -32,12 +34,11 @@ func TestListProcessRespectsLimitFlag(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"values":[{"id":1,"content":{"raw":"first"}},{"id":2,"content":{"raw":"second"}}]}`))
 	}, false)
-	cmd.Flags().Int("limit", 0, "")
 	if err := cmd.Flags().Set("limit", "1"); err != nil {
 		t.Fatalf("cannot set limit flag: %v", err)
 	}
 
-	stdout := captureStdout(t, func() {
+	stdout := testutil.CaptureStdout(t, func() {
 		if err := listProcess(cmd, nil); err != nil {
 			t.Fatalf("listProcess() error = %v", err)
 		}

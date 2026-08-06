@@ -49,7 +49,7 @@ func resetProfilesState() func() {
 }
 
 // TestLoadParsesTestdataConfigYAMLProfilesIdentically proves the plain-YAML loader decodes
-// testdata/config.yml (the shape viper used to write) into the same Profile values as before.
+// testdata/config.yml into the expected Profile values.
 func (suite *ProfileSuite) TestLoadParsesTestdataConfigYAMLProfilesIdentically() {
 	defer resetProfilesState()()
 
@@ -75,10 +75,9 @@ func (suite *ProfileSuite) TestLoadParsesTestdataConfigYAMLProfilesIdentically()
 	suite.Empty(profile.Profiles[1].User)
 }
 
-// TestLoadParsesCamelCaseConfigKeys is a regression test proving camelCase config keys (the
-// spelling documented by Profile's json tags, and the shape viper used to accept before the
-// plain-YAML loader replaced it) still populate their fields instead of being silently dropped
-// by yaml.v3's case-sensitive key matching.
+// TestLoadParsesCamelCaseConfigKeys proves camelCase config keys (the spelling documented by
+// Profile's json tags) populate their fields instead of being silently dropped by yaml.v3's
+// case-sensitive key matching.
 func (suite *ProfileSuite) TestLoadParsesCamelCaseConfigKeys() {
 	defer resetProfilesState()()
 
@@ -104,14 +103,12 @@ func (suite *ProfileSuite) TestLoadParsesCamelCaseConfigKeys() {
 	suite.Equal("https://api.bitbucket.org/camel", got.APIRoot.String())
 }
 
-// TestLoadParsesStringFormAPIRootAndErrorProcessing is a regression test: apiRoot written as a
-// plain URL string (e.g. "apiRoot: https://api.bitbucket.org", the form a user would reasonably
-// hand-write, and the spelling every other apiRoot-shaped value in this codebase accepts) used to
-// fail to decode into url.URL ("cannot unmarshal !!str into url.URL"), and errorProcessing written
-// as its documented string name (e.g. "WarnOnError", the spelling MarshalJSON emits) used to fail
-// the same way, aborting profiles.Load and every "bb" command with an opaque yaml error. Both must
-// now decode successfully, alongside the lowercase key spelling GetSection's key-lowercasing
-// produces.
+// TestLoadParsesStringFormAPIRootAndErrorProcessing proves apiRoot written as a plain URL string
+// (e.g. "apiRoot: https://api.bitbucket.org", the form a user would reasonably hand-write, and the
+// spelling every other apiRoot-shaped value in this codebase accepts) decodes into url.URL, and
+// errorProcessing written as its documented string name (e.g. "WarnOnError", the spelling
+// MarshalJSON emits) decodes successfully too, alongside the lowercase key spelling GetSection's
+// key-lowercasing produces.
 func (suite *ProfileSuite) TestLoadParsesStringFormAPIRootAndErrorProcessing() {
 	defer resetProfilesState()()
 
@@ -130,12 +127,9 @@ func (suite *ProfileSuite) TestLoadParsesStringFormAPIRootAndErrorProcessing() {
 	suite.Equal(common.WarnOnError, got.ErrorProcessing)
 }
 
-// TestLoadParsesEmptyStringAPIRoot is a regression test: apiRoot written as an explicit empty
-// string (apiroot set to a quoted empty value, something templating or a half-cleared config
-// value can easily produce) used to leave an empty scalar node in place for url.URL's
-// mapping-only decoding, failing every profile load with a yaml unmarshal error -- the exact
-// opaque failure mode the string-form fix was meant to remove. An empty apiRoot must decode into a
-// nil *url.URL instead of aborting Load.
+// TestLoadParsesEmptyStringAPIRoot proves apiRoot written as an explicit empty string (apiroot set
+// to a quoted empty value, something templating or a half-cleared config value can easily produce)
+// decodes into a nil *url.URL instead of aborting Load with a yaml unmarshal error.
 func (suite *ProfileSuite) TestLoadParsesEmptyStringAPIRoot() {
 	defer resetProfilesState()()
 
@@ -152,11 +146,11 @@ func (suite *ProfileSuite) TestLoadParsesEmptyStringAPIRoot() {
 	suite.Nil(got.APIRoot, "an empty-string apiRoot must decode to a nil *url.URL, not error")
 }
 
-// TestLoadParsesStringFormAPIRootPreservesUserinfo is a regression test: a string-form apiRoot
-// carrying userinfo (e.g. "https://user:pw@api.bitbucket.org") used to silently round-trip as
-// "https://@api.bitbucket.org" -- credentials dropped without error -- because normalizing the
-// scalar into url.URL's field-by-field mapping form marshaled url.URL.User (a *url.Userinfo whose
-// fields are all unexported) as an empty mapping. The parsed URL must keep its userinfo intact.
+// TestLoadParsesStringFormAPIRootPreservesUserinfo proves a string-form apiRoot carrying userinfo
+// (e.g. "https://user:pw@api.bitbucket.org") keeps its userinfo intact through decoding, rather
+// than normalizing through url.URL's field-by-field mapping form, which marshals url.URL.User (a
+// *url.Userinfo whose fields are all unexported) as an empty mapping and silently drops the
+// credentials.
 func (suite *ProfileSuite) TestLoadParsesStringFormAPIRootPreservesUserinfo() {
 	defer resetProfilesState()()
 

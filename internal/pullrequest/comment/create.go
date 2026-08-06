@@ -1,7 +1,6 @@
 package comment
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
@@ -10,17 +9,6 @@ import (
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
-
-type CommentCreator struct {
-	Content ContentCreator     `json:"content"`
-	Anchor  *common.FileAnchor `json:"inline,omitempty"`
-	Parent  *ParentReference   `json:"parent,omitempty"`
-	Pending *bool              `json:"pending,omitempty"`
-}
-
-type ContentCreator struct {
-	Raw string `json:"raw"`
-}
 
 var createCmd = &cobra.Command{
 	Use:     "create",
@@ -49,29 +37,9 @@ func createProcess(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("cannot get repository: %w", err)
 	}
 
-	payload := CommentCreator{
-		Content: ContentCreator{Raw: createOptions.Comment},
-	}
-
-	if createOptions.ParentID > 0 {
-		payload.Parent = &ParentReference{ID: createOptions.ParentID}
-	}
-
-	if createOptions.File != "" {
-		payload.Anchor = &common.FileAnchor{
-			Path: createOptions.File,
-		}
-		if createOptions.From > 0 {
-			payload.Anchor.From = uint64(createOptions.From)
-		}
-		if createOptions.To > 0 {
-			payload.Anchor.To = uint64(createOptions.To)
-		}
-	} else if createOptions.From > 0 || createOptions.To > 0 {
-		return errors.New("cannot specify from/to without a file")
-	}
-	if cmd.Flag("pending").Changed {
-		payload.Pending = &createOptions.Pending
+	payload, err := createOptions.payload(cmd)
+	if err != nil {
+		return err
 	}
 
 	lgr.Printf("[DEBUG] creating pullrequest comment")

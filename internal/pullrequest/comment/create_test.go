@@ -37,8 +37,8 @@ func (suite *CommentCreateSuite) TearDownSuite() {
 // *****************************************************************************
 
 func (suite *CommentCreateSuite) TestCanMarshalCommentCreatorWithParent() {
-	creator := comment.CommentCreator{
-		Content: comment.ContentCreator{Raw: "This is a reply"},
+	creator := comment.CommentPayload{
+		Content: comment.CommentContent{Raw: "This is a reply"},
 		Parent:  &comment.ParentReference{ID: 759578390},
 	}
 
@@ -61,8 +61,8 @@ func (suite *CommentCreateSuite) TestCanMarshalCommentCreatorWithParent() {
 }
 
 func (suite *CommentCreateSuite) TestCanMarshalCommentCreatorWithoutParent() {
-	creator := comment.CommentCreator{
-		Content: comment.ContentCreator{Raw: "This is a top-level comment"},
+	creator := comment.CommentPayload{
+		Content: comment.CommentContent{Raw: "This is a top-level comment"},
 	}
 
 	data, err := json.Marshal(creator)
@@ -81,8 +81,8 @@ func (suite *CommentCreateSuite) TestCanMarshalCommentCreatorWithoutParent() {
 }
 
 func (suite *CommentCreateSuite) TestCommentCreatorJSONMatchesBitbucketAPIFormat() {
-	creator := comment.CommentCreator{
-		Content: comment.ContentCreator{Raw: "Done!"},
+	creator := comment.CommentPayload{
+		Content: comment.CommentContent{Raw: "Done!"},
 		Parent:  &comment.ParentReference{ID: 759578390},
 	}
 
@@ -94,8 +94,8 @@ func (suite *CommentCreateSuite) TestCommentCreatorJSONMatchesBitbucketAPIFormat
 }
 
 func (suite *CommentCreateSuite) TestCanMarshalCommentCreatorWithPending() {
-	creator := comment.CommentCreator{
-		Content: comment.ContentCreator{Raw: "This is a top-level comment"},
+	creator := comment.CommentPayload{
+		Content: comment.CommentContent{Raw: "This is a top-level comment"},
 		Pending: new(true),
 	}
 

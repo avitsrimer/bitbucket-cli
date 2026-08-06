@@ -5,12 +5,8 @@ import (
 	"testing"
 )
 
-// TestEmailGetRowAllDocumentedColumns is a regression test: GetRow used to match only the exact
-// mixed-case default header spelling ("Email", "Is Primary", "Is Confirmed"), while GetHeaders'
-// own default headers are returned verbatim (that spelling would work) but a --columns value like
-// "is_primary" arrives here as "is primary" (GetHeaders maps "_" to " ") and any output path that
-// lowercases headers (e.g. a case-insensitive caller) would already miss every column. Every
-// documented column must produce its value regardless of case or underscore/space spelling.
+// TestEmailGetRowAllDocumentedColumns proves every documented column produces its value
+// regardless of case or underscore/space spelling.
 func TestEmailGetRowAllDocumentedColumns(t *testing.T) {
 	target := Email{Email: "jane@example.com", IsPrimary: true, IsConfirmed: false}
 
@@ -45,14 +41,13 @@ func TestEmailGetRowAllDocumentedColumns(t *testing.T) {
 func TestEmailGetRowUnknownColumnIsBlank(t *testing.T) {
 	target := Email{Email: "jane@example.com"}
 	row := target.GetRow([]string{"not_a_real_column"})
-	if len(row) != 1 || row[0] != "" {
+	if len(row) != 1 || row[0] != " " {
 		t.Errorf("GetRow() = %v, want a single blank cell", row)
 	}
 }
 
 // TestEmailGetHeadersDefaultColumnsAllProduceValues proves every column in GetHeaders' own
-// default list is recognized by GetRow (i.e. the two are actually kept in sync) -- this is exactly
-// the case that used to silently produce a row of blank cells for every documented column.
+// default list is recognized by GetRow (i.e. the two are kept in sync).
 func TestEmailGetHeadersDefaultColumnsAllProduceValues(t *testing.T) {
 	target := Email{Email: "jane@example.com", IsPrimary: true, IsConfirmed: true}
 	headers := target.GetHeaders(nil)

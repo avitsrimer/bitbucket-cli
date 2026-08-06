@@ -42,11 +42,10 @@ func TestConfigPath(t *testing.T) {
 		assert.Equal(t, filepath.Join(configDir, "bitbucket", "config-cli.yml"), path)
 	})
 
-	// This is a regression test for BB_CONFIG being silently ignored: on the real root command
-	// the flag's *default* value is populated from BB_CONFIG (core.GetEnvAsString("BB_CONFIG",
-	// "")), which never marks the flag as Changed. ConfigPath used to check
-	// Changed("config") and therefore only ever honored an explicit --config, falling through to
-	// UserConfigDir even when BB_CONFIG was set.
+	// This proves BB_CONFIG is honored even when supplied only as the flag's default value: on
+	// the real root command the flag's *default* value is populated from BB_CONFIG
+	// (core.GetEnvAsString("BB_CONFIG", "")), which never marks the flag as Changed, so ConfigPath
+	// must read the flag's current value directly rather than checking Changed("config").
 	t.Run("honors BB_CONFIG supplied only as the flag's default value", func(t *testing.T) {
 		cmd := &cobra.Command{Use: "test"}
 		cmd.PersistentFlags().String("config", "/from/env/config.yml", "config file")
@@ -134,10 +133,9 @@ func TestConfigSaveRoundTrip(t *testing.T) {
 	})
 }
 
-// TestGetSectionLowercasesCamelCaseKeys is a regression test for a data-loss bug: yaml.v3 matches
-// mapping keys case-sensitively against the lower-cased field name it defaults to for untagged
-// struct fields, so a camelCase key such as accessToken silently failed to populate AccessToken
-// (no error, just an empty field) instead of matching case-insensitively the way viper used to.
+// TestGetSectionLowercasesCamelCaseKeys proves a camelCase key such as accessToken populates
+// AccessToken: yaml.v3 matches mapping keys case-sensitively against the lower-cased field name it
+// defaults to for untagged struct fields, so GetSection must match keys case-insensitively itself.
 func TestGetSectionLowercasesCamelCaseKeys(t *testing.T) {
 	type fixture struct {
 		Name        string `yaml:",omitempty"`

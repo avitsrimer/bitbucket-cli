@@ -9,11 +9,9 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
 )
 
-// TestTaskGetRowAllDocumentedColumns is a regression test: GetRow used to switch on the raw
-// underscore spelling ("created_on", "resolved_by", ...) while GetHeaders maps a --columns value
-// through strings.ReplaceAll(column, "_", " "), turning "resolved_by" into "resolved by" before it
-// ever reaches GetRow. Every documented column must produce its value regardless of which spelling
-// (underscore or space, any case) is used.
+// TestTaskGetRowAllDocumentedColumns proves every documented column produces its value regardless
+// of which spelling (underscore, space, or hyphen; any case) is used, since GetHeaders maps a
+// --columns value through strings.ReplaceAll(column, "_", " ") before it reaches GetRow.
 func TestTaskGetRowAllDocumentedColumns(t *testing.T) {
 	createdOn := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
 	updatedOn := time.Date(2024, 1, 3, 3, 4, 5, 0, time.UTC)
@@ -63,12 +61,12 @@ func TestTaskGetRowAllDocumentedColumns(t *testing.T) {
 	}
 }
 
-// TestTaskGetRowBlanksNilResolvedFields proves resolved_on/resolved_by render blank rather than
-// panicking when the task has not been resolved yet.
+// TestTaskGetRowBlanksNilResolvedFields proves resolved_on/resolved_by render as a blank cell
+// rather than panicking when the task has not been resolved yet.
 func TestTaskGetRowBlanksNilResolvedFields(t *testing.T) {
 	target := Task{ID: 1}
 	row := target.GetRow([]string{"resolved on", "resolved by"})
-	if len(row) != 2 || row[0] != "" || row[1] != "" {
+	if len(row) != 2 || row[0] != " " || row[1] != " " {
 		t.Errorf("GetRow() = %v, want two blank cells", row)
 	}
 }
@@ -78,7 +76,7 @@ func TestTaskGetRowBlanksNilResolvedFields(t *testing.T) {
 func TestTaskGetRowUnknownColumnIsBlank(t *testing.T) {
 	target := Task{ID: 1}
 	row := target.GetRow([]string{"not_a_real_column"})
-	if len(row) != 1 || row[0] != "" {
+	if len(row) != 1 || row[0] != " " {
 		t.Errorf("GetRow() = %v, want a single blank cell", row)
 	}
 }

@@ -1,7 +1,6 @@
 package comment
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
@@ -11,21 +10,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type CommentUpdator struct {
-	Content ContentUpdator     `json:"content"`
-	Anchor  *common.FileAnchor `json:"inline,omitempty"`
-	Parent  *ParentReference   `json:"parent,omitempty"`
-	Pending *bool              `json:"pending,omitempty"`
-}
-
-type ContentUpdator struct {
-	Raw string `json:"raw"`
-}
-
 var updateCmd = &cobra.Command{
 	Use:               "update [flags] <comment-id>",
 	Aliases:           []string{"edit"},
-	Short:             "update an issue comment by its <comment-id>.",
+	Short:             "update a pull request comment by its <comment-id>.",
 	Args:              cobra.ExactArgs(1),
 	ValidArgsFunction: updateValidArgs,
 	RunE:              updateProcess,
@@ -62,30 +50,9 @@ func updateProcess(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("cannot get repository: %w", err)
 	}
 
-	payload := CommentUpdator{
-		Content: ContentUpdator{Raw: updateOptions.Comment},
-	}
-
-	if updateOptions.File != "" {
-		payload.Anchor = &common.FileAnchor{
-			Path: updateOptions.File,
-		}
-		if updateOptions.From > 0 {
-			payload.Anchor.From = uint64(updateOptions.From)
-		}
-		if updateOptions.To > 0 {
-			payload.Anchor.To = uint64(updateOptions.To)
-		}
-	} else if updateOptions.From > 0 || updateOptions.To > 0 {
-		return errors.New("cannot specify from/to without a file")
-	}
-
-	if cmd.Flag("pending").Changed {
-		payload.Pending = &updateOptions.Pending
-	}
-
-	if updateOptions.ParentID > 0 {
-		payload.Parent = &ParentReference{ID: updateOptions.ParentID}
+	payload, err := updateOptions.payload(cmd)
+	if err != nil {
+		return err
 	}
 
 	lgr.Printf("[DEBUG] updating pullrequest comment")

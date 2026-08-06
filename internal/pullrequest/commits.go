@@ -22,10 +22,8 @@ var commitsCmd = &cobra.Command{
 }
 
 var commitsOptions struct {
-	Columns    *common.EnumSliceFlag
-	SortBy     *common.EnumFlag
-	PageLength int
-	Limit      int
+	Columns *common.EnumSliceFlag
+	SortBy  *common.EnumFlag
 }
 
 func init() {
@@ -35,8 +33,8 @@ func init() {
 	commitsOptions.SortBy = common.NewEnumFlag(commit.Commit{}.GetColumnDefinitions().Sorters()...)
 	commitsCmd.Flags().Var(commitsOptions.Columns, "columns", "Comma-separated list of columns to display")
 	commitsCmd.Flags().Var(commitsOptions.SortBy, "sort", "Column to sort by")
-	commitsCmd.Flags().IntVar(&commitsOptions.PageLength, "page-length", 0, "Number of items per page to retrieve from Bitbucket. Default is the profile's default page length")
-	commitsCmd.Flags().IntVar(&commitsOptions.Limit, "limit", 0, "Maximum total number of commits to retrieve. Default is to retrieve all of them")
+	commitsCmd.Flags().Int("page-length", 0, "Number of items per page to retrieve from Bitbucket. Default is the profile's default page length")
+	commitsCmd.Flags().Int("limit", 0, "Maximum total number of commits to retrieve. Default is to retrieve all of them")
 	_ = commitsCmd.RegisterFlagCompletionFunc(commitsOptions.Columns.CompletionFunc("columns"))
 	_ = commitsCmd.RegisterFlagCompletionFunc(commitsOptions.SortBy.CompletionFunc("sort"))
 }

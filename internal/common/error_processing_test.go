@@ -8,11 +8,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// TestErrorProcessingUnmarshalYAMLAcceptsStringForm is a regression test: a config file's
-// errorProcessing written as its documented string name (the spelling Set/CompletionFunc accept
-// and MarshalJSON emits) used to fail to decode ("cannot unmarshal !!str into
-// common.ErrorProcessing"), since ErrorProcessing only implemented pflag.Value, not
-// yaml.Unmarshaler.
+// TestErrorProcessingUnmarshalYAMLAcceptsStringForm proves a config file's errorProcessing written
+// as its documented string name (the spelling Set/CompletionFunc accept and MarshalJSON emits)
+// decodes successfully via ErrorProcessing's yaml.Unmarshaler implementation.
 func TestErrorProcessingUnmarshalYAMLAcceptsStringForm(t *testing.T) {
 	tests := []struct {
 		value string

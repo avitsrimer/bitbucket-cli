@@ -36,7 +36,7 @@ func init() {
 
 	updateOptions.DefaultWorkspace = common.NewEnumFlagWithFunc(updateCmd, "", getWorkspaceSlugs)
 	updateOptions.DefaultProject = common.NewEnumFlagWithFunc(updateCmd, "", getProjectKeys)
-	updateOptions.OutputFormat = common.NewEnumFlag("json", "yaml", "table")
+	updateOptions.OutputFormat = common.NewEnumFlag("json", "yaml", "table", "csv", "tsv")
 	updateOptions.CloneProtocol = common.NewEnumFlag("+git", "https", "ssh")
 	updateCmd.Flags().StringVarP(&updateOptions.Name, "name", "n", "", "Name of the profile")
 	updateCmd.Flags().StringVar(&updateOptions.Description, "description", "", "Description of the profile")
@@ -57,9 +57,9 @@ func init() {
 	updateCmd.Flags().Var(updateOptions.CloneProtocol, "clone-protocol", "Default protocol to use for cloning repositories. Default is git, can be https, git, or ssh")
 	updateCmd.Flags().StringVar(&updateOptions.CloneUser, "clone-user", "", "Username to use when cloning repositories. Default is the username of the profile.")
 	updateCmd.Flags().StringVar(&updateOptions.SshKeyFilename, "default-ssh-key-file", "", "Path to the SSH private key file to use when cloning repositories with the ssh protocol.")
-	updateCmd.Flags().Var(updateOptions.OutputFormat, "output", "Output format (json, yaml, table).")
+	updateCmd.Flags().Var(updateOptions.OutputFormat, "output", "Output format (json, yaml, table, csv, tsv).")
 	updateCmd.Flags().IntVar(&updateOptions.DefaultPageLength, "default-page-length", 0, "Default number of items per page to retrieve from Bitbucket (Default: 50).")
-	updateCmd.Flags().Var(&updateOptions.ErrorProcessing, "error-processing", "Error processing (StopOnError, WanOnError, IgnoreErrors).")
+	updateCmd.Flags().Var(&updateOptions.ErrorProcessing, "error-processing", "Error processing (StopOnError, WarnOnError, IgnoreErrors).")
 	updateCmd.Flags().BoolVar(&updateOptions.Progress, "progress", false, "Show progress during upload/download operations.")
 	updateCmd.MarkFlagsRequiredTogether("user", "password")
 	updateCmd.MarkFlagsRequiredTogether("client-id", "client-secret")
@@ -131,9 +131,20 @@ func updateProcess(cmd *cobra.Command, args []string) (err error) {
 	return profile.Print(ctx, cmd, profile)
 }
 
+// resolveCredentialOwner returns updated when flagName changed on the command line and updated is
+// non-empty, otherwise current: the username/clientID/profile name a credential should be looked
+// up or stored under in the vault.
+func resolveCredentialOwner(cmd *cobra.Command, flagName, current, updated string) string {
+	if cmd.Flag(flagName).Changed && updated != "" {
+		return updated
+	}
+	return current
+}
+
 // resolveProfileCredentials moves existing plain-text credentials into the vault when requested,
 // then stores any credential values changed on the command line into the vault when in use
 func resolveProfileCredentials(cmd *cobra.Command, profile *Profile) error {
+	// 1. move any credentials still stored in plain text into the vault, when requested
 	if updateOptions.ToVault {
 		updateOptions.NoVault = false
 		vaultKey := profile.VaultKey
@@ -145,12 +156,13 @@ func resolveProfileCredentials(cmd *cobra.Command, profile *Profile) error {
 		}
 	}
 
+	// 2. keep a profile that already stores its credentials in plain text that way
 	if profile.hasPlainTextSecret() {
 		lgr.Printf("[DEBUG] profile %s stored its credentials in plain text, we should keep it that way", profile.Name)
 		updateOptions.NoVault = true
 	}
 
-	// We need to check updates to the vault key early, so we can store the client secret and password in the vault if provided
+	// 3. resolve the vault key early, so it's available below when storing secrets
 	if runtime.GOOS != "windows" && !cmd.Flag("vault-key").Changed {
 		if profile.VaultKey == "" {
 			profile.VaultKey = "bitbucket-cli"
@@ -158,22 +170,14 @@ func resolveProfileCredentials(cmd *cobra.Command, profile *Profile) error {
 		updateOptions.VaultKey = profile.VaultKey
 	}
 
-	clientID := profile.ClientID
-	if cmd.Flag("client-id").Changed && updateOptions.ClientID != "" {
-		clientID = updateOptions.ClientID
-	}
+	// 4. resolve and store each of the three secrets: client secret, password, access token
+	clientID := resolveCredentialOwner(cmd, "client-id", profile.ClientID, updateOptions.ClientID)
 	updateOptions.ClientSecret = storeCredentialIfChanged(cmd, "client-secret", "client secret", updateOptions.VaultKey, clientID, updateOptions.ClientSecret)
 
-	user := profile.User
-	if cmd.Flag("user").Changed && updateOptions.User != "" {
-		user = updateOptions.User
-	}
-	updateOptions.Password = storeCredentialIfChanged(cmd, "password", "user password", updateOptions.VaultKey, user, updateOptions.Password)
+	user := resolveCredentialOwner(cmd, "user", profile.User, updateOptions.User)
+	updateOptions.Password = storeCredentialIfChanged(cmd, "password", "password", updateOptions.VaultKey, user, updateOptions.Password)
 
-	name := profile.Name
-	if cmd.Flag("name").Changed && updateOptions.Name != "" {
-		name = updateOptions.Name
-	}
+	name := resolveCredentialOwner(cmd, "name", profile.Name, updateOptions.Name)
 	updateOptions.AccessToken = storeCredentialIfChanged(cmd, "access-token", "access token", updateOptions.VaultKey, name, updateOptions.AccessToken)
 
 	return nil

@@ -19,6 +19,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// CommentPayload is the request body for creating or updating a pull request comment.
+type CommentPayload struct {
+	Content CommentContent     `json:"content"`
+	Anchor  *common.FileAnchor `json:"inline,omitempty"`
+	Parent  *ParentReference   `json:"parent,omitempty"`
+	Pending *bool              `json:"pending,omitempty"`
+}
+
+// CommentContent is the "content" field of CommentPayload.
+type CommentContent struct {
+	Raw string `json:"raw"`
+}
+
 // commentEditOptions holds the flags shared by the create and update commands
 type commentEditOptions struct {
 	PullRequestID *common.EnumFlag
@@ -28,6 +41,39 @@ type commentEditOptions struct {
 	To            int
 	ParentID      int64
 	Pending       bool
+}
+
+// payload builds the request body for a create/update comment request from o, resolving the
+// --file/--line/--from/--to file anchor and the --parent/--pending flags. Returns an error when
+// --line/--from/--to was given without --file.
+func (o commentEditOptions) payload(cmd *cobra.Command) (CommentPayload, error) {
+	payload := CommentPayload{
+		Content: CommentContent{Raw: o.Comment},
+	}
+
+	if o.ParentID > 0 {
+		payload.Parent = &ParentReference{ID: o.ParentID}
+	}
+
+	if o.File != "" {
+		payload.Anchor = &common.FileAnchor{
+			Path: o.File,
+		}
+		if o.From > 0 {
+			payload.Anchor.From = uint64(o.From)
+		}
+		if o.To > 0 {
+			payload.Anchor.To = uint64(o.To)
+		}
+	} else if o.From > 0 || o.To > 0 {
+		return CommentPayload{}, errors.New("cannot specify from/to without a file")
+	}
+
+	if cmd.Flag("pending").Changed {
+		payload.Pending = &o.Pending
+	}
+
+	return payload, nil
 }
 
 // registerCommentEditFlags registers the flags shared by the create and update commands
@@ -85,12 +131,7 @@ type ParentReference struct {
 var Command = &cobra.Command{
 	Use:   "comment",
 	Short: "Manage comments",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Comment requires a subcommand:")
-		for _, command := range cmd.Commands() {
-			fmt.Println(command.Name())
-		}
-	},
+	Run:   common.SubcommandRequired("Comment"),
 }
 
 var columns = common.Columns[Comment]{
@@ -116,10 +157,10 @@ var columns = common.Columns[Comment]{
 		return a.UpdatedOn.Before(b.UpdatedOn)
 	}},
 	{Name: "deleted", DefaultSorter: false, Compare: func(a, b Comment) bool {
-		return a.IsDeleted == b.IsDeleted
+		return !a.IsDeleted && b.IsDeleted
 	}},
 	{Name: "pending", DefaultSorter: false, Compare: func(a, b Comment) bool {
-		return a.IsPending == b.IsPending
+		return !a.IsPending && b.IsPending
 	}},
 	{Name: "resolution", DefaultSorter: false, Compare: func(a, b Comment) bool {
 		return (a.Resolution != nil) && (b.Resolution == nil)
@@ -151,14 +192,14 @@ func (comment Comment) GetRow(headers []string) []string {
 	var row []string
 
 	for _, header := range headers {
-		switch strings.ToLower(header) {
+		switch common.NormalizeColumnKey(header) {
 		case "id":
 			row = append(row, strconv.Itoa(comment.ID))
-		case "created on", "created_on", "created-on", "created":
-			row = append(row, comment.CreatedOn.Format("2006-01-02 15:04:05"))
-		case "updated on", "updated_on", "updated-on", "updated":
+		case "created_on", "created":
+			row = append(row, comment.CreatedOn.Format(common.TableTimeFormat))
+		case "updated_on", "updated":
 			if !comment.UpdatedOn.IsZero() {
-				row = append(row, comment.UpdatedOn.Format("2006-01-02 15:04:05"))
+				row = append(row, comment.UpdatedOn.Format(common.TableTimeFormat))
 			} else {
 				row = append(row, "N/A")
 			}
@@ -180,11 +221,11 @@ func (comment Comment) GetRow(headers []string) []string {
 			if comment.Resolution != nil {
 				switch {
 				case comment.Resolution.User.Name != "" && !comment.Resolution.CreatedOn.IsZero():
-					row = append(row, fmt.Sprintf("resolved by %s on %s", comment.Resolution.User.Name, comment.Resolution.CreatedOn.Format("2006-01-02 15:04:05")))
+					row = append(row, fmt.Sprintf("resolved by %s on %s", comment.Resolution.User.Name, comment.Resolution.CreatedOn.Format(common.TableTimeFormat)))
 				case comment.Resolution.User.Name != "":
 					row = append(row, "resolved by "+comment.Resolution.User.Name)
 				case !comment.Resolution.CreatedOn.IsZero():
-					row = append(row, "resolved on "+comment.Resolution.CreatedOn.Format("2006-01-02 15:04:05"))
+					row = append(row, "resolved on "+comment.Resolution.CreatedOn.Format(common.TableTimeFormat))
 				default:
 					row = append(row, "resolved")
 				}
@@ -197,6 +238,8 @@ func (comment Comment) GetRow(headers []string) []string {
 			} else {
 				row = append(row, " ")
 			}
+		default:
+			row = append(row, " ")
 		}
 	}
 	return row

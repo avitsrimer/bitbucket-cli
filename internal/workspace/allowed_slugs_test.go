@@ -2,12 +2,10 @@ package workspace_test
 
 import (
 	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 
-	"github.com/avitsrimer/bitbucket-cli/internal/profile"
+	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 	"github.com/avitsrimer/bitbucket-cli/internal/workspace"
 	"github.com/spf13/cobra"
 )
@@ -17,29 +15,7 @@ import (
 // the root --workspace flag's dynamic allowed-value resolution and shell completion.
 func setupAllowedSlugsTest(t *testing.T, handler http.HandlerFunc) *cobra.Command {
 	t.Helper()
-
-	server := httptest.NewServer(handler)
-	t.Cleanup(server.Close)
-
-	apiRoot, err := url.Parse(server.URL)
-	if err != nil {
-		t.Fatalf("cannot parse test server URL: %v", err)
-	}
-
-	testProfile := &profile.Profile{Name: "workspace-allowed-slugs-test", APIRoot: apiRoot, AccessToken: "dummy-token"}
-	oldProfiles, oldCurrent := profile.Profiles, profile.Current
-	profile.Profiles = append(profile.Profiles, testProfile)
-	profile.Current = testProfile
-	t.Cleanup(func() {
-		profile.Profiles = oldProfiles
-		profile.Current = oldCurrent
-	})
-
-	cmd := &cobra.Command{Use: "test"}
-	cmd.Flags().String("profile", "", "")
-	cmd.Flags().Int("page-length", 0, "")
-	cmd.Flags().Int("limit", 0, "")
-	return cmd
+	return testutil.SetupProfile(t, "workspace-allowed-slugs-test", handler)
 }
 
 func TestGetWorkspaceAllowedSlugsSuccess(t *testing.T) {
@@ -47,7 +23,10 @@ func TestGetWorkspaceAllowedSlugsSuccess(t *testing.T) {
 	cmd := setupAllowedSlugsTest(t, func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"values":[{"type":"workspace","slug":"zeta"},{"type":"workspace","slug":"acme"}]}`))
+		_, _ = w.Write([]byte(`{"values":[` +
+			`{"type":"workspace_access","administrator":false,"workspace":{"type":"workspace_base","slug":"zeta"}},` +
+			`{"type":"workspace_access","administrator":false,"workspace":{"type":"workspace_base","slug":"acme"}}` +
+			`]}`))
 	})
 
 	slugs, err := workspace.GetWorkspaceAllowedSlugs(t.Context(), cmd, nil, "")

@@ -11,12 +11,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type TaskUpdator struct {
-	Content *ContentUpdator `json:"content,omitempty"`
+type TaskUpdater struct {
+	Content *ContentUpdater `json:"content,omitempty"`
 	State   string          `json:"state,omitempty"`
 }
 
-type ContentUpdator struct {
+type ContentUpdater struct {
 	Raw string `json:"raw"`
 }
 
@@ -73,14 +73,14 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 
 	taskID := args[0]
 
-	taskUpdator := TaskUpdator{}
+	taskUpdater := TaskUpdater{}
 	if updateOptions.Content != "" {
-		taskUpdator.Content = &ContentUpdator{
+		taskUpdater.Content = &ContentUpdater{
 			Raw: updateOptions.Content,
 		}
 	}
 	if cmd.Flags().Changed("state") && updateOptions.State.Value != "" {
-		taskUpdator.State = updateOptions.State.Value
+		taskUpdater.State = updateOptions.State.Value
 	}
 
 	lgr.Printf("[DEBUG] updating pullrequest task %s on pullrequest %s", taskID, updateOptions.PullRequestID.Value)
@@ -93,7 +93,7 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 	err = profile.Put(
 		cmd.Context(),
 		repository.GetPath("pullrequests", updateOptions.PullRequestID.Value, "tasks", taskID),
-		taskUpdator,
+		taskUpdater,
 		&updated,
 	)
 	if err != nil {

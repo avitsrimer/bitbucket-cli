@@ -11,6 +11,7 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
+	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
 	"github.com/avitsrimer/bitbucket-cli/internal/workspace"
 	"github.com/spf13/cobra"
@@ -39,8 +40,8 @@ func withUpdateOptions(t *testing.T, mutate func()) {
 // removeRequestedReviewers/addRequestedReviewers check via cmd.Flag(name).Changed; setupTestNamed's
 // cmd only carries the flags common to every action (profile/repository/output/dry-run).
 //
-// add-reviewer/remove-reviewer are registered as real string slices (their production type, since
-// the review-iter4 fix) with storage local to this test command, not bound to the package-level
+// add-reviewer/remove-reviewer are registered as real string slices (their production type) with
+// storage local to this test command, not bound to the package-level
 // updateOptions: tests that exercise removeRequestedReviewers/addRequestedReviewers still set
 // updateOptions.AddReviewers/RemoveReviewers directly and use these flags only to mark
 // cmd.Flag(name).Changed the way real flag parsing would.
@@ -97,94 +98,116 @@ func TestUpdateValidArgsReturnsNoCompletionsWhenArgAlreadyProvided(t *testing.T)
 }
 
 func TestApplySimpleFieldUpdates(t *testing.T) {
-	withUpdateOptions(t, func() {
-		updateOptions.Title = "New title"
-		updateOptions.Description = "New description"
-	})
-
-	cmd := &cobra.Command{}
-	registerUpdateFlags(cmd)
-	if err := cmd.Flags().Set("title", "New title"); err != nil {
-		t.Fatalf("cannot set title flag: %v", err)
-	}
-	if err := cmd.Flags().Set("description", "New description"); err != nil {
-		t.Fatalf("cannot set description flag: %v", err)
+	tests := []struct {
+		name        string
+		setFlags    bool
+		wantChanged bool
+	}{
+		{name: "title and description changed", setFlags: true, wantChanged: true},
+		{name: "no flags changed", setFlags: false, wantChanged: false},
 	}
 
-	var pr PullRequest
-	if changed := applySimpleFieldUpdates(cmd, &pr); !changed {
-		t.Error("applySimpleFieldUpdates() = false, want true when title/description changed")
-	}
-	if pr.Title != "New title" {
-		t.Errorf("Title = %q, want %q", pr.Title, "New title")
-	}
-	if pr.Description != "New description" || pr.Summary.Raw != "New description" {
-		t.Errorf("Description/Summary.Raw = %q/%q, want %q", pr.Description, pr.Summary.Raw, "New description")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			withUpdateOptions(t, func() {
+				updateOptions.Title = "New title"
+				updateOptions.Description = "New description"
+			})
+
+			cmd := &cobra.Command{}
+			registerUpdateFlags(cmd)
+			if tt.setFlags {
+				if err := cmd.Flags().Set("title", "New title"); err != nil {
+					t.Fatalf("cannot set title flag: %v", err)
+				}
+				if err := cmd.Flags().Set("description", "New description"); err != nil {
+					t.Fatalf("cannot set description flag: %v", err)
+				}
+			}
+
+			var pr PullRequest
+			if changed := applySimpleFieldUpdates(cmd, &pr); changed != tt.wantChanged {
+				t.Errorf("applySimpleFieldUpdates() = %v, want %v", changed, tt.wantChanged)
+			}
+			if !tt.setFlags {
+				return
+			}
+			if pr.Title != "New title" {
+				t.Errorf("Title = %q, want %q", pr.Title, "New title")
+			}
+			if pr.Description != "New description" || pr.Summary.Raw != "New description" {
+				t.Errorf("Description/Summary.Raw = %q/%q, want %q", pr.Description, pr.Summary.Raw, "New description")
+			}
+		})
 	}
 }
 
-func TestApplySimpleFieldUpdatesNoFlagsChanged(t *testing.T) {
-	cmd := &cobra.Command{}
-	registerUpdateFlags(cmd)
+func TestRemoveRequestedReviewers(t *testing.T) {
+	tests := []struct {
+		name           string
+		setFlag        bool
+		reviewers      []user.User
+		wantChanged    bool
+		wantNicknames  []string
+		wantSameLength int
+	}{
+		{
+			name:          "removes a matching reviewer",
+			setFlag:       true,
+			reviewers:     []user.User{{Nickname: "jdoe", Name: "Jane Doe"}, {Nickname: "other"}},
+			wantChanged:   true,
+			wantNicknames: []string{"other"},
+		},
+		{
+			name:           "no-op when --remove-reviewer was not passed",
+			setFlag:        false,
+			reviewers:      []user.User{{Nickname: "jdoe"}},
+			wantChanged:    false,
+			wantSameLength: 1,
+		},
+	}
 
-	var pr PullRequest
-	if changed := applySimpleFieldUpdates(cmd, &pr); changed {
-		t.Error("applySimpleFieldUpdates() = true, want false when no flags changed")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			withUpdateOptions(t, func() {
+				updateOptions.RemoveReviewers = []string{"jdoe"}
+			})
+			cmd := &cobra.Command{}
+			registerUpdateFlags(cmd)
+			if tt.setFlag {
+				if err := cmd.Flags().Set("remove-reviewer", "true"); err != nil {
+					t.Fatalf("cannot set remove-reviewer flag: %v", err)
+				}
+			}
+
+			pr := &PullRequest{Reviewers: tt.reviewers}
+
+			changed, err := removeRequestedReviewers(cmd.Context(), cmd, &profile.Profile{}, pr)
+			if err != nil {
+				t.Fatalf("removeRequestedReviewers() error = %v", err)
+			}
+			if changed != tt.wantChanged {
+				t.Errorf("removeRequestedReviewers() = %v, want %v", changed, tt.wantChanged)
+			}
+			if tt.wantNicknames != nil {
+				if len(pr.Reviewers) != len(tt.wantNicknames) {
+					t.Fatalf("Reviewers = %+v, want %v", pr.Reviewers, tt.wantNicknames)
+				}
+				for i, nickname := range tt.wantNicknames {
+					if pr.Reviewers[i].Nickname != nickname {
+						t.Errorf("Reviewers[%d].Nickname = %q, want %q", i, pr.Reviewers[i].Nickname, nickname)
+					}
+				}
+			}
+			if tt.wantSameLength != 0 && len(pr.Reviewers) != tt.wantSameLength {
+				t.Errorf("Reviewers = %+v, want unchanged (len %d)", pr.Reviewers, tt.wantSameLength)
+			}
+		})
 	}
 }
 
-func TestRemoveRequestedReviewersRemovesMatch(t *testing.T) {
-	withUpdateOptions(t, func() {
-		updateOptions.RemoveReviewers = []string{"jdoe"}
-	})
-	cmd := &cobra.Command{}
-	registerUpdateFlags(cmd)
-	if err := cmd.Flags().Set("remove-reviewer", "true"); err != nil {
-		t.Fatalf("cannot set remove-reviewer flag: %v", err)
-	}
-
-	pr := &PullRequest{Reviewers: []user.User{{Nickname: "jdoe", Name: "Jane Doe"}, {Nickname: "other"}}}
-	isMember := func(member workspace.Member, id string) bool {
-		return strings.EqualFold(member.User.Nickname, id)
-	}
-
-	changed, err := removeRequestedReviewers(cmd, &profile.Profile{}, pr, isMember)
-	if err != nil {
-		t.Fatalf("removeRequestedReviewers() error = %v", err)
-	}
-	if !changed {
-		t.Error("removeRequestedReviewers() = false, want true when a matching reviewer is removed")
-	}
-	if len(pr.Reviewers) != 1 || pr.Reviewers[0].Nickname != "other" {
-		t.Errorf("Reviewers = %+v, want only the non-matching reviewer left", pr.Reviewers)
-	}
-}
-
-func TestRemoveRequestedReviewersNoOpWhenFlagNotChanged(t *testing.T) {
-	withUpdateOptions(t, func() {
-		updateOptions.RemoveReviewers = []string{"jdoe"}
-	})
-	cmd := &cobra.Command{}
-	registerUpdateFlags(cmd)
-
-	pr := &PullRequest{Reviewers: []user.User{{Nickname: "jdoe"}}}
-	isMember := func(member workspace.Member, id string) bool { return strings.EqualFold(member.User.Nickname, id) }
-
-	changed, err := removeRequestedReviewers(cmd, &profile.Profile{}, pr, isMember)
-	if err != nil {
-		t.Fatalf("removeRequestedReviewers() error = %v", err)
-	}
-	if changed {
-		t.Error("removeRequestedReviewers() = true, want false when --remove-reviewer was not passed")
-	}
-	if len(pr.Reviewers) != 1 {
-		t.Errorf("Reviewers = %+v, want unchanged", pr.Reviewers)
-	}
-}
-
-// TestResolveDefaultReviewersNilSourceRepository is a regression test: a pullrequest payload
-// without a source repository used to panic dereferencing pullrequest.Source.Repository; it must
-// now return a clear error instead.
+// TestResolveDefaultReviewersNilSourceRepository verifies that a pullrequest payload without a
+// source repository returns a clear error instead of panicking.
 func TestResolveDefaultReviewersNilSourceRepository(t *testing.T) {
 	withUpdateOptions(t, func() {
 		updateOptions.AddReviewers = []string{"default"}
@@ -201,10 +224,9 @@ func TestResolveDefaultReviewersNilSourceRepository(t *testing.T) {
 	}
 }
 
-// TestResolveDefaultReviewersDoesNotMutateSharedAddReviewersValues is a regression test: this
-// function used to write updateOptions.AddReviewers = append(...) in place, mutating the
-// package-level singleton every command invocation shares, so calling it twice (or reusing the
-// singleton across tests) produced different results the second time.
+// TestResolveDefaultReviewersDoesNotMutateSharedAddReviewersValues verifies that
+// resolveDefaultReviewers never writes to updateOptions.AddReviewers, the package-level singleton
+// every command invocation shares, so calling it repeatedly is idempotent.
 func TestResolveDefaultReviewersDoesNotMutateSharedAddReviewersValues(t *testing.T) {
 	withUpdateOptions(t, func() {
 		updateOptions.AddReviewers = []string{"default", "extra-reviewer"}
@@ -227,8 +249,8 @@ func TestResolveDefaultReviewersDoesNotMutateSharedAddReviewersValues(t *testing
 		t.Fatalf("cannot parse fixture uuid: %v", err)
 	}
 	pr := &PullRequest{Source: Endpoint{Repository: &repository.Repository{
-		ID: id, Name: "Widgets", FullName: fixtureRepositoryFlag, Slug: fixtureRepositorySlug,
-		Workspace: &workspace.Workspace{Slug: fixtureWorkspaceSlug},
+		ID: id, Name: "Widgets", FullName: testutil.FixtureRepositoryFlag, Slug: testutil.FixtureRepositorySlug,
+		Workspace: &workspace.Workspace{Slug: testutil.FixtureWorkspaceSlug},
 	}}}
 
 	before := append([]string(nil), updateOptions.AddReviewers...)
@@ -254,11 +276,10 @@ func TestResolveDefaultReviewersDoesNotMutateSharedAddReviewersValues(t *testing
 	}
 }
 
-// TestResolveDefaultReviewersRealFixtureSourceRepositoryHasNoWorkspace is a regression test: a
-// pullrequest's source.repository, as BitBucket actually sends it (see testdata/pullrequest.json),
-// never carries a "workspace" field. GetEffectiveDefaultReviewers used to dereference
-// repository.Workspace.Slug directly and nil-panic for exactly this shape; it must now resolve the
-// workspace through Repository.GetWorkspace's cached/FullName fallback chain instead.
+// TestResolveDefaultReviewersRealFixtureSourceRepositoryHasNoWorkspace verifies that a
+// pullrequest's source.repository, as BitBucket actually sends it (see testdata/pullrequest.json)
+// with no "workspace" field, still resolves its effective default reviewers by going through
+// Repository.GetWorkspace's cached/FullName fallback chain.
 func TestResolveDefaultReviewersRealFixtureSourceRepositoryHasNoWorkspace(t *testing.T) {
 	withUpdateOptions(t, func() {
 		updateOptions.AddReviewers = []string{"default"}
@@ -317,17 +338,13 @@ func TestResolveDefaultReviewersRealFixtureSourceRepositoryHasNoWorkspace(t *tes
 	}
 }
 
-// TestResolveDefaultReviewersUsesFullNameWhenSlugWasBackfilledFromName is a regression test: the
-// two existing "resolve default reviewers" fixtures above both happen to have Name == Slug (the
-// literal fixture in the first, and testdata/pullrequest.json's "gitflow-pr-sandbox" repository
-// in the second), and the second also primes WorkspaceCache for "gildas_cherruel" -- so neither
-// would have caught building the effective-default-reviewers path from repository.Slug once
-// Validate backfills it from Name (BitBucket omits "slug" on a pullrequest's source/destination
-// repository). This fixture uses a Name that differs from the repository's real slug and leaves
-// WorkspaceCache empty for its workspace, so a regression that falls back to a live GetWorkspace
-// call would either 403 (this test's server rejects any /workspaces/ request, simulating a RAT
-// client) or build the wrong path from repository.Slug ("My Repo") instead of FullName's
-// "my-repo-slug".
+// TestResolveDefaultReviewersUsesFullNameWhenSlugWasBackfilledFromName verifies that the
+// effective-default-reviewers path is built from the repository's FullName, not its Slug: this
+// fixture's Name differs from the repository's real slug (Validate backfills Slug from Name when
+// BitBucket omits "slug" on a pullrequest's source/destination repository) and leaves
+// WorkspaceCache empty for its workspace, so building the path from Slug instead of FullName, or
+// falling back to a live GetWorkspace call, would either hit the wrong path or the
+// RAT-simulating 403 this test's server returns for any /workspaces/ request.
 func TestResolveDefaultReviewersUsesFullNameWhenSlugWasBackfilledFromName(t *testing.T) {
 	withUpdateOptions(t, func() {
 		updateOptions.AddReviewers = []string{"default"}
@@ -414,7 +431,7 @@ func TestUpdateProcessSimpleFieldsSuccess(t *testing.T) {
 		t.Fatalf("cannot set title flag: %v", err)
 	}
 
-	stdout := captureStdout(t, func() {
+	stdout := testutil.CaptureStdout(t, func() {
 		if err := updateProcess(cmd, []string{"42"}); err != nil {
 			t.Fatalf("updateProcess() error = %v", err)
 		}
@@ -504,16 +521,12 @@ func TestUpdateProcessPutAPIError(t *testing.T) {
 	}
 }
 
-// TestAddReviewerFlagAcceptsDefaultSentinelThroughRealFlagParsing is a regression test for
-// review-iter4 finding 3: --add-reviewer used to be a common.EnumSliceFlag whose Set rejected any
-// value not already present in GetReviewerNicknames' workspace-member-nickname list (except the
-// literal "all"), so the documented `default` sentinel -- and any non-nickname identifier (UUID,
-// Account ID, display name) -- was rejected at flag-parse time with "flag value ... is invalid",
-// making resolveDefaultReviewers unreachable from a real command line. This drives
+// TestAddReviewerFlagAcceptsDefaultSentinelThroughRealFlagParsing verifies that the documented
+// `default` sentinel for --add-reviewer is accepted by real flag parsing: it drives
 // cmd.Flags().Set("add-reviewer", "default") through the exact flag wiring updateCmd's init()
 // uses (a StringSliceVar bound to updateOptions.AddReviewers), then runs addRequestedReviewers so
 // the resolved default reviewer must actually be added, proving the sentinel reaches
-// resolveDefaultReviewers end-to-end and not just that parsing no longer errors.
+// resolveDefaultReviewers end-to-end.
 func TestAddReviewerFlagAcceptsDefaultSentinelThroughRealFlagParsing(t *testing.T) {
 	withUpdateOptions(t, func() {})
 
@@ -546,18 +559,12 @@ func TestAddReviewerFlagAcceptsDefaultSentinelThroughRealFlagParsing(t *testing.
 		t.Fatalf("cannot parse fixture uuid: %v", err)
 	}
 	pr := &PullRequest{Source: Endpoint{Repository: &repository.Repository{
-		ID: id, Name: "Widgets", FullName: fixtureRepositoryFlag, Slug: fixtureRepositorySlug,
-		Workspace: &workspace.Workspace{Slug: fixtureWorkspaceSlug},
+		ID: id, Name: "Widgets", FullName: testutil.FixtureRepositoryFlag, Slug: testutil.FixtureRepositorySlug,
+		Workspace: &workspace.Workspace{Slug: testutil.FixtureWorkspaceSlug},
 	}}}
-	pullrequestWorkspace := &workspace.Workspace{Slug: fixtureWorkspaceSlug}
-	isMember := func(member workspace.Member, id string) bool {
-		if parsedID, uuidErr := common.ParseUUID(id); uuidErr == nil {
-			return member.User.ID == parsedID
-		}
-		return member.User.AccountID == id || strings.EqualFold(member.User.Nickname, id) || strings.EqualFold(member.User.Name, id)
-	}
+	pullrequestWorkspace := &workspace.Workspace{Slug: testutil.FixtureWorkspaceSlug}
 
-	added, err := addRequestedReviewers(cmd.Context(), cmd, profile.Current, pr, pullrequestWorkspace, isMember)
+	added, err := addRequestedReviewers(cmd.Context(), cmd, profile.Current, pr, pullrequestWorkspace)
 	if err != nil {
 		t.Fatalf("addRequestedReviewers() error = %v", err)
 	}
@@ -569,10 +576,9 @@ func TestAddReviewerFlagAcceptsDefaultSentinelThroughRealFlagParsing(t *testing.
 	}
 }
 
-// TestAddReviewerFlagAcceptsNonNicknameIdentifierThroughRealFlagParsing is a regression test for
-// the other half of finding 3: EnumSliceFlag's allowed list was limited to workspace member
-// nicknames, so a UUID/Account ID/display name identifier -- all documented as valid --reviewer
-// values -- was rejected at flag-parse time exactly like "default" was.
+// TestAddReviewerFlagAcceptsNonNicknameIdentifierThroughRealFlagParsing verifies that a
+// non-nickname identifier (UUID, Account ID, or display name) -- all documented as valid
+// --add-reviewer values -- is accepted by real flag parsing, the same as the `default` sentinel.
 func TestAddReviewerFlagAcceptsNonNicknameIdentifierThroughRealFlagParsing(t *testing.T) {
 	withUpdateOptions(t, func() {})
 
@@ -590,11 +596,8 @@ func TestAddReviewerFlagAcceptsNonNicknameIdentifierThroughRealFlagParsing(t *te
 	}
 }
 
-// TestUpdateProcessAddReviewerTypoErrorsBeforePut is a regression test for review-iter5 finding
-// 2: an unresolvable --add-reviewer value used to be silently dropped (printed to stderr, no
-// error returned), so `pullrequest update 42 --add-reviewer jdoe-typo` issued no PUT at all but
-// still exited 0. It must now abort with an error naming the offending value, and no PUT may be
-// sent.
+// TestUpdateProcessAddReviewerTypoErrorsBeforePut verifies that an unresolvable --add-reviewer
+// value aborts the update with an error naming the offending value, and sends no PUT.
 func TestUpdateProcessAddReviewerTypoErrorsBeforePut(t *testing.T) {
 	withUpdateOptions(t, func() {
 		updateOptions.AddReviewers = []string{"jdoe-typo"}
@@ -630,10 +633,9 @@ func TestUpdateProcessAddReviewerTypoErrorsBeforePut(t *testing.T) {
 	}
 }
 
-// TestUpdateProcessRemoveReviewerNobodyErrors is a regression test for review-iter5 finding 2:
-// removeRequestedReviewers used to silently no-op when the requested --remove-reviewer value
-// matched none of the pullrequest's current reviewers. It must now abort with an error naming the
-// offending value, and no PUT may be sent.
+// TestUpdateProcessRemoveReviewerNobodyErrors verifies that a --remove-reviewer value matching
+// none of the pullrequest's current reviewers aborts the update with an error naming the
+// offending value, and sends no PUT.
 func TestUpdateProcessRemoveReviewerNobodyErrors(t *testing.T) {
 	withUpdateOptions(t, func() {
 		updateOptions.RemoveReviewers = []string{"nobody"}
@@ -670,8 +672,8 @@ func TestUpdateProcessRemoveReviewerNobodyErrors(t *testing.T) {
 }
 
 // TestUpdateProcessAddReviewerAllExpandsToEveryMember is the --add-reviewer counterpart of
-// TestCreateProcessReviewerAllExpandsToEveryMember (review-iter5 finding 3): the "all" sentinel
-// must expand to every workspace member here too.
+// TestCreateProcessReviewerAllExpandsToEveryMember: the "all" sentinel expands to every workspace
+// member here too.
 func TestUpdateProcessAddReviewerAllExpandsToEveryMember(t *testing.T) {
 	withUpdateOptions(t, func() {
 		updateOptions.AddReviewers = []string{"all"}

@@ -121,12 +121,6 @@ func (profile *Profile) Delete(ctx context.Context, uripath string, response any
 	return
 }
 
-// Patch patches a resource
-func (profile *Profile) Patch(ctx context.Context, uripath string, body, response any) (err error) {
-	_, err = profile.send(ctx, &requestOptions{Method: http.MethodPatch, Payload: body}, uripath, response)
-	return
-}
-
 // resolvePageLengthAndLimit reads the --page-length flag, falling back to defaultPageLength, and
 // (when honorLimit is true) the --limit flag; honorLimit is false for GetAllUnbounded, so a
 // --limit flag belonging to the command's own, unrelated output query neither truncates nor
@@ -140,8 +134,8 @@ func resolvePageLengthAndLimit(cmd *cobra.Command, defaultPageLength int, honorL
 		}
 	}
 	if honorLimit && cmd != nil && cmd.Flag("limit") != nil && cmd.Flag("limit").Changed {
-		if l, err := cmd.Flags().GetInt("limit"); err == nil && l > 0 {
-			limit = l
+		if limitValue, err := cmd.Flags().GetInt("limit"); err == nil && limitValue > 0 {
+			limit = limitValue
 			lgr.Printf("[DEBUG] using limit of %d from the command line flags", limit)
 		}
 	}
@@ -328,19 +322,30 @@ func writeAuthorizationErrorResponse(w http.ResponseWriter, err error, result *R
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	parsed, ok := parseOAuthError(result)
+	if !ok {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.Error(w, parsed.Description, parsed.StatusCode)
+}
+
+// parseOAuthError parses result's body as BitBucket's OAuth2 token endpoint error JSON shape
+// ({"error": "...", "error_description": "..."}), returning the resulting oauthError and whether
+// the body actually decoded into that shape.
+func parseOAuthError(result *Response) (*oauthError, bool) {
 	var errorResponse struct {
 		Error            string `json:"error"`
 		ErrorDescription string `json:"error_description"`
 	}
-	if jerr := json.Unmarshal(result.Body, &errorResponse); jerr != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	if json.Unmarshal(result.Body, &errorResponse) != nil {
+		return &oauthError{}, false
 	}
 	status := result.StatusCode
 	if status == 0 {
 		status = http.StatusInternalServerError
 	}
-	http.Error(w, errorResponse.ErrorDescription, status)
+	return &oauthError{StatusCode: status, Code: errorResponse.Error, Description: errorResponse.ErrorDescription}, true
 }
 
 func (profile *Profile) authorize(ctx context.Context) (authorization string, err error) {
@@ -390,18 +395,11 @@ func bitbucketAuthError(err error, result *Response) error {
 	if result == nil {
 		return err
 	}
-	var errorResponse struct {
-		Error            string `json:"error"`
-		ErrorDescription string `json:"error_description"`
-	}
-	if jerr := json.Unmarshal(result.Body, &errorResponse); jerr != nil {
+	parsed, ok := parseOAuthError(result)
+	if !ok {
 		return err
 	}
-	status := result.StatusCode
-	if status == 0 {
-		status = http.StatusInternalServerError
-	}
-	return &oauthError{StatusCode: status, Code: errorResponse.Error, Description: errorResponse.ErrorDescription}
+	return parsed
 }
 
 // oauthError represents an error response from BitBucket's OAuth2 token endpoint.

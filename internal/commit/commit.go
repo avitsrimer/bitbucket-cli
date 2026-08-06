@@ -29,6 +29,18 @@ type RenderedMessage struct {
 	Message common.RenderedText `json:"message"`
 }
 
+// shortHashLength is the number of characters a short hash is truncated to.
+const shortHashLength = 7
+
+// shortHash truncates hash to shortHashLength characters, or returns it unchanged if it is
+// already shorter than that.
+func shortHash(hash string) string {
+	if len(hash) > shortHashLength {
+		return hash[:shortHashLength]
+	}
+	return hash
+}
+
 var columns = common.Columns[Commit]{
 	{Name: "hash", DefaultSorter: false, Compare: func(a, b Commit) bool {
 		return strings.ToLower(a.Hash) < strings.ToLower(b.Hash)
@@ -81,7 +93,7 @@ func (commit Commit) GetRow(headers []string) []string {
 	var row []string
 
 	for _, header := range headers {
-		switch strings.ToLower(header) {
+		switch common.NormalizeColumnKey(header) {
 		case "hash":
 			row = append(row, commit.GetShortHash())
 		case "longhash", "fullhash":
@@ -91,9 +103,11 @@ func (commit Commit) GetRow(headers []string) []string {
 		case "message":
 			row = append(row, commit.Message)
 		case "date":
-			row = append(row, commit.Date.Format("2006-01-02 15:04:05"))
+			row = append(row, commit.Date.Format(common.TableTimeFormat))
 		case "repository":
 			row = append(row, commit.Repository.Name)
+		default:
+			row = append(row, " ")
 		}
 	}
 	return row
@@ -101,10 +115,7 @@ func (commit Commit) GetRow(headers []string) []string {
 
 // GetShortHash gets the short hash of this commit
 func (commit Commit) GetShortHash() string {
-	if len(commit.Hash) > 7 {
-		return commit.Hash[:7]
-	}
-	return commit.Hash
+	return shortHash(commit.Hash)
 }
 
 // String gets a string representation of this commit
@@ -125,7 +136,7 @@ func (commit Commit) MarshalJSON() (data []byte, err error) {
 	}{
 		Type:      commit.GetType(),
 		surrogate: surrogate(commit),
-		Date:      commit.Date.Format("2006-01-02T15:04:05.999999999-07:00"),
+		Date:      commit.Date.Format(common.JSONTimeFormat),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("cannot marshal json: %w", err)

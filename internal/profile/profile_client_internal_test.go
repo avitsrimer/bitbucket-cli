@@ -161,11 +161,9 @@ func TestLoadAccessTokenReturnsErrNoAccessTokenWhenNothingCached(t *testing.T) {
 	}
 }
 
-// TestAuthorizeDoesNotPanicWithNoCachedAccessToken is a regression test: authorize used to read
-// loadAccessToken's nil error as "we have a token" even when none was actually found (e.g. an
-// OAuth client-ID/secret profile before its first token exchange), then dereference the nil
-// profile.token via isTokenExpired/GetExpiresOn, panicking on the very first command run. It must
-// fall through to the OAuth2 client-credentials flow instead.
+// TestAuthorizeDoesNotPanicWithNoCachedAccessToken proves authorize falls through to the OAuth2
+// client-credentials flow, instead of dereferencing a nil profile.token, when loadAccessToken finds
+// no cached token at all (e.g. an OAuth client-ID/secret profile before its first token exchange).
 func TestAuthorizeDoesNotPanicWithNoCachedAccessToken(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -228,9 +226,8 @@ func TestResolveAuthorizationUsesBasicAuthForUserPassword(t *testing.T) {
 	}
 }
 
-// TestSendOAuthTokenRequestSendsFormEncodedBody is a regression test for the OAuth2 token
-// endpoint: it requires application/x-www-form-urlencoded (not JSON, which go-request picked
-// automatically for a map[string]string payload before the net/http rewrite made this explicit).
+// TestSendOAuthTokenRequestSendsFormEncodedBody proves the OAuth2 token endpoint request is sent
+// as application/x-www-form-urlencoded, not JSON.
 func TestSendOAuthTokenRequestSendsFormEncodedBody(t *testing.T) {
 	var gotContentType, gotAuthorization string
 	var gotForm url.Values
@@ -290,10 +287,9 @@ func TestRetryDelayHonorsRetryAfterUnderCap(t *testing.T) {
 	}
 }
 
-// TestRetryDelayTreatsZeroRetryAfterAsUseComputedBackoff is a regression test: "Retry-After: 0"
-// used to be accepted as "retry with no delay" (seconds >= 0), which would hammer a server that
-// just told us it is rate-limiting us. It must fall back to the computed exponential backoff, the
-// same as when the header is absent entirely.
+// TestRetryDelayTreatsZeroRetryAfterAsUseComputedBackoff proves "Retry-After: 0" falls back to the
+// computed exponential backoff, the same as when the header is absent entirely, rather than being
+// honored as "retry with no delay" and hammering a server that is rate-limiting us.
 func TestRetryDelayTreatsZeroRetryAfterAsUseComputedBackoff(t *testing.T) {
 	const attempt = 2
 	want := min(initialRetryBackoff*time.Duration(1<<attempt), maxRetryBackoff)
@@ -319,11 +315,11 @@ func TestRetryDelayTreatsNegativeRetryAfterAsUseComputedBackoff(t *testing.T) {
 	}
 }
 
-// TestIsRetryableStatusRestrictsGatewayErrorsToIdempotentMethods is a regression test: the retry
-// loop used to be method-agnostic, so a POST/PATCH whose response was lost to a gateway error
-// (502/503/504) was retried up to 5 times even though BitBucket may already have applied it -
-// risking duplicate pull requests, comments, tasks, or repeated merge/approve/decline. 429 (the
-// request was rejected outright, never processed) stays retryable for every method.
+// TestIsRetryableStatusRestrictsGatewayErrorsToIdempotentMethods proves a gateway error
+// (502/503/504) is retryable only for idempotent methods: BitBucket may already have applied a
+// POST/PATCH whose response was lost to the gateway, so retrying it could create a duplicate pull
+// request, comment, task, or repeat a merge/approve/decline. 429 (the request was rejected
+// outright, never processed) stays retryable for every method.
 func TestIsRetryableStatusRestrictsGatewayErrorsToIdempotentMethods(t *testing.T) {
 	gatewayStatuses := []int{http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout}
 
@@ -463,11 +459,10 @@ func TestDoRequestWithRetryRetriesPostOnPreSendConnectionError(t *testing.T) {
 
 var errStopTest = errors.New("stop test")
 
-// TestSendRedactsURLUserinfoInDebugLogs is a regression test for review-iter4 finding 4: send's
-// two debug log lines interpolated reqURL directly with %s, which calls url.URL.String() -- it
-// does not mask a userinfo password -- so an APIRoot carrying userinfo credentials (preserved
-// verbatim by MarshalYAML/UnmarshalYAML's string-form round trip) leaked its password in plain
-// text on every request. reqURL.Redacted() must be used in both lines instead.
+// TestSendRedactsURLUserinfoInDebugLogs proves send's debug log lines use reqURL.Redacted()
+// rather than its plain String() form, so an APIRoot carrying userinfo credentials (preserved
+// verbatim by MarshalYAML/UnmarshalYAML's string-form round trip) never leaks its password in
+// plain text in the logs.
 func TestSendRedactsURLUserinfoInDebugLogs(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -66,7 +66,7 @@ func (ep ErrorProcessing) String() string {
 // the same string spelling Set/CompletionFunc accept and MarshalJSON emits ("StopOnError",
 // "WarnOnError", "IgnoreErrors" - what a user hand-editing the file would reasonably write), or as
 // the plain integer ErrorProcessing already round-trips as by default (yaml.v3's decoding of an
-// untagged int-based type), for configs saved before this string form was supported.
+// untagged int-based type).
 func (ep *ErrorProcessing) UnmarshalYAML(node *yaml.Node) error {
 	var value string
 	if err := node.Decode(&value); err != nil {

@@ -41,11 +41,9 @@ func (email Email) GetHeaders(cmd *cobra.Command) []string {
 //
 // implements common.Tableable
 //
-// headers is normalized (lowercased, spaces treated the same as underscores) before matching, the
-// same way every other GetRow in this codebase does: GetHeaders' default headers ("Is Primary") do
-// not match their own case, and a --columns value of "is_primary" arrives here as "is primary"
-// (GetHeaders maps "_" to " "), so matching the raw, case-sensitive default spelling left every
-// cell blank either way.
+// headers is normalized via common.NormalizeColumnKey before matching, so a header of any case
+// and using either spaces, hyphens, or underscores as separators (e.g. "Is Primary", "is-primary",
+// "is_primary") resolves to the same cell.
 func (email Email) GetRow(headers []string) []string {
 	simple := map[string]string{
 		"email":        email.Email,
@@ -55,11 +53,11 @@ func (email Email) GetRow(headers []string) []string {
 
 	row := make([]string, 0, len(headers))
 	for _, header := range headers {
-		key := strings.ReplaceAll(strings.ToLower(header), " ", "_")
+		key := common.NormalizeColumnKey(header)
 		if value, found := simple[key]; found {
 			row = append(row, value)
 		} else {
-			row = append(row, "")
+			row = append(row, " ")
 		}
 	}
 	return row

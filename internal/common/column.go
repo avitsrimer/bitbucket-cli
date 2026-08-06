@@ -1,6 +1,28 @@
 package common
 
-import "github.com/gildas/go-core"
+import (
+	"strings"
+
+	"github.com/gildas/go-core"
+)
+
+// TableTimeFormat is the time layout used to render timestamps in table/csv/tsv output.
+const TableTimeFormat = "2006-01-02 15:04:05"
+
+// JSONTimeFormat is the time layout used to render timestamps in json/yaml output.
+const JSONTimeFormat = "2006-01-02T15:04:05.999999999-07:00"
+
+// NormalizeColumnKey lowercases header and replaces spaces and hyphens with underscores, so a
+// --columns value (or a GetHeaders default label) can be matched against a single canonical,
+// underscore-separated case in a GetRow implementation regardless of which of those three forms
+// the caller used (e.g. "created on", "created-on", and "created_on" all normalize to
+// "created_on").
+func NormalizeColumnKey(header string) string {
+	key := strings.ToLower(header)
+	key = strings.ReplaceAll(key, " ", "_")
+	key = strings.ReplaceAll(key, "-", "_")
+	return key
+}
 
 type Column[T any] struct {
 	Name          string

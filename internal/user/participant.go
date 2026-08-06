@@ -2,9 +2,9 @@ package user
 
 import (
 	"strconv"
-	"strings"
 	"time"
 
+	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/spf13/cobra"
 )
 
@@ -31,17 +31,19 @@ func (participant Participant) GetRow(headers []string) []string {
 	var row []string
 
 	for _, header := range headers {
-		switch strings.ToLower(header) {
+		switch common.NormalizeColumnKey(header) {
 		case "id":
 			row = append(row, participant.User.ID.String())
 		case "name":
 			row = append(row, participant.User.Name)
-		case "participated on":
+		case "participated_on":
 			row = append(row, participant.ParticipatedOn.Local().String())
 		case "approved":
 			row = append(row, strconv.FormatBool(participant.Approved))
 		case "state":
 			row = append(row, participant.State)
+		default:
+			row = append(row, " ")
 		}
 	}
 	return row

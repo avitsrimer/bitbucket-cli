@@ -15,10 +15,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// RootOptions describes the global flags whose value is read back through the EnumFlag/
-// EnumSliceFlag types themselves (dynamic allowed-value resolution, shell completion) rather
-// than through cmd.Flag(name); every other persistent flag is read via cmd.Flag(name) at its
-// point of use instead of being bound to a struct field here.
+// RootOptions describes the global flags whose value is read back through the EnumFlag
+// type itself (dynamic allowed-value resolution, shell completion) rather than through
+// cmd.Flag(name); every other persistent flag is read via cmd.Flag(name) at its point of
+// use instead of being bound to a struct field here.
 type RootOptions struct {
 	Workspace    *common.EnumFlag
 	OutputFormat common.EnumFlag

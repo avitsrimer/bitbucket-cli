@@ -21,13 +21,11 @@ var listCmd = &cobra.Command{
 }
 
 var listOptions struct {
-	Commit     string
-	State      *common.EnumFlag
-	Query      string
-	Columns    *common.EnumSliceFlag
-	SortBy     *common.EnumFlag
-	PageLength int
-	Limit      int
+	Commit  string
+	State   *common.EnumFlag
+	Query   string
+	Columns *common.EnumSliceFlag
+	SortBy  *common.EnumFlag
 }
 
 func init() {
@@ -41,8 +39,8 @@ func init() {
 	listCmd.Flags().StringVar(&listOptions.Query, "query", "", "Query string to filter pull requests")
 	listCmd.Flags().Var(listOptions.Columns, "columns", "Comma-separated list of columns to display")
 	listCmd.Flags().Var(listOptions.SortBy, "sort", "Column to sort by")
-	listCmd.Flags().IntVar(&listOptions.PageLength, "page-length", 0, "Number of items per page to retrieve from Bitbucket. Default is the profile's default page length")
-	listCmd.Flags().IntVar(&listOptions.Limit, "limit", 0, "Maximum total number of pull requests to retrieve. Default is to retrieve all of them")
+	listCmd.Flags().Int("page-length", 0, "Number of items per page to retrieve from Bitbucket. Default is the profile's default page length")
+	listCmd.Flags().Int("limit", 0, "Maximum total number of pull requests to retrieve. Default is to retrieve all of them")
 	listCmd.MarkFlagsMutuallyExclusive("commit", "state")
 	listCmd.MarkFlagsMutuallyExclusive("commit", "query")
 	_ = listCmd.RegisterFlagCompletionFunc(listOptions.State.CompletionFunc("state"))

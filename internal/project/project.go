@@ -47,10 +47,10 @@ func (project Project) MarshalJSON() (data []byte, err error) {
 		wspace = &project.Workspace
 	}
 	if !project.CreatedOn.IsZero() {
-		createdOn = project.CreatedOn.Format("2006-01-02T15:04:05.999999999-07:00")
+		createdOn = project.CreatedOn.Format(common.JSONTimeFormat)
 	}
 	if !project.UpdatedOn.IsZero() {
-		updatedOn = project.UpdatedOn.Format("2006-01-02T15:04:05.999999999-07:00")
+		updatedOn = project.UpdatedOn.Format(common.JSONTimeFormat)
 	}
 
 	data, err = json.Marshal(struct {

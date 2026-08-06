@@ -15,6 +15,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// setupTest and captureStdout are local to this package rather than shared via
+// internal/testutil: internal/testutil imports internal/user (for UserCache), so any test file
+// declared "package user" (as opposed to "package user_test") that imported internal/testutil
+// would form an import cycle.
+
 func TestMain(m *testing.M) {
 	os.Exit(runTests(m))
 }
