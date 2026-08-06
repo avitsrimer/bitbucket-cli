@@ -98,7 +98,10 @@ func createProcess(cmd *cobra.Command, args []string) (err error) {
 	lgr.Printf("[DEBUG] using repository: %s", repository)
 
 	if len(createOptions.Reviewers) > 0 && createOptions.Reviewers[0] != "default" {
-		payload.Reviewers = resolveExplicitReviewers(ctx, cmd, repository, createOptions.Reviewers)
+		payload.Reviewers, err = resolveExplicitReviewers(ctx, cmd, profile, repository, createOptions.Reviewers)
+		if err != nil {
+			return err
+		}
 	} else {
 		payload.Reviewers, err = resolveCreateDefaultReviewers(ctx, cmd, repository)
 		if err != nil {
@@ -157,8 +160,12 @@ func resolveCreateDefaultReviewers(ctx context.Context, cmd *cobra.Command, repo
 }
 
 // resolveExplicitReviewers resolves the --reviewer values (already known not to be "default")
-// to their matching workspace members, falling back to a direct user lookup
-func resolveExplicitReviewers(ctx context.Context, cmd *cobra.Command, repository *repository.Repository, values []string) []user.User {
+// to their matching workspace members, falling back to a direct user lookup. A value that
+// resolves to neither is an error: by default (or with --stop-on-error/ErrorProcessing
+// StopOnError) it aborts immediately naming the offending value, so no pullrequest is created;
+// with --warn-on-error/WarnOnError or --ignore-errors/IgnoreErrors it is tolerated (warned or
+// silently skipped) and the pullrequest is created with only the resolved reviewers.
+func resolveExplicitReviewers(ctx context.Context, cmd *cobra.Command, prof *profile.Profile, repository *repository.Repository, values []string) ([]user.User, error) {
 	isMember := func(member workspace.Member, id string) bool {
 		if parsedID, uuidErr := common.ParseUUID(id); uuidErr == nil {
 			return member.User.ID == parsedID
@@ -167,7 +174,9 @@ func resolveExplicitReviewers(ctx context.Context, cmd *cobra.Command, repositor
 	}
 
 	members, _ := repository.Workspace.GetMembers(ctx, cmd)
+	values = expandAllReviewers(values, members)
 	reviewers := make([]user.User, 0, len(values))
+	var errs []error
 	for _, reviewerNameOrID := range values {
 		matches := core.Filter(members, func(member workspace.Member) bool { return isMember(member, reviewerNameOrID) })
 		if len(matches) > 0 {
@@ -181,8 +190,23 @@ func resolveExplicitReviewers(ctx context.Context, cmd *cobra.Command, repositor
 			reviewers = append(reviewers, *reviewerUser)
 			continue
 		}
-		lgr.Printf("[ERROR] reviewer %s is not a member of the workspace", reviewerNameOrID)
-		fmt.Fprintf(os.Stderr, "Reviewer %s is not a member of the workspace\n", reviewerNameOrID)
+		reviewerErr := fmt.Errorf("reviewer %s is not a member of the workspace", reviewerNameOrID)
+		lgr.Printf("[ERROR] %s", reviewerErr)
+		if prof.ShouldStopOnError(cmd) {
+			return nil, reviewerErr
+		}
+		errs = append(errs, reviewerErr)
 	}
-	return reviewers
+	if joined := errors.Join(errs...); joined != nil {
+		if prof.ShouldWarnOnError(cmd) {
+			fmt.Fprintf(os.Stderr, "Failed to resolve these reviewers: %s\n", joined)
+			return reviewers, nil
+		}
+		if prof.ShouldIgnoreErrors(cmd) {
+			lgr.Printf("[WARN] failed to resolve these reviewers, but ignoring errors: %s", joined)
+			return reviewers, nil
+		}
+		return nil, joined
+	}
+	return reviewers, nil
 }

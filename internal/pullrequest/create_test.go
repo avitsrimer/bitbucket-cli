@@ -180,6 +180,132 @@ func TestCreateProcessPostAPIError(t *testing.T) {
 	}
 }
 
+// TestCreateProcessTypoReviewerErrorsBeforePost is a regression test for review-iter5 finding 2:
+// an unresolvable --reviewer value used to be silently dropped (printed to stderr, no error
+// returned), so `pullrequest create --reviewer jdoe-typo` created a pullrequest with the reviewer
+// omitted and exited 0. It must now abort with an error naming the offending value, and the
+// pullrequest must never be created.
+func TestCreateProcessTypoReviewerErrorsBeforePost(t *testing.T) {
+	withCreateOptions(t, func() {
+		createOptions.Title = "Add feature"
+		createOptions.Source.Value = "feature"
+		createOptions.Destination.Value = ""
+		createOptions.Reviewers = []string{"jdoe-typo"}
+	})
+
+	var pullrequestRequests int
+	mux := http.NewServeMux()
+	mux.HandleFunc("/2.0/workspaces/"+fixtureWorkspaceSlug+"/members", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[{"user":{"uuid":"{33333333-3333-3333-3333-333333333333}","nickname":"alice"}}]}`))
+	})
+	mux.HandleFunc("/2.0/repositories/"+fixtureRepositoryFlag+"/pullrequests", func(w http.ResponseWriter, r *http.Request) {
+		pullrequestRequests++
+	})
+
+	const profileName = "create-reviewer-typo"
+	cmd := setupTestNamed(t, profileName, mux.ServeHTTP, false)
+
+	err := createProcess(cmd, nil)
+	if err == nil {
+		t.Fatal("createProcess() expected an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "jdoe-typo") {
+		t.Errorf("error = %q, want it to name the unresolved reviewer jdoe-typo", err.Error())
+	}
+	if pullrequestRequests != 0 {
+		t.Errorf("expected no pullrequest creation request, got %d", pullrequestRequests)
+	}
+}
+
+// TestCreateProcessMixedValidInvalidReviewersNamesInvalidOne proves a --reviewer list combining a
+// resolvable and an unresolvable value fails naming only the invalid one, and still creates
+// nothing.
+func TestCreateProcessMixedValidInvalidReviewersNamesInvalidOne(t *testing.T) {
+	withCreateOptions(t, func() {
+		createOptions.Title = "Add feature"
+		createOptions.Source.Value = "feature"
+		createOptions.Destination.Value = ""
+		createOptions.Reviewers = []string{"alice", "bobb"}
+	})
+
+	var pullrequestRequests int
+	mux := http.NewServeMux()
+	mux.HandleFunc("/2.0/workspaces/"+fixtureWorkspaceSlug+"/members", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[{"user":{"uuid":"{33333333-3333-3333-3333-333333333333}","nickname":"alice"}}]}`))
+	})
+	mux.HandleFunc("/2.0/repositories/"+fixtureRepositoryFlag+"/pullrequests", func(w http.ResponseWriter, r *http.Request) {
+		pullrequestRequests++
+	})
+
+	const profileName = "create-reviewer-mixed"
+	cmd := setupTestNamed(t, profileName, mux.ServeHTTP, false)
+
+	err := createProcess(cmd, nil)
+	if err == nil {
+		t.Fatal("createProcess() expected an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "bobb") {
+		t.Errorf("error = %q, want it to name the unresolved reviewer bobb", err.Error())
+	}
+	if strings.Contains(err.Error(), "alice is not a member") {
+		t.Errorf("error = %q, must not also complain about the valid reviewer alice", err.Error())
+	}
+	if pullrequestRequests != 0 {
+		t.Errorf("expected no pullrequest creation request, got %d", pullrequestRequests)
+	}
+}
+
+// TestCreateProcessReviewerAllExpandsToEveryMember is a regression test for review-iter5 finding
+// 3: --reviewer used to be a common.EnumSliceFlag with AllAllowed, expanding the literal value
+// "all" to every workspace member's nickname at flag-parse time; switching to a plain StringSlice
+// (review-iter4 finding 3) dropped that expansion entirely, turning "all" into a literal (and
+// unresolvable) reviewer name. expandAllReviewers restores it at resolution time instead.
+func TestCreateProcessReviewerAllExpandsToEveryMember(t *testing.T) {
+	withCreateOptions(t, func() {
+		createOptions.Title = "Add feature"
+		createOptions.Source.Value = "feature"
+		createOptions.Destination.Value = ""
+		createOptions.Reviewers = []string{"all"}
+	})
+
+	var postBody PullRequestCreator
+	mux := http.NewServeMux()
+	mux.HandleFunc("/2.0/workspaces/"+fixtureWorkspaceSlug+"/members", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[` +
+			`{"user":{"uuid":"{33333333-3333-3333-3333-333333333333}","nickname":"alice"}},` +
+			`{"user":{"uuid":"{44444444-4444-4444-4444-444444444444}","nickname":"bob"}}` +
+			`]}`))
+	})
+	mux.HandleFunc("/2.0/repositories/"+fixtureRepositoryFlag+"/pullrequests", func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&postBody); err != nil {
+			t.Errorf("cannot decode POST body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":99,"title":"Add feature"}`))
+	})
+
+	const profileName = "create-reviewer-all"
+	cmd := setupTestNamed(t, profileName, mux.ServeHTTP, false)
+
+	if err := createProcess(cmd, nil); err != nil {
+		t.Fatalf("createProcess() error = %v", err)
+	}
+
+	if len(postBody.Reviewers) != 2 {
+		t.Fatalf("payload reviewers = %+v, want every workspace member (2)", postBody.Reviewers)
+	}
+	nicknames := map[string]bool{}
+	for _, reviewer := range postBody.Reviewers {
+		nicknames[reviewer.Nickname] = true
+	}
+	if !nicknames["alice"] || !nicknames["bob"] {
+		t.Errorf("payload reviewer nicknames = %v, want both alice and bob", nicknames)
+	}
+}
+
 func TestCreateProcessDryRun(t *testing.T) {
 	withCreateOptions(t, func() {
 		createOptions.Title = "Add feature"

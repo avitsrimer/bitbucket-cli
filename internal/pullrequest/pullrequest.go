@@ -246,16 +246,33 @@ func GetReviewerNicknames(ctx context.Context, cmd *cobra.Command, args []string
 //
 // These flags are plain string slices, not common.EnumSliceFlag: the reviewer identifier a user
 // may pass is not limited to a workspace member's nickname -- it can be an Account ID, a UUID, a
-// display name, or the documented `default` sentinel (see resolveExplicitReviewers/
-// resolveDefaultReviewers, which validate and resolve the value at request time instead).
-// GetReviewerNicknames' member list is used here purely as a shell-completion aid, never to reject
-// an otherwise valid value at flag-parse time.
+// display name, the `all` sentinel (every workspace member, see expandAllReviewers), or the
+// documented `default` sentinel. resolveExplicitReviewers, resolveCreateDefaultReviewers,
+// resolveDefaultReviewers, and addRequestedReviewers validate and resolve the value at request
+// time instead: a value that cannot be resolved to a workspace member or a real user is a hard
+// error (subject to the profile's ShouldStopOnError/ShouldWarnOnError/ShouldIgnoreErrors
+// tolerance), aborting before any POST/PUT is sent. GetReviewerNicknames' member list is used
+// here purely as a shell-completion aid, never to reject an otherwise valid value at flag-parse
+// time.
 func reviewerCompletionFunc(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	nicknames, err := GetReviewerNicknames(cmd.Context(), cmd, args, toComplete)
 	if err != nil {
 		return []string{}, cobra.ShellCompDirectiveError
 	}
 	return nicknames, cobra.ShellCompDirectiveNoFileComp
+}
+
+// expandAllReviewers restores the "all" sentinel the retired EnumSliceFlag.AllAllowed provided:
+// when the caller passed exactly "all" and nothing else, every workspace member's nickname is
+// substituted in its place, then matched against the workspace like any other reviewer value. Any
+// other combination of values (e.g. "all,bob", or "all" alongside other flags) is left untouched,
+// so a workspace with no member literally named "all" failing to resolve it is expected, not a
+// bug.
+func expandAllReviewers(values []string, members []workspace.Member) []string {
+	if len(values) == 1 && values[0] == "all" {
+		return core.Map(members, func(member workspace.Member) string { return member.User.Nickname })
+	}
+	return values
 }
 
 // MarshalJSON implements the json.Marshaler interface.
