@@ -28,10 +28,13 @@ delete the directory directly to invalidate it.
 
 `Profile` carries five fields (`Progress`, `CloneProtocol`, `CloneUser`, `SshKeyFilename`,
 `DefaultProject`) that are persisted (read from and written back to the config file, for
-compatibility with configs upstream wrote) but never read by any command in this fork — the
-clone/upload/download features that consumed them were removed in the initial trim. Don't wire
-them up to "fix" a seemingly-dead flag, and don't delete them either — removing the fields would
-silently drop that data from a user's existing config file on the next save.
+compatibility with configs upstream wrote). `CloneProtocol`, `CloneUser`, and `SshKeyFilename`
+are functional again: `internal/repository/clone.go` (`bb repo clone`) resolves protocol and SSH
+key file as `--protocol`/`--ssh-key-file` flag > profile field > default, and uses `CloneUser` as
+the `https` clone URL's username. `Progress` and `DefaultProject` remain inert — no restored
+command reads them. Don't wire those two up to "fix" a seemingly-dead flag, and don't delete any
+of the five either — removing a field would silently drop that data from a user's existing config
+file on the next save.
 
 The fork is permanently detached from upstream (different module path, no shared
 history intent) — do not try to keep it merge-compatible.
