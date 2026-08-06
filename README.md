@@ -206,27 +206,27 @@ The Table output format displays the data in a human-readable format. Here is an
 
 ```bash
 $ bb pr list --state all
-+----+---------------------------+--------------------------------+---------------------+-------------+----------+
-| ID |           TITLE           |          DESCRIPTION           |       SOURCE        | DESTINATION |  STATE   |
-+----+---------------------------+--------------------------------+---------------------+-------------+----------+
-|  1 | Merge feature/links       | Feature links. Do not delete   | feature/links       | dev         | DECLINED |
-|    |                           | the feature branch after the   |                     |             |          |
-|    |                           | merge.                         |                     |             |          |
-|  2 | Merge feature/links       | Feature links. Do not delete   | feature/links       | dev         | MERGED   |
-|    |                           | the feature branch after the   |                     |             |          |
-|    |                           | merge.                         |                     |             |          |
-|  3 | Merge release/1.0.0       | Feature 1.0.0. Do not delete   | release/1.0.0       | master      | MERGED   |
-|    |                           | the feature branch after the   |                     |             |          |
-|    |                           | merge.                         |                     |             |          |
-|  4 | Merge feature/bb          | Feature bb. Do not delete the  | feature/bb          | dev         | DECLINED |
-|    |                           | feature branch after the merge |                     |             |          |
-|  5 | Merge feature/bb          | Feature bb. Do not delete the  | feature/bb          | dev         | MERGED   |
-|    |                           | feature branch after the merge |                     |             |          |
-|  6 | Merge feature/bb-doc      | Feature bb-doc. Do not delete  | feature/bb-doc      | dev         | MERGED   |
-|    |                           | the feature branch after the   |                     |             |          |
-|    |                           | merge.                         |                     |             |          |
-+----+---------------------------+--------------------------------+---------------------+-------------+----------+
++----+----------------------+---------------+-------------+----------+
+| ID |        TITLE         |    SOURCE     | DESTINATION |  STATE   |
++----+----------------------+---------------+-------------+----------+
+|  1 | Merge feature/links  | feature/links | dev         | DECLINED |
+|  2 | Merge feature/links  | feature/links | dev         | MERGED   |
+|  3 | Merge release/1.0.0  | release/1.0.0 | master      | MERGED   |
+|  4 | Merge feature/bb     | feature/bb    | dev         | DECLINED |
+|  5 | Merge feature/bb     | feature/bb    | dev         | MERGED   |
+|  6 | Merge feature/bb-doc | feature/bb-doc| dev         | MERGED   |
++----+----------------------+---------------+-------------+----------+
 ```
+
+> [!NOTE]
+> The table format truncates any cell longer than 80 characters (ellipsized, and internal
+> newlines collapsed to spaces) so a single multi-paragraph field -- a pull request/comment/task
+> body, a commit message -- can no longer blow one column, and with it every other column, out to
+> an unreadable width. This cap is cosmetic: it only affects the rendered table. `csv`, `tsv`,
+> `json`, and `yaml` output always contain the complete, untruncated value, since those formats
+> are meant for scripting. For the same reason, `description` is not one of `bb pullrequest
+> list`'s default columns (a truncated snippet of a PR body is rarely useful in a list view) --
+> pass `--columns description` (or `--columns all`) to include it anyway.
 
 ### Environment variables
 
