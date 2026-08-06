@@ -5,7 +5,6 @@ import (
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
-	prcommon "github.com/avitsrimer/bitbucket-cli/internal/pullrequest/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
@@ -21,46 +20,34 @@ type ContentUpdater struct {
 }
 
 var updateCmd = &cobra.Command{
-	Use:               "update [flags] <task-id>",
+	Use:               "update [flags] <pullrequest-id> <task-id>",
 	Aliases:           []string{"edit"},
-	Short:             "update a pullrequest task by its <task-id>.",
-	Args:              cobra.ExactArgs(1),
-	ValidArgsFunction: updateValidArgs,
+	Short:             "update a pullrequest task by its <task-id> on the pullrequest identified by <pullrequest-id>.",
+	Args:              cobra.ExactArgs(2),
+	ValidArgsFunction: pullRequestAndTaskIDValidArgs,
 	RunE:              updateProcess,
 }
 
 var updateOptions struct {
-	PullRequestID *common.EnumFlag
-	Content       string
-	State         *common.EnumFlag
+	Content string
+	State   *common.EnumFlag
 }
 
 func init() {
 	Command.AddCommand(updateCmd)
 
-	updateOptions.PullRequestID = common.NewEnumFlagWithFunc("", prcommon.GetPullRequestIDs)
 	updateOptions.State = common.NewEnumFlag("RESOLVED", "UNRESOLVED")
-	updateCmd.Flags().Var(updateOptions.PullRequestID, "pullrequest", "Pullrequest to update tasks to")
 	updateCmd.Flags().StringVar(&updateOptions.Content, "content", "", "Updated content of the task")
 	updateCmd.Flags().Var(updateOptions.State, "state", "Updated state of the task. Can be one of RESOLVED or UNRESOLVED")
-	_ = updateCmd.MarkFlagRequired("pullrequest")
-	_ = updateCmd.RegisterFlagCompletionFunc(updateOptions.PullRequestID.CompletionFunc("pullrequest"))
 	_ = updateCmd.RegisterFlagCompletionFunc(updateOptions.State.CompletionFunc("state"))
 }
 
-func updateValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) != 0 {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-
-	taskIDs, err := GetPullRequestTaskIDs(cmd.Context(), cmd, updateOptions.PullRequestID.Value)
-	if err != nil {
-		return []string{}, cobra.ShellCompDirectiveNoFileComp
-	}
-	return taskIDs, cobra.ShellCompDirectiveNoFileComp
-}
-
 func updateProcess(cmd *cobra.Command, args []string) error {
+	pullRequestID, taskID := args[0], args[1]
+	if validateErr := common.ValidatePathIdentifier("pullrequest-id", pullRequestID); validateErr != nil {
+		return fmt.Errorf("cannot update task: %w", validateErr)
+	}
+
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
 		return fmt.Errorf("cannot get profile: %w", err)
@@ -70,8 +57,6 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("cannot get repository: %w", err)
 	}
-
-	taskID := args[0]
 
 	taskUpdater := TaskUpdater{}
 	if updateOptions.Content != "" {
@@ -83,8 +68,8 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 		taskUpdater.State = updateOptions.State.Value
 	}
 
-	lgr.Printf("[DEBUG] updating pullrequest task %s on pullrequest %s", taskID, updateOptions.PullRequestID.Value)
-	if !common.WhatIf(cmd, fmt.Sprintf("Updating pullrequest task %s on pullrequest %s", taskID, updateOptions.PullRequestID.Value)) {
+	lgr.Printf("[DEBUG] updating pullrequest task %s on pullrequest %s", taskID, pullRequestID)
+	if !common.WhatIf(cmd, fmt.Sprintf("Updating pullrequest task %s on pullrequest %s", taskID, pullRequestID)) {
 		return nil
 	}
 
@@ -92,12 +77,12 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 
 	err = profile.Put(
 		cmd.Context(),
-		repository.GetPath("pullrequests", updateOptions.PullRequestID.Value, "tasks", taskID),
+		repository.GetPath("pullrequests", pullRequestID, "tasks", taskID),
 		taskUpdater,
 		&updated,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to update pull request task %s on pull request %s: %w", taskID, updateOptions.PullRequestID.Value, err)
+		return fmt.Errorf("failed to update pull request task %s on pull request %s: %w", taskID, pullRequestID, err)
 	}
 	if err := profile.Print(cmd.Context(), cmd, updated); err != nil {
 		return fmt.Errorf("cannot print result: %w", err)

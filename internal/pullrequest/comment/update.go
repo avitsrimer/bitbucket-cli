@@ -11,11 +11,11 @@ import (
 )
 
 var updateCmd = &cobra.Command{
-	Use:               "update [flags] <comment-id>",
+	Use:               "update [flags] <pullrequest-id> <comment-id>",
 	Aliases:           []string{"edit"},
-	Short:             "update a pull request comment by its <comment-id>.",
-	Args:              cobra.ExactArgs(1),
-	ValidArgsFunction: updateValidArgs,
+	Short:             "update a pull request comment by its <comment-id> on the pullrequest identified by <pullrequest-id>.",
+	Args:              cobra.ExactArgs(2),
+	ValidArgsFunction: pullRequestAndCommentIDValidArgs,
 	RunE:              updateProcess,
 }
 
@@ -24,22 +24,15 @@ var updateOptions commentEditOptions
 func init() {
 	Command.AddCommand(updateCmd)
 
-	registerCommentEditFlags(updateCmd, &updateOptions, "Updated comment of the pullrequest", "Pullrequest to update comments to")
-}
-
-func updateValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) != 0 {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-
-	commentIDs, err := GetPullRequestCommentIDs(cmd.Context(), cmd, args, toComplete)
-	if err != nil {
-		return []string{}, cobra.ShellCompDirectiveNoFileComp
-	}
-	return commentIDs, cobra.ShellCompDirectiveNoFileComp
+	registerCommentEditFlags(updateCmd, &updateOptions, "Updated comment of the pullrequest")
 }
 
 func updateProcess(cmd *cobra.Command, args []string) (err error) {
+	pullRequestID, commentID := args[0], args[1]
+	if validateErr := common.ValidatePathIdentifier("pullrequest-id", pullRequestID); validateErr != nil {
+		return fmt.Errorf("cannot update comment: %w", validateErr)
+	}
+
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
 		return fmt.Errorf("cannot get profile: %w", err)
@@ -56,19 +49,19 @@ func updateProcess(cmd *cobra.Command, args []string) (err error) {
 	}
 
 	lgr.Printf("[DEBUG] updating pullrequest comment")
-	if !common.WhatIf(cmd, "Updating comment %s for pullrequest %s", args[0], updateOptions.PullRequestID.Value) {
+	if !common.WhatIf(cmd, "Updating comment %s for pullrequest %s", commentID, pullRequestID) {
 		return nil
 	}
 	var comment Comment
 
 	err = profile.Put(
 		cmd.Context(),
-		repository.GetPath("pullrequests", updateOptions.PullRequestID.Value, "comments", args[0]),
+		repository.GetPath("pullrequests", pullRequestID, "comments", commentID),
 		payload,
 		&comment,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to update comment for pullrequest %s: %w", updateOptions.PullRequestID.Value, err)
+		return fmt.Errorf("failed to update comment for pullrequest %s: %w", pullRequestID, err)
 	}
 	if err := profile.Print(cmd.Context(), cmd, comment); err != nil {
 		return fmt.Errorf("cannot print result: %w", err)

@@ -97,7 +97,7 @@ Many commands and flags are dynamically auto-completed. See the [Completion](#co
 Most `delete` commands, and `bb artifact download`, support multiple arguments. You can pass a list of arguments or a file with one argument per line:
 
 ```bash
-bb pullrequest comment delete --pullrequest 1 452466 452467 452468
+bb pullrequest comment delete 1 452466 452467 452468
 bb artifact download build.log other.zip
 ```
 
@@ -732,16 +732,19 @@ If no pull request is provided, the command will try to show the patch of the op
 
 #### Pull Request Comments
 
+Every `pullrequest comment` subcommand takes the pull request id as its first, required
+positional argument (there is no `--pullrequest` flag).
+
 You can list the comments of a pull request with the `bb pullrequest comment list` command:
 
 ```bash
-bb pullrequest comment list --pullrequest 1
+bb pullrequest comment list 1
 ```
 
 You can add a comment to a pull request with the `bb pullrequest comment create` or `bb pullrequest comment add` command:
 
 ```bash
-bb pullrequest comment add --pullrequest 1 \
+bb pullrequest comment add 1 \
   --comment "My comment" \
   --file    README.md \
   --line    404
@@ -750,73 +753,78 @@ bb pullrequest comment add --pullrequest 1 \
 You can resolve a comment with the `bb pullrequest comment resolve` command:
 
 ```bash
-bb pullrequest comment resolve --pullrequest 1 452466
+bb pullrequest comment resolve 1 452466
 ```
 
 You can re-open a comment with the `bb pullrequest comment reopen` command:
 
 ```bash
-bb pullrequest comment reopen --pullrequest 1 452466
+bb pullrequest comment reopen 1 452466
 ```
 
 You can get the details of a comment with the `bb pullrequest comment get` or `bb pullrequest comment show` command:
 
 ```bash
-bb pullrequest comment get --pullrequest 1 452466
+bb pullrequest comment get 1 452466
 ```
 
 You can update a comment with the `bb pullrequest comment update` command:
 
 ```bash
-bb pullrequest comment update --pullrequest 1 452466 \
+bb pullrequest comment update 1 452466 \
   --comment "My comment"
 ```
 
 You can delete a comment with the `bb pullrequest comment delete` command:
 
 ```bash
-bb pullrequest comment delete --pullrequest 1 452466
+bb pullrequest comment delete 1 452466
 ```
 
 #### Pull Request Tasks
 
+Every `pullrequest task` subcommand takes the pull request id as its first, required
+positional argument (there is no `--pullrequest` flag).
+
 You can list the tasks of a pull request with the `bb pullrequest task list` command:
 
 ```bash
-bb pullrequest task list --pullrequest 1
+bb pullrequest task list 1
 ```
 
 You can add a task to a pull request with the `bb pullrequest task create` or `bb pullrequest task add` command:
 
 ```bash
-bb pullrequest task create --pullrequest 1 \
+bb pullrequest task create 1 \
   --content "My task"
 ```
 
 You can reference a comment in a task with the `--comment` flag:
 
 ```bash
-bb pullrequest task create --pullrequest 1 \
+bb pullrequest task create 1 \
   --content "My task" \
   --comment 452466
 ```
 
 You can complete a task with the `bb pullrequest task update` command:
 
-```bashbb pullrequest task update --pullrequest 1 7643545 \
+```bash
+bb pullrequest task update 1 7643545 \
   --state RESOLVED
 ```
 
 You can also re-open a task with the same command:
 
-```bashbb pullrequest task update --pullrequest 1 7643545 \
+```bash
+bb pullrequest task update 1 7643545 \
   --state UNRESOLVED
 ```
 
 You can delete a task with the `bb pullrequest task delete` command:
 
 ```bash
-bb pullrequest task delete --pullrequest 1 7643545
+bb pullrequest task delete 1 7643545
 ```
 
 ### Pipelines
