@@ -239,6 +239,16 @@ func (repository Repository) String() string {
 // checkout with no remote configured at all -- there is no separate Bitbucket-detection step to
 // add on top of it.
 //
+// The third rung reads profile.Current when it is already populated (set by an earlier
+// profile.GetProfileFromCommand/profile.getAll call this invocation), and otherwise resolves it
+// itself via profile.GetProfileFromCommand when cmd carries a "profile" flag: nothing runs before
+// this in a typical invocation (GetRepository is usually the first thing a RunE calls), so
+// profile.Current is still nil at this point more often than not. cmd lacking a "profile" flag
+// (a bare *cobra.Command built by a test, never the real command tree) skips this resolution
+// rather than panicking, matching the nil-check the first rung already does for "repository". A
+// profile-loading error here is not surfaced as this function's own error -- it just means the
+// third rung has nothing to offer, and the final "every rung failed" error below still applies.
+//
 // The repository is determined by the following order:
 //  1. The repository flag in the command
 //  2. The git config (Bitbucket remotes only)
@@ -253,9 +263,13 @@ func GetRepositoryName(context context.Context, cmd *cobra.Command) (repositoryN
 		lgr.Printf("[DEBUG] repository name found in git config: %s, from remote: %s", remote.RepositoryName(), remote.RedactedURL())
 		return remote.RepositoryName(), nil
 	}
-	if profile.Current != nil && profile.Current.DefaultRepository != "" {
-		lgr.Printf("[DEBUG] repository name found in profile: %s", profile.Current.DefaultRepository)
-		return profile.Current.DefaultRepository, nil
+	currentProfile := profile.Current
+	if currentProfile == nil && cmd.Flag("profile") != nil {
+		currentProfile, _ = profile.GetProfileFromCommand(context, cmd)
+	}
+	if currentProfile != nil && currentProfile.DefaultRepository != "" {
+		lgr.Printf("[DEBUG] repository name found in profile: %s", currentProfile.DefaultRepository)
+		return currentProfile.DefaultRepository, nil
 	}
 	return "", errors.New("argument repository is missing: pass --repository, run from a Bitbucket git checkout, or set a default repository with `bb profile update --default-repository`")
 }

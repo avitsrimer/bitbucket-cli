@@ -112,16 +112,7 @@ var activityColumns = common.Columns[Activity]{
 		return a.PullRequest.ID < b.PullRequest.ID
 	}},
 	{Name: "date", DefaultSorter: false, Compare: func(a, b Activity) bool {
-		if a.Approval != nil && b.Approval != nil {
-			return a.Approval.Date.Before(b.Approval.Date)
-		} else if a.ChangesRequested != nil && b.ChangesRequested != nil {
-			return a.ChangesRequested.Date.Before(b.ChangesRequested.Date)
-		} else if a.Comment != nil && b.Comment != nil {
-			return a.Comment.CreatedOn.Before(b.Comment.CreatedOn)
-		} else if a.Update != nil && b.Update != nil {
-			return a.Update.Date.Before(b.Update.Date)
-		}
-		return false
+		return a.summarize().date.Before(b.summarize().date)
 	}},
 	{Name: "approved", DefaultSorter: false, Compare: func(a, b Activity) bool {
 		if a.Approval != nil && b.Approval != nil {
@@ -160,16 +151,7 @@ var activityColumns = common.Columns[Activity]{
 		return false
 	}},
 	{Name: "user", DefaultSorter: false, Compare: func(a, b Activity) bool {
-		if a.Approval != nil && b.Approval != nil {
-			return strings.ToLower(a.Approval.User.Name) < strings.ToLower(b.Approval.User.Name)
-		} else if a.ChangesRequested != nil && b.ChangesRequested != nil {
-			return strings.ToLower(a.ChangesRequested.User.Name) < strings.ToLower(b.ChangesRequested.User.Name)
-		} else if a.Comment != nil && b.Comment != nil {
-			return strings.ToLower(a.Comment.User.Name) < strings.ToLower(b.Comment.User.Name)
-		} else if a.Update != nil && b.Update != nil {
-			return strings.ToLower(a.Update.Author.Name) < strings.ToLower(b.Update.Author.Name)
-		}
-		return false
+		return strings.ToLower(a.summarize().actor.Name) < strings.ToLower(b.summarize().actor.Name)
 	}},
 	{Name: "destination", DefaultSorter: false, Compare: func(a, b Activity) bool {
 		if a.Update != nil && b.Update != nil && a.Update.Destination.Repository != nil && b.Update.Destination.Repository != nil {

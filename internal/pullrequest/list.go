@@ -58,6 +58,9 @@ func listProcess(cmd *cobra.Command, args []string) (err error) {
 
 	switch {
 	case listOptions.Commit != "":
+		if err = common.ValidatePathIdentifier("commit", listOptions.Commit); err != nil {
+			return fmt.Errorf("cannot list pull requests: %w", err)
+		}
 		uripath = repository.GetPath("commit", listOptions.Commit, "pullrequests")
 	default:
 		query := url.Values{}

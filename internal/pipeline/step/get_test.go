@@ -72,6 +72,35 @@ func TestGetProcessSuccessName(t *testing.T) {
 	}
 }
 
+// TestGetProcessSuccessNameContainingSlash proves a step whose name legitimately contains a "/"
+// (a real bitbucket-pipelines.yml step name, e.g. "build/test") resolves successfully:
+// ValidatePathIdentifier guards the resolved UUID that actually reaches GetPath, not the
+// user-typed name, which is free to contain a "/".
+func TestGetProcessSuccessNameContainingSlash(t *testing.T) {
+	var requests []*http.Request
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/steps") {
+			_, _ = w.Write([]byte(`{"values":[{"type":"pipeline_step","uuid":"{cec5beef-dead-deed-bead-5ae1bedd9ada}","name":"build/test"}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"type":"pipeline_step","uuid":"{cec5beef-dead-deed-bead-5ae1bedd9ada}","name":"build/test"}`))
+	}, false)
+
+	if err := getProcess(cmd, []string{"42", "build/test"}); err != nil {
+		t.Fatalf("getProcess() error = %v, want a step name containing '/' to resolve", err)
+	}
+
+	if len(requests) != 2 {
+		t.Fatalf("expected exactly 2 requests (list then get), got %d", len(requests))
+	}
+	wantGetPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/pipelines/42/steps/{cec5beef-dead-deed-bead-5ae1bedd9ada}"
+	if requests[1].URL.Path != wantGetPath {
+		t.Errorf("second request path = %s, want %s", requests[1].URL.Path, wantGetPath)
+	}
+}
+
 func TestGetProcessUnknownName(t *testing.T) {
 	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
