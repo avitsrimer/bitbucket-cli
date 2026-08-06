@@ -1,12 +1,15 @@
 package commit
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
+	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
 	"github.com/gildas/go-core"
@@ -27,6 +30,13 @@ type Commit struct {
 
 type RenderedMessage struct {
 	Message common.RenderedText `json:"message"`
+}
+
+// Command represents this folder's command
+var Command = &cobra.Command{
+	Use:   "commit",
+	Short: "Manage commits",
+	Run:   common.SubcommandRequired("Commit"),
 }
 
 // shortHashLength is the number of characters a short hash is truncated to.
@@ -116,6 +126,46 @@ func (commit Commit) GetRow(headers []string) []string {
 // GetShortHash gets the short hash of this commit
 func (commit Commit) GetShortHash() string {
 	return shortHash(commit.Hash)
+}
+
+// GetLatestCommit gets the single most recent commit of the repository. BitBucket's commits
+// endpoint returns commits newest first, so requesting a one-item page and taking its only
+// element is enough; unlike upstream's go-git-based implementation, this never touches the local
+// git working directory and works purely against the BitBucket API.
+func GetLatestCommit(ctx context.Context, cmd *cobra.Command) (*Commit, error) {
+	repo, err := repository.GetRepository(ctx, cmd)
+	if err != nil {
+		return nil, fmt.Errorf("cannot get repository: %w", err)
+	}
+	profileCurrent, err := profile.GetProfileFromCommand(ctx, cmd)
+	if err != nil {
+		return nil, fmt.Errorf("cannot get profile: %w", err)
+	}
+	var page profile.PaginatedResources[Commit]
+	if err := profileCurrent.Get(ctx, repo.GetPath("commits")+"?pagelen=1", &page); err != nil {
+		return nil, fmt.Errorf("cannot get latest commit: %w", err)
+	}
+	if len(page.Values) == 0 {
+		return nil, errors.New("no commit found")
+	}
+	return &page.Values[0], nil
+}
+
+// GetCommitByHash gets a commit by its hash.
+func GetCommitByHash(ctx context.Context, cmd *cobra.Command, hash string) (*Commit, error) {
+	repo, err := repository.GetRepository(ctx, cmd)
+	if err != nil {
+		return nil, fmt.Errorf("cannot get repository: %w", err)
+	}
+	profileCurrent, err := profile.GetProfileFromCommand(ctx, cmd)
+	if err != nil {
+		return nil, fmt.Errorf("cannot get profile: %w", err)
+	}
+	var target Commit
+	if err := profileCurrent.Get(ctx, repo.GetPath("commit", hash), &target); err != nil {
+		return nil, fmt.Errorf("cannot get commit %s: %w", hash, err)
+	}
+	return &target, nil
 }
 
 // String gets a string representation of this commit
