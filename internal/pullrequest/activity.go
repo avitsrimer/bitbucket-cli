@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -15,12 +16,38 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Activity describes an activity on a PullRequest, which can be an approval, a comment or an update
+// activityKnownVariants are the top-level JSON keys Activity's UnmarshalJSON recognizes, besides
+// "pull_request" (present on every entry). Per the Bitbucket Cloud REST API's documentation for
+// GET /repositories/{workspace}/{repo_slug}/pullrequests/{pull_request_id}/activity, the feed
+// emits three entry kinds -- "update" (state/description/reviewer changes), "approval", and
+// "comment" -- plus "changes_requested", added for the request-changes review action. Removing an
+// approval or a changes-requested review does not add its own feed entry (it just disappears from
+// the pull request's participants), so there is no separate "removal" variant to model.
+var activityKnownVariants = map[string]struct{}{
+	"pull_request":      {},
+	"approval":          {},
+	"changes_requested": {},
+	"comment":           {},
+	"update":            {},
+}
+
+// Activity describes an activity on a PullRequest: an approval, a request-for-changes, a comment,
+// or an update. A variant this type does not recognize is tolerated rather than rejected (see
+// UnmarshalJSON): decoding still succeeds, and unknownVariant records the raw JSON key so the
+// caller can skip the entry and warn about it instead of the whole feed failing to decode.
 type Activity struct {
-	PullRequest PullRequestReference `json:"pull_request"`
-	Approval    *ActivityApproval    `json:"approval,omitempty"`
-	Comment     *comment.Comment     `json:"comment,omitempty"`
-	Update      *ActivityUpdate      `json:"update,omitempty"`
+	PullRequest      PullRequestReference      `json:"pull_request"`
+	Approval         *ActivityApproval         `json:"approval,omitempty"`
+	ChangesRequested *ActivityChangesRequested `json:"changes_requested,omitempty"`
+	Comment          *comment.Comment          `json:"comment,omitempty"`
+	Update           *ActivityUpdate           `json:"update,omitempty"`
+
+	// unknownVariant is the raw JSON key of an activity-feed entry kind this type does not
+	// recognize (e.g. a new kind BitBucket adds later), set by UnmarshalJSON. It is deliberately
+	// unexported: MarshalJSON's surrogate copy only carries exported fields into json.Marshal, so
+	// this never reaches json/yaml/table output; activitiesProcess reads it directly since it is
+	// in the same package.
+	unknownVariant string
 }
 
 // ActivityApproval describes an approval activity on a PullRequest
@@ -29,6 +56,11 @@ type ActivityApproval struct {
 	User        user.User             `json:"user"`
 	PullRequest *PullRequestReference `json:"pullrequest"`
 }
+
+// ActivityChangesRequested describes a request-changes activity on a PullRequest. Its shape is
+// identical to ActivityApproval (date, user, pullrequest reference) per the Bitbucket Cloud REST
+// API's pull request activity feed.
+type ActivityChangesRequested = ActivityApproval
 
 // ActivityUpdate describes an update activity on a PullRequest
 type ActivityUpdate struct {
@@ -86,6 +118,8 @@ var activityColumns = common.Columns[Activity]{
 	{Name: "date", DefaultSorter: false, Compare: func(a, b Activity) bool {
 		if a.Approval != nil && b.Approval != nil {
 			return a.Approval.Date.Before(b.Approval.Date)
+		} else if a.ChangesRequested != nil && b.ChangesRequested != nil {
+			return a.ChangesRequested.Date.Before(b.ChangesRequested.Date)
 		} else if a.Update != nil && b.Update != nil {
 			return a.Update.Date.Before(b.Update.Date)
 		}
@@ -130,6 +164,8 @@ var activityColumns = common.Columns[Activity]{
 	{Name: "user", DefaultSorter: false, Compare: func(a, b Activity) bool {
 		if a.Approval != nil && b.Approval != nil {
 			return strings.ToLower(a.Approval.User.Name) < strings.ToLower(b.Approval.User.Name)
+		} else if a.ChangesRequested != nil && b.ChangesRequested != nil {
+			return strings.ToLower(a.ChangesRequested.User.Name) < strings.ToLower(b.ChangesRequested.User.Name)
 		} else if a.Update != nil && b.Update != nil {
 			return strings.ToLower(a.Update.Author.Name) < strings.ToLower(b.Update.Author.Name)
 		}
@@ -183,6 +219,10 @@ func (activity Activity) GetRow(headers []string) []string {
 		approval = true
 		actor = activity.Approval.User
 		state = "N/A"
+	case activity.ChangesRequested != nil:
+		activityDate = activity.ChangesRequested.Date
+		actor = activity.ChangesRequested.User
+		state = "CHANGES_REQUESTED"
 	case activity.Update != nil:
 		activityDate = activity.Update.Date
 		state = activity.Update.State
@@ -244,14 +284,6 @@ func (activity Activity) updateField(get func(*ActivityUpdate) string) string {
 	return get(activity.Update)
 }
 
-// Validate validates a Comment
-func (activity *Activity) Validate() error {
-	if activity.Approval == nil && activity.Comment == nil && activity.Update == nil {
-		return errors.New("argument approval, comment, or update is missing")
-	}
-	return nil
-}
-
 // String gets a string representation of this pullrequest
 //
 // implements fmt.Stringer
@@ -278,6 +310,13 @@ func (activity Activity) MarshalJSON() (data []byte, err error) {
 
 // UnmarshalJSON implements the json.Unmarshaler interface.
 //
+// A malformed JSON payload still errors. An entry that decodes cleanly but carries none of the
+// known variants (Approval/ChangesRequested/Comment/Update) is tolerated -- not rejected -- as
+// long as it carries some other, unrecognized variant key: unknownVariant records that key and
+// decoding succeeds, so a new activity kind BitBucket adds later cannot blind the whole feed. An
+// entry with no variant key at all (recognized or not) is a genuinely malformed activity and still
+// errors: read paths tolerate unrecognized variant VALUES, not missing required content.
+//
 // implements json.Unmarshaler
 func (activity *Activity) UnmarshalJSON(data []byte) (err error) {
 	type surrogate Activity
@@ -288,8 +327,36 @@ func (activity *Activity) UnmarshalJSON(data []byte) (err error) {
 	}
 
 	*activity = Activity(surrogateActivity)
-	if err := activity.Validate(); err != nil {
-		return fmt.Errorf("cannot unmarshal activity: %w", err)
+	if activity.Approval == nil && activity.ChangesRequested == nil && activity.Comment == nil && activity.Update == nil {
+		variant, isUnrecognizedVariant := unrecognizedActivityVariant(data)
+		if !isUnrecognizedVariant {
+			return errors.New("cannot unmarshal activity: argument approval, changes_requested, comment, or update is missing")
+		}
+		activity.unknownVariant = variant
 	}
 	return nil
+}
+
+// unrecognizedActivityVariant looks for a top-level JSON key on an activity entry that
+// activityKnownVariants does not recognize, returning it (and true) when found. Multiple
+// unrecognized keys on one entry cannot happen for a real BitBucket response (an entry carries
+// exactly one variant besides "pull_request"), but if it did, the lexicographically first key is
+// returned for deterministic behavior.
+func unrecognizedActivityVariant(data []byte) (variant string, found bool) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return "", false
+	}
+
+	var unrecognized []string
+	for key := range raw {
+		if _, known := activityKnownVariants[key]; !known {
+			unrecognized = append(unrecognized, key)
+		}
+	}
+	if len(unrecognized) == 0 {
+		return "", false
+	}
+	sort.Strings(unrecognized)
+	return unrecognized[0], true
 }

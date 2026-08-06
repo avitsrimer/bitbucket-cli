@@ -103,6 +103,7 @@ func activitiesProcess(cmd *cobra.Command, args []string) (err error) {
 	if err != nil {
 		return err
 	}
+	activities = filterUnknownActivityKinds(pullRequestID, activities)
 	if len(activities) == 0 {
 		lgr.Printf("[DEBUG] no activities found")
 		return nil
@@ -118,4 +119,26 @@ func activitiesProcess(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("cannot print result: %w", err)
 	}
 	return nil
+}
+
+// filterUnknownActivityKinds drops any activity Activity.UnmarshalJSON could not match to a known
+// variant (Approval/ChangesRequested/Comment/Update) from the result, so an activity kind
+// BitBucket adds later renders every activity this command DOES recognize instead of blinding the
+// whole list. It emits exactly one [WARN] per distinct unknown kind, deduped via a local map local
+// to this call (never package-level state, so concurrent invocations under `go test -race` never
+// share it).
+func filterUnknownActivityKinds(pullRequestID string, activities []Activity) []Activity {
+	known := make([]Activity, 0, len(activities))
+	warnedKinds := map[string]struct{}{}
+	for _, activity := range activities {
+		if activity.unknownVariant == "" {
+			known = append(known, activity)
+			continue
+		}
+		if _, alreadyWarned := warnedKinds[activity.unknownVariant]; !alreadyWarned {
+			warnedKinds[activity.unknownVariant] = struct{}{}
+			lgr.Printf("[WARN] pullrequest %s activity feed contains an unrecognized activity kind %q, skipping matching entries", pullRequestID, activity.unknownVariant)
+		}
+	}
+	return known
 }
