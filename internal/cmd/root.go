@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/avitsrimer/bitbucket-cli/internal/artifact"
 	"github.com/avitsrimer/bitbucket-cli/internal/branch"
 	"github.com/avitsrimer/bitbucket-cli/internal/commit"
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
@@ -80,6 +81,7 @@ func init() {
 	_ = RootCmd.RegisterFlagCompletionFunc(CmdOptions.OutputFormat.CompletionFunc("output"))
 	_ = RootCmd.RegisterFlagCompletionFunc(CmdOptions.Workspace.CompletionFunc("workspace"))
 
+	RootCmd.AddCommand(artifact.Command)
 	RootCmd.AddCommand(branch.Command)
 	RootCmd.AddCommand(commit.Command)
 	RootCmd.AddCommand(pipeline.Command)
