@@ -864,20 +864,10 @@ func getProjectKeys(context context.Context, cmd *cobra.Command, args []string, 
 	return keys, nil
 }
 
-// disableUnsupportedFlags disables the flags that are not supported by the profile command
-func disableUnsupportedFlags(cmd *cobra.Command, args []string) error {
-	if cmd.Flags().Changed("repository") {
-		return errors.New("the --repository flag is not supported by the profile command")
-	}
-	if cmd.Flags().Changed("workspace") {
-		return errors.New("the --workspace flag is not supported by the profile command")
-	}
-	return nil
-}
+// disableUnsupportedFlags rejects the --repository and --workspace root flags for profile
+// subcommands, which operate on the profile store itself rather than any repository or workspace.
+var disableUnsupportedFlags = common.DisableUnsupportedFlags("profile", "repository", "workspace")
 
-// hideUnsupportedFlags hides the flags that are not supported by the profile command
-func hideUnsupportedFlags(cmd *cobra.Command, args []string) {
-	_ = cmd.Flags().MarkHidden("repository")
-	_ = cmd.Flags().MarkHidden("workspace")
-	cmd.Parent().HelpFunc()(cmd, args)
-}
+// hideUnsupportedFlags hides the --repository and --workspace root flags from a profile
+// subcommand's help output.
+var hideUnsupportedFlags = common.HideUnsupportedFlags("repository", "workspace")

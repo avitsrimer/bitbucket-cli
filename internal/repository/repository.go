@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/remote"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
 	"github.com/avitsrimer/bitbucket-cli/internal/workspace"
+	"github.com/gildas/go-core"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -47,6 +49,74 @@ type branch struct {
 	Name string `json:"name"`
 }
 
+// Command represents this folder's command
+var Command = &cobra.Command{
+	Use:     "repo",
+	Aliases: []string{"repository"},
+	Short:   "Manage repositories",
+	Run:     common.SubcommandRequired("Repository"),
+}
+
+var columns = common.Columns[Repository]{
+	{Name: "name", DefaultSorter: true, Compare: func(a, b Repository) bool {
+		return strings.ToLower(a.Name) < strings.ToLower(b.Name)
+	}},
+	{Name: "full_name", DefaultSorter: false, Compare: func(a, b Repository) bool {
+		return strings.ToLower(a.FullName) < strings.ToLower(b.FullName)
+	}},
+	{Name: "slug", DefaultSorter: false, Compare: func(a, b Repository) bool {
+		return strings.ToLower(a.Slug) < strings.ToLower(b.Slug)
+	}},
+	{Name: "owner", DefaultSorter: false, Compare: func(a, b Repository) bool {
+		return strings.ToLower(a.Owner.Name) < strings.ToLower(b.Owner.Name)
+	}},
+	{Name: "workspace", DefaultSorter: false, Compare: func(a, b Repository) bool {
+		return strings.ToLower(a.Workspace.Name) < strings.ToLower(b.Workspace.Name)
+	}},
+	{Name: "project", DefaultSorter: false, Compare: func(a, b Repository) bool {
+		return strings.ToLower(a.Project.Name) < strings.ToLower(b.Project.Name)
+	}},
+	{Name: "main_branch", DefaultSorter: false, Compare: func(a, b Repository) bool {
+		return strings.ToLower(a.MainBranch) < strings.ToLower(b.MainBranch)
+	}},
+	{Name: "has_issues", DefaultSorter: false, Compare: func(a, b Repository) bool {
+		return !a.HasIssues && b.HasIssues
+	}},
+	{Name: "has_wiki", DefaultSorter: false, Compare: func(a, b Repository) bool {
+		return !a.HasWiki && b.HasWiki
+	}},
+	{Name: "is_private", DefaultSorter: false, Compare: func(a, b Repository) bool {
+		return !a.IsPrivate && b.IsPrivate
+	}},
+	{Name: "fork_policy", DefaultSorter: false, Compare: func(a, b Repository) bool {
+		return strings.ToLower(a.ForkPolicy) < strings.ToLower(b.ForkPolicy)
+	}},
+	{Name: "size", DefaultSorter: false, Compare: func(a, b Repository) bool {
+		return a.Size < b.Size
+	}},
+	{Name: "language", DefaultSorter: false, Compare: func(a, b Repository) bool {
+		return strings.ToLower(a.Language) < strings.ToLower(b.Language)
+	}},
+	{Name: "default_merge_strategy", DefaultSorter: false, Compare: func(a, b Repository) bool {
+		return strings.ToLower(a.DefaultMergeStrategy) < strings.ToLower(b.DefaultMergeStrategy)
+	}},
+	{Name: "branching_model", DefaultSorter: false, Compare: func(a, b Repository) bool {
+		return strings.ToLower(a.BranchingModel) < strings.ToLower(b.BranchingModel)
+	}},
+	{Name: "parent", DefaultSorter: false, Compare: func(a, b Repository) bool {
+		if a.Parent == nil || b.Parent == nil {
+			return a.Parent == nil && b.Parent != nil
+		}
+		return strings.ToLower(a.Parent.FullName) < strings.ToLower(b.Parent.FullName)
+	}},
+	{Name: "created_on", DefaultSorter: false, Compare: func(a, b Repository) bool {
+		return a.CreatedOn.Before(b.CreatedOn)
+	}},
+	{Name: "updated_on", DefaultSorter: false, Compare: func(a, b Repository) bool {
+		return a.UpdatedOn.Before(b.UpdatedOn)
+	}},
+}
+
 var RepositoryCache = common.NewCache[Repository]()
 
 // GetType gets the type of this repository
@@ -54,6 +124,99 @@ var RepositoryCache = common.NewCache[Repository]()
 // implements core.TypeCarrier
 func (repository Repository) GetType() string {
 	return "repository"
+}
+
+// GetHeaders gets the header for a table
+//
+// implements common.Tableable
+func (repository Repository) GetHeaders(cmd *cobra.Command) []string {
+	if cmd != nil && cmd.Flag("columns") != nil && cmd.Flag("columns").Changed {
+		if values, err := cmd.Flags().GetStringSlice("columns"); err == nil {
+			return core.Map(values, func(column string) string { return strings.ReplaceAll(column, "_", " ") })
+		}
+	}
+	return []string{"Name", "Full Name", "Slug", "Workspace"}
+}
+
+// GetRow gets the row for a table
+//
+// implements common.Tableable
+func (repository Repository) GetRow(headers []string) []string {
+	row := make([]string, 0, len(headers))
+
+	for _, header := range headers {
+		row = append(row, repository.getCell(common.NormalizeColumnKey(header)))
+	}
+	return row
+}
+
+// getCell renders the single value for a normalized column key, or " " when key does not match
+// any declared column.
+func (repository Repository) getCell(key string) string {
+	switch key {
+	case "name":
+		return repository.Name
+	case "full_name":
+		return repository.FullName
+	case "slug":
+		return repository.Slug
+	case "owner":
+		return repository.Owner.Name
+	case "workspace":
+		return repository.workspaceName()
+	case "project":
+		return repository.Project.Name
+	case "main_branch":
+		return repository.MainBranch
+	case "has_issues":
+		return strconv.FormatBool(repository.HasIssues)
+	case "has_wiki":
+		return strconv.FormatBool(repository.HasWiki)
+	case "is_private":
+		return strconv.FormatBool(repository.IsPrivate)
+	case "fork_policy":
+		return repository.ForkPolicy
+	case "size":
+		return strconv.FormatInt(repository.Size, 10)
+	case "language":
+		return repository.Language
+	case "default_merge_strategy":
+		return repository.DefaultMergeStrategy
+	case "branching_model":
+		return repository.BranchingModel
+	case "parent":
+		return repository.parentFullName()
+	case "created_on":
+		return repository.CreatedOn.Format(common.TableTimeFormat)
+	case "updated_on":
+		return repository.updatedOnCell()
+	default:
+		return " "
+	}
+}
+
+// workspaceName returns the repository's workspace name, or " " when Workspace is nil.
+func (repository Repository) workspaceName() string {
+	if repository.Workspace == nil {
+		return " "
+	}
+	return repository.Workspace.Name
+}
+
+// parentFullName returns the repository's parent's full name, or " " when Parent is nil.
+func (repository Repository) parentFullName() string {
+	if repository.Parent == nil {
+		return " "
+	}
+	return repository.Parent.FullName
+}
+
+// updatedOnCell returns UpdatedOn formatted with common.TableTimeFormat, or " " when it is zero.
+func (repository Repository) updatedOnCell() string {
+	if repository.UpdatedOn.IsZero() {
+		return " "
+	}
+	return repository.UpdatedOn.Format(common.TableTimeFormat)
 }
 
 // GetPath gets the API path of the repository

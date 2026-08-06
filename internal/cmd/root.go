@@ -9,6 +9,7 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/avitsrimer/bitbucket-cli/internal/pullrequest"
+	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
 	"github.com/avitsrimer/bitbucket-cli/internal/workspace"
 	"github.com/gildas/go-core"
@@ -78,6 +79,7 @@ func init() {
 
 	RootCmd.AddCommand(profile.Command)
 	RootCmd.AddCommand(pullrequest.Command)
+	RootCmd.AddCommand(repository.Command)
 	RootCmd.AddCommand(user.Command)
 	RootCmd.AddCommand(workspace.Command)
 
