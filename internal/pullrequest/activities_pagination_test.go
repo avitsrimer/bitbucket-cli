@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
@@ -109,5 +110,132 @@ func TestActivitiesProcessLimitFollowsNextPageWhenUnknownKindsPushBelowLimit(t *
 	}
 	if len(activities) != 2 {
 		t.Fatalf("printed %d activities, want 2 known activities collected across both pages", len(activities))
+	}
+}
+
+// TestActivitiesProcessQueryPersistsOnFollowupPages is a regression test: fetchActivityPages' loop
+// used to assign uripath = paginated.Next verbatim on every page after the first, dropping --query's
+// q= parameter whenever BitBucket's own "next" link omitted it (silently merging unfiltered page-2+
+// entries into the result). Routing through profile.NextPageURL -- the same, already unit-tested
+// invariant profile.GetAll itself uses -- re-adds it.
+func TestActivitiesProcessQueryPersistsOnFollowupPages(t *testing.T) {
+	const wantQuery = `state="OPEN"`
+	oldQuery := activitiesOptions.Query
+	activitiesOptions.Query = wantQuery
+	t.Cleanup(func() { activitiesOptions.Query = oldQuery })
+
+	var secondRequestQuery string
+	requestCount := 0
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.Header().Set("Content-Type", "application/json")
+		switch requestCount {
+		case 1:
+			// BitBucket's own "next" link carries only pagination params, never q=.
+			fmt.Fprintf(w, `{"values":[
+				{"pull_request":{"id":1650},"approval":{"date":"2026-08-01T00:00:00+00:00","user":{"display_name":"A"}}}
+			],"next":"%s/2.0/repositories/acme/widgets/pullrequests/1650/activity?page=2"}`, "http://"+r.Host)
+		case 2:
+			secondRequestQuery = r.URL.Query().Get("q")
+			fmt.Fprint(w, `{"values":[
+				{"pull_request":{"id":1650},"approval":{"date":"2026-08-02T00:00:00+00:00","user":{"display_name":"B"}}}
+			],"next":""}`)
+		default:
+			t.Errorf("unexpected request #%d to %s", requestCount, r.URL.String())
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}, false)
+
+	if _, err := profile.GetProfileFromCommand(cmd.Context(), cmd); err != nil {
+		t.Fatalf("cannot warm up profile resolution: %v", err)
+	}
+
+	var runErr error
+	testutil.CaptureStdout(t, func() {
+		runErr = activitiesProcess(cmd, []string{"1650"})
+	})
+	if runErr != nil {
+		t.Fatalf("activitiesProcess() error = %v", runErr)
+	}
+	if requestCount != 2 {
+		t.Fatalf("server received %d requests, want 2", requestCount)
+	}
+	if secondRequestQuery != wantQuery {
+		t.Errorf("second request q = %q, want %q (--query preserved across pages)", secondRequestQuery, wantQuery)
+	}
+}
+
+// TestActivitiesProcessPageLengthShrinksOnFinalPage proves the other half of the same invariant:
+// profile.NextPageURL's pagelen shrink (only fetch what --limit still needs) must still apply now
+// that fetchActivityPages routes page-2+ requests through it.
+func TestActivitiesProcessPageLengthShrinksOnFinalPage(t *testing.T) {
+	var secondRequestPagelen string
+	requestCount := 0
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.Header().Set("Content-Type", "application/json")
+		switch requestCount {
+		case 1:
+			fmt.Fprintf(w, `{"values":[
+				{"pull_request":{"id":1650},"approval":{"date":"2026-08-01T00:00:00+00:00","user":{"display_name":"A"}}},
+				{"pull_request":{"id":1650},"approval":{"date":"2026-08-02T00:00:00+00:00","user":{"display_name":"B"}}}
+			],"next":"%s/2.0/repositories/acme/widgets/pullrequests/1650/activity?page=2"}`, "http://"+r.Host)
+		case 2:
+			secondRequestPagelen = r.URL.Query().Get("pagelen")
+			fmt.Fprint(w, `{"values":[
+				{"pull_request":{"id":1650},"approval":{"date":"2026-08-03T00:00:00+00:00","user":{"display_name":"C"}}}
+			],"next":""}`)
+		default:
+			t.Errorf("unexpected request #%d to %s", requestCount, r.URL.String())
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}, false)
+	if err := cmd.Flags().Set("page-length", "2"); err != nil {
+		t.Fatalf("cannot set page-length flag: %v", err)
+	}
+	if err := cmd.Flags().Set("limit", "3"); err != nil {
+		t.Fatalf("cannot set limit flag: %v", err)
+	}
+
+	if _, err := profile.GetProfileFromCommand(cmd.Context(), cmd); err != nil {
+		t.Fatalf("cannot warm up profile resolution: %v", err)
+	}
+
+	var runErr error
+	testutil.CaptureStdout(t, func() {
+		runErr = activitiesProcess(cmd, []string{"1650"})
+	})
+	if runErr != nil {
+		t.Fatalf("activitiesProcess() error = %v", runErr)
+	}
+	if requestCount != 2 {
+		t.Fatalf("server received %d requests, want 2", requestCount)
+	}
+	if secondRequestPagelen != "1" {
+		t.Errorf("second request pagelen = %q, want %q (limit 3 - 2 known activities already collected)", secondRequestPagelen, "1")
+	}
+}
+
+// TestFetchActivityPagesMalformedNextReturnsParseError proves fetchActivityPages surfaces
+// profile.NextPageURL's own parse error, rather than silently requesting a broken next URL or
+// returning a different error, when BitBucket's response body carries an unparsable "next" link.
+func TestFetchActivityPagesMalformedNextReturnsParseError(t *testing.T) {
+	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"values":[
+			{"pull_request":{"id":1650},"approval":{"date":"2026-08-01T00:00:00+00:00","user":{"display_name":"A"}}}
+		],"next":"://not-a-url"}`)
+	}, false)
+
+	currentProfile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
+	if err != nil {
+		t.Fatalf("cannot warm up profile resolution: %v", err)
+	}
+
+	uripath := "/2.0/repositories/acme/widgets/pullrequests/1650/activity"
+	if _, err := fetchActivityPages(cmd.Context(), currentProfile, uripath, 0, 0); err == nil {
+		t.Fatal("fetchActivityPages() expected an error for a malformed next page url, got nil")
+	} else if !strings.Contains(err.Error(), "cannot parse next page url") {
+		t.Errorf("fetchActivityPages() error = %q, want it to mention %q", err.Error(), "cannot parse next page url")
 	}
 }

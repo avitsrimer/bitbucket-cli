@@ -76,7 +76,7 @@ type requestOptions struct {
 
 // PaginatedResources is a single page of a BitBucket paginated list response. Only the fields
 // GetAll actually reads (Values, Next, Previous) are kept; page/pagelen/size are tracked by this
-// package itself via resolvePageLengthAndLimit/nextPageURL instead.
+// package itself via resolvePageLengthAndLimit/NextPageURL instead.
 type PaginatedResources[T any] struct {
 	Values   []T    `json:"values"`
 	Next     string `json:"next"`
@@ -145,9 +145,12 @@ func resolvePageLengthAndLimit(cmd *cobra.Command, defaultPageLength int, honorL
 	return pageLength, limit
 }
 
-// nextPageURL builds the URL for the next page of resources, preserving the original query
-// parameters and trimming pagelen once limit is close to being reached
-func nextPageURL(next string, originalQuery url.Values, limit, resourceCount, pageLength int) (string, error) {
+// NextPageURL builds the URL for the next page of resources, preserving the original query
+// parameters and trimming pagelen once limit is close to being reached. Exported so callers that
+// page a resource manually (e.g. internal/pullrequest's fetchActivityPages, which cannot use GetAll
+// itself because it needs to stop pagination on a post-filter count) still route through the same,
+// single pagination invariant GetAll uses internally instead of reimplementing it.
+func NextPageURL(next string, originalQuery url.Values, limit, resourceCount, pageLength int) (string, error) {
 	nextURL, err := url.Parse(next)
 	if err != nil {
 		return "", fmt.Errorf("cannot parse next page url: %w", err)
@@ -243,7 +246,7 @@ func getAll[T any](ctx context.Context, cmd *cobra.Command, uripath string, hono
 			break
 		}
 
-		uripath, err = nextPageURL(paginated.Next, originalQuery, limit, len(resources), pageLength)
+		uripath, err = NextPageURL(paginated.Next, originalQuery, limit, len(resources), pageLength)
 		if err != nil {
 			return nil, err
 		}
@@ -625,7 +628,7 @@ func resolveRequestURL(apiRoot *url.URL, uripath string) (*url.URL, error) {
 			return nil, fmt.Errorf("cannot parse url: %w", err)
 		}
 		// uripath is absolute here, which only happens for a paginated "next" URL taken
-		// verbatim from a BitBucket response (see GetAll/nextPageURL). That URL is
+		// verbatim from a BitBucket response (see GetAll/NextPageURL). That URL is
 		// server-controlled, so reject it unless its scheme and host still match the
 		// profile's own API root - otherwise the Authorization header send() attaches next
 		// would be sent to whatever host the response claimed.
