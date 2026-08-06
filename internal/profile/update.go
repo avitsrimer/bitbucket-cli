@@ -57,7 +57,11 @@ func init() {
 	updateCmd.Flags().Var(updateOptions.CloneProtocol, "clone-protocol", "Default protocol to use for cloning repositories. Default is git, can be https, git, or ssh")
 	updateCmd.Flags().StringVar(&updateOptions.CloneUser, "clone-user", "", "Username to use when cloning repositories. Default is the username of the profile.")
 	updateCmd.Flags().StringVar(&updateOptions.SshKeyFilename, "default-ssh-key-file", "", "Path to the SSH private key file to use when cloning repositories with the ssh protocol.")
-	updateCmd.Flags().Var(updateOptions.OutputFormat, "output", "Output format (json, yaml, table, csv, tsv).")
+	// Named "default-output", not "output": a local "output" flag would shadow the root
+	// persistent -o/--output flag (local flags win over inherited ones of the same name),
+	// breaking -o on this command and making Profile.Print read this flag's value instead of the
+	// root one to decide how to render *this command's own* confirmation output.
+	updateCmd.Flags().Var(updateOptions.OutputFormat, "default-output", "Default output format of the profile (json, yaml, table, csv, tsv).")
 	updateCmd.Flags().IntVar(&updateOptions.DefaultPageLength, "default-page-length", 0, "Default number of items per page to retrieve from Bitbucket (Default: 50).")
 	updateCmd.Flags().Var(&updateOptions.ErrorProcessing, "error-processing", "Error processing (StopOnError, WarnOnError, IgnoreErrors).")
 	updateCmd.Flags().BoolVar(&updateOptions.Progress, "progress", false, "Show progress during upload/download operations.")
@@ -74,7 +78,7 @@ func init() {
 	_ = updateCmd.RegisterFlagCompletionFunc(updateOptions.DefaultWorkspace.CompletionFunc("default-workspace"))
 	_ = updateCmd.RegisterFlagCompletionFunc(updateOptions.DefaultProject.CompletionFunc("default-project"))
 	_ = updateCmd.RegisterFlagCompletionFunc(updateOptions.CloneProtocol.CompletionFunc("clone-protocol"))
-	_ = updateCmd.RegisterFlagCompletionFunc(updateOptions.OutputFormat.CompletionFunc("output"))
+	_ = updateCmd.RegisterFlagCompletionFunc(updateOptions.OutputFormat.CompletionFunc("default-output"))
 	_ = updateCmd.RegisterFlagCompletionFunc("error-processing", updateOptions.ErrorProcessing.CompletionFunc())
 	updateCmd.SetHelpFunc(hideUnsupportedFlags)
 }
@@ -119,6 +123,12 @@ func updateProcess(cmd *cobra.Command, args []string) (err error) {
 	if cmd.Flags().Changed("progress") {
 		profile.Progress = updateOptions.Progress
 	}
+	// updateSimpleFields cannot tell an explicit --error-processing StopOnError apart from the
+	// flag being absent (both are ErrorProcessing's zero value): handle that one case here, the
+	// same way --progress is handled above.
+	if cmd.Flags().Changed("error-processing") && updateOptions.ErrorProcessing == common.StopOnError {
+		profile.ErrorProcessing = common.StopOnError
+	}
 	if updateOptions.Default {
 		Profiles.SetCurrent(profile.Name)
 	}
@@ -128,7 +138,10 @@ func updateProcess(cmd *cobra.Command, args []string) (err error) {
 	if err := saveProfilesConfig(); err != nil {
 		return err
 	}
-	return profile.Print(ctx, cmd, profile)
+	// profile.forSave() blanks out any vault-loaded secret (e.g. an access token loaded from the
+	// vault while resolving --default-workspace/--default-project's dynamic allowed values during
+	// flag parsing) so it is never echoed to the console in plain text.
+	return profile.Print(ctx, cmd, profile.forSave())
 }
 
 // resolveCredentialOwner returns updated when flagName changed on the command line and updated is
@@ -170,7 +183,16 @@ func resolveProfileCredentials(cmd *cobra.Command, profile *Profile) error {
 		updateOptions.VaultKey = profile.VaultKey
 	}
 
-	// 4. resolve and store each of the three secrets: client secret, password, access token
+	// 4. an access token is keyed in the vault by the profile's name: a rename that does not also
+	// set a new --access-token would otherwise leave its vault entry stranded under the old name,
+	// unreachable (loadAccessToken looks it up under the new name) and unreclaimable (profile
+	// delete only purges the vault entry under the profile's current name). Migrate it across the
+	// rename before anything below saves the profile under its new name.
+	if !updateOptions.NoVault && cmd.Flag("name").Changed && updateOptions.Name != "" && updateOptions.Name != profile.Name && !cmd.Flag("access-token").Changed {
+		migrateAccessTokenOnRename(profile, updateOptions.VaultKey, profile.Name, updateOptions.Name)
+	}
+
+	// 5. resolve and store each of the three secrets: client secret, password, access token
 	clientID := resolveCredentialOwner(cmd, "client-id", profile.ClientID, updateOptions.ClientID)
 	updateOptions.ClientSecret = storeCredentialIfChanged(cmd, "client-secret", "client secret", updateOptions.VaultKey, clientID, updateOptions.ClientSecret)
 
@@ -199,10 +221,12 @@ func applyUpdateOverrides() {
 	}
 }
 
-// moveCredentialsToVault moves any credential still stored in plain text on profile into the vault
+// moveCredentialsToVault moves every credential still stored in plain text on profile into the
+// vault. The three secrets are independent -- a hand-edited config file can plausibly hold more
+// than one of them at once, even though the create/update flags that set them are mutually
+// exclusive -- so each is checked and moved on its own instead of stopping at the first match.
 func moveCredentialsToVault(profile *Profile, vaultKey string) error {
-	switch {
-	case profile.ClientSecret != "":
+	if profile.ClientSecret != "" {
 		if err := profile.SetCredentialInVault(vaultKey, profile.ClientID, profile.ClientSecret); err != nil {
 			return fmt.Errorf("failed to store client secret in the vault: %w", err)
 		}
@@ -210,7 +234,8 @@ func moveCredentialsToVault(profile *Profile, vaultKey string) error {
 		profile.ClientSecret = ""
 		profile.vault.clientSecret = false
 		updateOptions.ClientSecret = ""
-	case profile.Password != "":
+	}
+	if profile.Password != "" {
 		if err := profile.SetCredentialInVault(vaultKey, profile.User, profile.Password); err != nil {
 			return fmt.Errorf("failed to store user password in the vault: %w", err)
 		}
@@ -218,7 +243,8 @@ func moveCredentialsToVault(profile *Profile, vaultKey string) error {
 		profile.Password = ""
 		profile.vault.password = false
 		updateOptions.Password = ""
-	case profile.AccessToken != "":
+	}
+	if profile.AccessToken != "" {
 		if err := profile.SetCredentialInVault(vaultKey, profile.Name, profile.AccessToken); err != nil {
 			return fmt.Errorf("failed to store access token in the vault: %w", err)
 		}
@@ -228,6 +254,26 @@ func moveCredentialsToVault(profile *Profile, vaultKey string) error {
 		updateOptions.AccessToken = ""
 	}
 	return nil
+}
+
+// migrateAccessTokenOnRename moves the vault entry for a profile's access token (keyed by the
+// profile's name) from oldName to newName, so a plain `profile update <name> --name <new>` does
+// not strand it under a name the profile no longer has. A missing entry under oldName (no access
+// token was ever stored in the vault for this profile) is not an error, just nothing to migrate.
+func migrateAccessTokenOnRename(profile *Profile, vaultKey, oldName, newName string) {
+	credential, err := profile.GetCredentialFromVault(vaultKey, oldName)
+	if err != nil {
+		return
+	}
+	if err := profile.SetCredentialInVault(vaultKey, newName, credential.Password); err != nil {
+		lgr.Printf("[ERROR] failed to migrate access token in the vault from %s to %s: %v", oldName, newName, err)
+		fmt.Fprintf(os.Stderr, "Failed to migrate the access token in the vault from %s to %s: %s\n", oldName, newName, err)
+		return
+	}
+	if err := profile.DeleteCredentialFromVault(vaultKey, oldName); err != nil {
+		lgr.Printf("[WARN] failed to delete the old access token in the vault for %s: %v", oldName, err)
+	}
+	lgr.Printf("[DEBUG] migrated access token in the vault from %s to %s", oldName, newName)
 }
 
 // storeCredentialIfChanged stores secret in the vault when flagName changed on the command line and

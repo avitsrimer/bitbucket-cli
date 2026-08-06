@@ -58,10 +58,10 @@ func (status PullRequestMergeStatus) GetRow(headers []string) []string {
 	var row []string
 
 	for _, header := range headers {
-		switch strings.ToLower(header) {
+		switch common.NormalizeColumnKey(header) {
 		case "id":
 			row = append(row, status.ID)
-		case "pull request", "pull_request", "pull-request", "pullrequest", "pr":
+		case "pull_request", "pullrequest", "pr":
 			row = append(row, strconv.FormatUint(status.PullRequest.ID, 10))
 		case "status":
 			if status.Status == "SUCCESS" {
@@ -69,6 +69,8 @@ func (status PullRequestMergeStatus) GetRow(headers []string) []string {
 			} else {
 				row = append(row, status.Status)
 			}
+		default:
+			row = append(row, " ")
 		}
 	}
 	return row

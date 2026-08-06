@@ -136,22 +136,36 @@ func SetupProfile(t testing.TB, profileName string, handler http.HandlerFunc) *c
 
 // CaptureStdout redirects os.Stdout for the duration of fn and returns what was written; used to
 // assert on profile.Print's rendered output (it writes straight to os.Stdout).
+func CaptureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	return captureStream(t, &os.Stdout, fn)
+}
+
+// CaptureStderr is CaptureStdout for os.Stderr; used to assert on warnings written directly to
+// stderr (e.g. tolerateReviewerErrors' --warn-on-error message), which profile.Print never touches.
+func CaptureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	return captureStream(t, &os.Stderr, fn)
+}
+
+// captureStream redirects *stream (os.Stdout or os.Stderr) for the duration of fn and returns
+// what was written to it.
 //
 // The reader is drained on a goroutine started before fn runs, so output larger than the pipe
-// buffer cannot deadlock the test, and os.Stdout is restored via defer so a t.Fatalf inside fn
-// (which calls runtime.Goexit, skipping any code after it) still leaves stdout intact for the rest
-// of the test binary.
-func CaptureStdout(t *testing.T, fn func()) string {
+// buffer cannot deadlock the test, and *stream is restored via defer so a t.Fatalf inside fn
+// (which calls runtime.Goexit, skipping any code after it) still leaves it intact for the rest of
+// the test binary.
+func captureStream(t *testing.T, stream **os.File, fn func()) string {
 	t.Helper()
 
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("cannot create pipe: %v", err)
 	}
-	original := os.Stdout
-	os.Stdout = w
+	original := *stream
+	*stream = w
 	defer func() {
-		os.Stdout = original
+		*stream = original
 	}()
 
 	captured := make(chan string, 1)

@@ -171,7 +171,9 @@ func (activity Activity) GetRow(headers []string) []string {
 
 	row := make([]string, 0, len(headers))
 	for _, header := range headers {
-		switch strings.ToLower(header) {
+		switch common.NormalizeColumnKey(header) {
+		case "pull_request":
+			row = append(row, strconv.FormatUint(activity.PullRequest.ID, 10))
 		case "date":
 			row = append(row, activityDate.Format(common.TableTimeFormat))
 		case "approved":
@@ -182,7 +184,7 @@ func (activity Activity) GetRow(headers []string) []string {
 			row = append(row, state)
 		case "author":
 			row = append(row, activity.updateField(func(update *ActivityUpdate) string { return update.Author.Name }))
-		case "closed by":
+		case "closed_by":
 			row = append(row, activity.updateField(func(update *ActivityUpdate) string { return update.ClosedBy.Name }))
 		case "reason":
 			row = append(row, activity.updateField(func(update *ActivityUpdate) string { return update.Reason }))
@@ -202,15 +204,17 @@ func (activity Activity) GetRow(headers []string) []string {
 				}
 				return update.Source.Repository.Name
 			}))
-		case "created on", "created_on", "created-on", "created":
+		case "created_on", "created":
 			row = append(row, activity.updateField(func(update *ActivityUpdate) string { return update.CreatedOn.Format(common.TableTimeFormat) }))
-		case "updated on", "updated_on", "updated-on", "updated":
+		case "updated_on", "updated":
 			row = append(row, activity.updateField(func(update *ActivityUpdate) string {
 				if update.UpdatedOn.IsZero() {
 					return " "
 				}
 				return update.UpdatedOn.Format(common.TableTimeFormat)
 			}))
+		default:
+			row = append(row, " ")
 		}
 	}
 	return row

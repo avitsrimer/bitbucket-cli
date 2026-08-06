@@ -138,3 +138,18 @@ func TestCanGetWorkspaceNameWithoutSlash(t *testing.T) {
 	r := remote.Remote{URL: "https://bitbucket.org"}
 	assert.Empty(t, r.WorkspaceName())
 }
+
+// TestGetRemoteFromReaderReportsMissingRemoteAsNotFound reproduces the regression where
+// GetGitSection used ini.File.Section (which fabricates and returns an empty section instead of
+// reporting one is missing) instead of GetSection: a genuinely absent --git-remote name produced
+// an empty, url-less section that read as "not a bitbucket remote" rather than "does not exist".
+func TestGetRemoteFromReaderReportsMissingRemoteAsNotFound(t *testing.T) {
+	payload := `
+[remote "origin"]
+	url = git@bitbucket.org:myworkspace/bitbucket-cli.git
+	fetch = +refs/heads/*:refs/remotes/origin/*
+	`
+	_, err := remote.GetRemoteFromReader(context.Background(), strings.NewReader(payload), "does-not-exist")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}

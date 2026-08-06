@@ -53,41 +53,74 @@ func deleteProcess(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 
+	// Snapshot which profiles' vault credentials will need purging before they are removed from
+	// Profiles below (deleteProfileCredentials looks them up by name via Profiles.Find, which no
+	// longer finds them once deleted); the vault purge itself only runs after the config has been
+	// saved successfully, so a failed save leaves the profile -- and its credential -- intact
+	// instead of destroying the credential for a profile that was never actually deleted.
+	var names []string
+	if deleteOptions.All {
+		names = Profiles.Names()
+	} else {
+		names = args
+	}
+	toPurge := snapshotCredentialOwners(names)
+
 	if deleteOptions.All {
 		lgr.Printf("[DEBUG] deleting all profiles")
 		if common.WhatIf(cmd, "Deleting all profiles") {
-			deleteProfileCredentials(Profiles.Names())
-			deleted = Profiles.Delete(Profiles.Names()...)
+			deleted = Profiles.Delete(names...)
 		}
 	} else if common.WhatIf(cmd, "Deleting profiles %s", strings.Join(args, ", ")) {
-		deleteProfileCredentials(args)
 		deleted = Profiles.Delete(args...)
 	}
 	lgr.Printf("[DEBUG] deleted %d profiles", deleted)
 	if deleted == 0 || cmd.Flag("dry-run").Changed {
 		return nil
 	}
-	return saveProfilesConfig()
+	if err := saveProfilesConfig(); err != nil {
+		return err
+	}
+	purgeCredentials(toPurge)
+	return nil
 }
 
-// deleteProfileCredentials deletes the vault credential of each named profile, if any
-func deleteProfileCredentials(names []string) {
+// credentialOwner names, for one profile about to be deleted, the vault (service, username) pair
+// its credential -- if any -- is stored under.
+type credentialOwner struct {
+	vaultKey string
+	username string
+}
+
+// snapshotCredentialOwners captures the vault (service, username) each named profile's credential
+// is stored under, before the profile is removed from Profiles: Profiles.Find can no longer locate
+// it afterward, so this must run first even though the vault entries themselves are only purged
+// once the config save that actually removes the profiles has succeeded (see purgeCredentials).
+func snapshotCredentialOwners(names []string) []credentialOwner {
+	owners := make([]credentialOwner, 0, len(names))
 	for _, profileName := range names {
 		profile, found := Profiles.Find(profileName)
 		if !found {
 			continue
 		}
-		lgr.Printf("[DEBUG] deleting credential for profile %s", profile.Name)
 		switch {
 		case profile.ClientID != "":
-			_ = profile.DeleteCredentialFromVault(profile.VaultKey, profile.ClientID)
-			lgr.Printf("[DEBUG] deleted client secret for clientID %s from the %s vault", profile.ClientID, profile.VaultKey)
+			owners = append(owners, credentialOwner{vaultKey: profile.VaultKey, username: profile.ClientID})
 		case profile.User != "":
-			_ = profile.DeleteCredentialFromVault(profile.VaultKey, profile.User)
-			lgr.Printf("[DEBUG] deleted user password for user %s from the %s vault", profile.User, profile.VaultKey)
+			owners = append(owners, credentialOwner{vaultKey: profile.VaultKey, username: profile.User})
 		case profile.Name != "":
-			_ = profile.DeleteCredentialFromVault(profile.VaultKey, profile.Name)
-			lgr.Printf("[DEBUG] deleted name secret for profile %s from the %s vault", profile.Name, profile.VaultKey)
+			owners = append(owners, credentialOwner{vaultKey: profile.VaultKey, username: profile.Name})
 		}
+	}
+	return owners
+}
+
+// purgeCredentials deletes each snapshotted credential from the vault. Called only after the
+// profiles that owned them have actually been removed and that removal has been saved to disk, so
+// a save failure never leaves a profile stripped of its credential while itself surviving.
+func purgeCredentials(owners []credentialOwner) {
+	for _, owner := range owners {
+		lgr.Printf("[DEBUG] deleting credential for %s from the %s vault", owner.username, owner.vaultKey)
+		_ = (Profile{}).DeleteCredentialFromVault(owner.vaultKey, owner.username)
 	}
 }

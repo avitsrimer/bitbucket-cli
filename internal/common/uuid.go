@@ -27,6 +27,10 @@ func (u UUID) MarshalJSON() ([]byte, error) {
 }
 
 func (u *UUID) UnmarshalJSON(payload []byte) error {
+	if string(payload) == "null" {
+		*u = UUID(uuid.Nil)
+		return nil
+	}
 	if len(payload) < 2 {
 		return errors.New("cannot unmarshal uuid: unexpected end of JSON input")
 	}

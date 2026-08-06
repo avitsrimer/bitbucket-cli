@@ -23,11 +23,20 @@ func OpenGitConfig(_ context.Context) (io.ReadCloser, error) {
 	last := folder + "dummy"
 
 	for {
-		// If .git is a file (e.g. worktree), read the actual git dir from there (field gitdir)
-		folder = resolveWorktreeGitDir(folder, filepath.Join(folder, ".git"))
-		filename := filepath.Join(folder, ".git", "config")
 		if folder == last {
-			return nil, fmt.Errorf("git config file %s not found", filename)
+			return nil, fmt.Errorf("git config file not found starting from %s", folder)
+		}
+
+		// If .git is a file (e.g. worktree), read the actual git dir from there (field gitdir):
+		// resolvedDir is then already the git directory itself (its "config" lives directly under
+		// it), unlike the ordinary case where folder is the repository root and "config" lives
+		// under folder/.git -- joining ".git/config" onto resolvedDir unconditionally in both
+		// cases would double the ".git" segment for a worktree and silently fail to find it,
+		// falling back to a parent repository's own config instead.
+		resolvedDir := resolveWorktreeGitDir(folder, filepath.Join(folder, ".git"))
+		filename := filepath.Join(resolvedDir, ".git", "config")
+		if resolvedDir != folder {
+			filename = filepath.Join(resolvedDir, "config")
 		}
 		lgr.Printf("[DEBUG] opening %s", filename)
 		file, err := os.Open(filename) //nolint:gosec // filename is built by walking up from the process's own working directory, not from external input
@@ -78,8 +87,11 @@ func GetGitSection(ctx context.Context, reader io.Reader, name string) (section 
 	if err != nil {
 		return nil, err
 	}
-	section = data.Section(name)
-	if section == nil {
+	// ini.File.Section fabricates and returns an empty section when name doesn't exist (it never
+	// returns nil), so a nil check against it is always false, dead code; GetSection is the
+	// method that actually reports a missing section as an error.
+	section, err = data.GetSection(name)
+	if err != nil {
 		return nil, fmt.Errorf("git config section %s not found", name)
 	}
 	return section, nil

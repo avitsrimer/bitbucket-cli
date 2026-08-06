@@ -246,6 +246,62 @@ func TestCreateProcessUnresolvedReviewerErrorsBeforePost(t *testing.T) {
 	}
 }
 
+// TestCreateProcessWarnOnErrorProceedsWithUnresolvedReviewer reproduces critical finding #1: before
+// the fix, ShouldStopOnError's fallback checked only profile.ErrorProcessing == StopOnError (its
+// zero value), so an explicit --warn-on-error still hard-failed here -- the same as the default
+// stop-on-error behavior in TestCreateProcessUnresolvedReviewerErrorsBeforePost -- because a test
+// profile has no ErrorProcessing configured at all. With the fix, --warn-on-error must let the
+// pullrequest be created anyway, warning on stderr and simply omitting the unresolved reviewer.
+func TestCreateProcessWarnOnErrorProceedsWithUnresolvedReviewer(t *testing.T) {
+	withCreateOptions(t, func() {
+		createOptions.Title = "Add feature"
+		createOptions.Source.Value = "feature"
+		createOptions.Destination.Value = ""
+		createOptions.Reviewers = []string{"jdoe-typo"}
+	})
+
+	var postBody PullRequestCreator
+	var pullrequestRequests int
+	mux := http.NewServeMux()
+	mux.HandleFunc("/2.0/workspaces/"+testutil.FixtureWorkspaceSlug+"/members", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[{"user":{"uuid":"{33333333-3333-3333-3333-333333333333}","nickname":"alice"}}]}`))
+	})
+	mux.HandleFunc("/2.0/repositories/"+testutil.FixtureRepositoryFlag+"/pullrequests", func(w http.ResponseWriter, r *http.Request) {
+		pullrequestRequests++
+		if err := json.NewDecoder(r.Body).Decode(&postBody); err != nil {
+			t.Errorf("cannot decode POST body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":99,"title":"Add feature"}`))
+	})
+
+	cmd := setupTestNamed(t, "create-reviewer-warn-on-error", mux.ServeHTTP, false)
+	if err := cmd.Flags().Set("warn-on-error", "true"); err != nil {
+		t.Fatalf("cannot set --warn-on-error: %v", err)
+	}
+
+	var createErr error
+	stderr := testutil.CaptureStderr(t, func() {
+		_ = testutil.CaptureStdout(t, func() {
+			createErr = createProcess(cmd, nil)
+		})
+	})
+
+	if createErr != nil {
+		t.Fatalf("createProcess() error = %v, want nil: --warn-on-error must tolerate the unresolved reviewer", createErr)
+	}
+	if pullrequestRequests != 1 {
+		t.Fatalf("expected exactly 1 pullrequest creation request, got %d", pullrequestRequests)
+	}
+	if !strings.Contains(stderr, "jdoe-typo") {
+		t.Errorf("stderr = %q, want it to warn about the unresolved reviewer jdoe-typo", stderr)
+	}
+	if len(postBody.Reviewers) != 0 {
+		t.Errorf("posted reviewers = %+v, want none: the only requested reviewer could not be resolved", postBody.Reviewers)
+	}
+}
+
 // TestCreateProcessReviewerAllExpandsToEveryMember verifies that a --reviewer value of exactly
 // "all" expands to every workspace member's nickname via expandAllReviewers at resolution time.
 func TestCreateProcessReviewerAllExpandsToEveryMember(t *testing.T) {
@@ -289,6 +345,95 @@ func TestCreateProcessReviewerAllExpandsToEveryMember(t *testing.T) {
 	}
 	if !nicknames["alice"] || !nicknames["bob"] {
 		t.Errorf("payload reviewer nicknames = %v, want both alice and bob", nicknames)
+	}
+}
+
+// TestCreateProcessReviewerAllErrorsWhenMembersCannotBeListed reproduces major finding #1's first
+// defect: both create.go and update.go used to discard the member-listing error
+// (`members, _ := ...GetMembers(...)`), so a --reviewer all whose workspace/repo-scoped token
+// cannot read /workspaces/{slug}/members (a common restriction) expanded "all" against a nil
+// member list, resolved to zero reviewers, and still created the pullrequest at exit 0 -- the
+// exact silent no-op the ShouldStopOnError/ShouldWarnOnError/ShouldIgnoreErrors tolerance was
+// introduced to eliminate. expandAllReviewers must instead surface that error as a hard failure,
+// since there is nothing to expand "all" to without the member list.
+func TestCreateProcessReviewerAllErrorsWhenMembersCannotBeListed(t *testing.T) {
+	withCreateOptions(t, func() {
+		createOptions.Title = "Add feature"
+		createOptions.Source.Value = "feature"
+		createOptions.Destination.Value = ""
+		createOptions.Reviewers = []string{"all"}
+	})
+
+	var pullrequestRequests int
+	mux := http.NewServeMux()
+	mux.HandleFunc("/2.0/workspaces/"+testutil.FixtureWorkspaceSlug+"/members", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	})
+	mux.HandleFunc("/2.0/repositories/"+testutil.FixtureRepositoryFlag+"/pullrequests", func(w http.ResponseWriter, r *http.Request) {
+		pullrequestRequests++
+	})
+
+	cmd := setupTestNamed(t, "create-reviewer-all-members-error", mux.ServeHTTP, false)
+
+	err := createProcess(cmd, nil)
+	if err == nil {
+		t.Fatal("createProcess() expected an error, got nil: a --reviewer all that cannot list members must not silently create a pullrequest with zero reviewers")
+	}
+	if pullrequestRequests != 0 {
+		t.Errorf("expected no pullrequest creation request, got %d", pullrequestRequests)
+	}
+}
+
+// TestCreateProcessReviewerAllDoesNotDuplicateAMatchingReviewer reproduces major finding #1's
+// second defect in resolveExplicitReviewers (create.go): matchesMember previously compared against
+// member.User.Nickname, which Bitbucket leaves empty for many accounts; an empty expanded value
+// then matched every nickname-less member via EqualFold("", "") and matches[0] always won, so
+// resolveExplicitReviewers (unlike update.go's addRequestedReviewers) had no dedupe and appended
+// the same user twice whenever "all" expanded to more than one nickname-less member.
+// expandAllReviewers must expand to each member's UUID (never empty) instead of their nickname,
+// and resolveExplicitReviewers must dedupe like update.go already does.
+func TestCreateProcessReviewerAllDoesNotDuplicateAMatchingReviewer(t *testing.T) {
+	withCreateOptions(t, func() {
+		createOptions.Title = "Add feature"
+		createOptions.Source.Value = "feature"
+		createOptions.Destination.Value = ""
+		createOptions.Reviewers = []string{"all"}
+	})
+
+	var postBody PullRequestCreator
+	mux := http.NewServeMux()
+	mux.HandleFunc("/2.0/workspaces/"+testutil.FixtureWorkspaceSlug+"/members", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Two members with no nickname at all, the case Bitbucket allows and the regression
+		// depended on: an empty expanded reviewer value used to match both of them.
+		_, _ = w.Write([]byte(`{"values":[` +
+			`{"user":{"uuid":"{33333333-3333-3333-3333-333333333333}"}},` +
+			`{"user":{"uuid":"{44444444-4444-4444-4444-444444444444}"}}` +
+			`]}`))
+	})
+	mux.HandleFunc("/2.0/repositories/"+testutil.FixtureRepositoryFlag+"/pullrequests", func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&postBody); err != nil {
+			t.Errorf("cannot decode POST body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":99,"title":"Add feature"}`))
+	})
+
+	cmd := setupTestNamed(t, "create-reviewer-all-no-nickname", mux.ServeHTTP, false)
+
+	if err := createProcess(cmd, nil); err != nil {
+		t.Fatalf("createProcess() error = %v", err)
+	}
+
+	if len(postBody.Reviewers) != 2 {
+		t.Fatalf("payload reviewers = %+v, want exactly 2 (one per member, no duplicates)", postBody.Reviewers)
+	}
+	ids := map[string]bool{}
+	for _, reviewer := range postBody.Reviewers {
+		ids[reviewer.ID.String()] = true
+	}
+	if len(ids) != 2 {
+		t.Errorf("payload reviewers = %+v, want 2 distinct members, got %d distinct IDs (%v): the same member must not be appended twice", postBody.Reviewers, len(ids), ids)
 	}
 }
 

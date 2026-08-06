@@ -168,12 +168,21 @@ func GetProfileFromCommand(context context.Context, cmd *cobra.Command) (profile
 		return nil, err
 	}
 
+	// The --profile flag's own value covers both an explicit flag and the BB_PROFILE environment
+	// variable already present when the root command's flags were registered; os.Getenv is
+	// checked directly too, covering BB_PROFILE having only been set by a .env file loaded (in
+	// main()) after that flag registration ran at package-init time.
+	profileName := cmd.Flag("profile").Value.String()
+	if profileName == "" {
+		profileName = os.Getenv("BB_PROFILE")
+	}
+
 	switch {
-	case cmd.Flag("profile").Changed:
+	case profileName != "":
 		var found bool
-		lgr.Printf("[DEBUG] command line has profile flag set to %s", cmd.Flag("profile").Value.String())
-		if profile, found = Profiles.Find(cmd.Flag("profile").Value.String()); !found {
-			return nil, fmt.Errorf("argument profile is invalid (value: %s)", cmd.Flag("profile").Value.String())
+		lgr.Printf("[DEBUG] command line has profile flag set to %s", profileName)
+		if profile, found = Profiles.Find(profileName); !found {
+			return nil, fmt.Errorf("argument profile is invalid (value: %s)", profileName)
 		}
 	case Current == nil:
 		if len(Profiles) == 0 {
@@ -187,7 +196,7 @@ func GetProfileFromCommand(context context.Context, cmd *cobra.Command) (profile
 	default:
 		profile = Current
 	}
-	return
+	return profile, nil
 }
 
 // GetHeaders gets the header for a table
@@ -379,6 +388,20 @@ func (profile *Profile) updateSimpleFields(other Profile) {
 	if other.SshKeyFilename != "" {
 		profile.SshKeyFilename = other.SshKeyFilename
 	}
+	if other.VaultKey != "" {
+		profile.VaultKey = other.VaultKey
+	}
+	if other.DefaultPageLength != 0 {
+		profile.DefaultPageLength = other.DefaultPageLength
+	}
+	// ErrorProcessing's zero value (StopOnError) is indistinguishable from "not set on other", so
+	// an explicit --error-processing StopOnError cannot be told apart from the flag being absent
+	// here; WarnOnError/IgnoreErrors are unambiguous and always copied. updateProcess additionally
+	// copies StopOnError itself when the --error-processing flag was explicitly given, the same way
+	// it already special-cases --progress.
+	if other.ErrorProcessing != common.StopOnError {
+		profile.ErrorProcessing = other.ErrorProcessing
+	}
 }
 
 // updateCredentials updates the profile's credentials, clearing the cached token when the
@@ -407,9 +430,18 @@ func (profile *Profile) updateCredentials(other Profile) {
 }
 
 // ShouldStopOnError tells if the command should stop on error
+//
+// Precedence: an explicit --stop-on-error always wins; otherwise an explicit --warn-on-error or
+// --ignore-errors wins over the profile's configured ErrorProcessing (so those flags can override
+// a profile that would otherwise stop, or a profile with no ErrorProcessing set at all, which
+// defaults to StopOnError); with none of the three flags given, the profile's ErrorProcessing
+// decides, and with neither a flag nor a configured ErrorProcessing, the default is to stop.
 func (profile Profile) ShouldStopOnError(cmd *cobra.Command) bool {
 	if cmd.Flag("stop-on-error").Changed {
 		return cmd.Flag("stop-on-error").Value.String() == "true"
+	}
+	if profile.ShouldWarnOnError(cmd) || profile.ShouldIgnoreErrors(cmd) {
+		return false
 	}
 	return profile.ErrorProcessing == common.StopOnError
 }
@@ -443,8 +475,15 @@ func (profile Profile) Print(context context.Context, cmd *cobra.Command, payloa
 
 	// cmd.Flag("output").Value carries the --output flag's value, which also holds the
 	// BB_OUTPUT_FORMAT environment variable as its default; checking Changed alone would miss
-	// the env-only case, since setting a flag's default never marks it as Changed.
-	if commandFormat := cmd.Flag("output").Value.String(); commandFormat != "" {
+	// the env-only case, since setting a flag's default never marks it as Changed. That default
+	// was baked in at the root command's package-init time though, before main() has had a chance
+	// to load a .env file, so BB_OUTPUT_FORMAT set only via .env still needs a direct, lazy
+	// os.Getenv fallback here.
+	commandFormat := cmd.Flag("output").Value.String()
+	if commandFormat == "" {
+		commandFormat = os.Getenv("BB_OUTPUT_FORMAT")
+	}
+	if commandFormat != "" {
 		outputFormat = commandFormat
 		lgr.Printf("[DEBUG] command output format: %s (was: %s)", outputFormat, profile.OutputFormat)
 	}
