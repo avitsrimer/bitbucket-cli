@@ -109,6 +109,17 @@ All commands that would modify something on Bitbucket now allow you to preview t
 bb pullrequest decline 1 --dry-run
 ```
 
+`--dry-run` runs full preflight: every resolution GET a real invocation would make (looking up the
+pull request/comment/task/pipeline, validating a `--file` diff anchor against the PR's diffstat,
+and so on) still runs, and the command echoes the resolved target URL and payload it would have
+sent — only the final write is skipped. A nonexistent pull request id or an empty comment/task
+body fails under `--dry-run` with the same error a real invocation would produce; the output is
+never a fabricated success line for input that would actually fail.
+
+```bash
+bb pullrequest decline 999999 --dry-run   # fails: pull request 999999 not found
+```
+
 Most commands will support the `--workspace` and `--repository` flags to specify the workspace and repository to use. If not provided, each is resolved independently in the same three-rung order: the flag itself, then a Bitbucket git remote in the current checkout (a GitHub or other non-Bitbucket remote is ignored and falls through), then the profile's default (`--default-workspace`/`--default-repository` on `bb profile create`/`update`). If all three rungs come up empty, the error names all three ways to supply the value. The workspace and repository can be combined in the `--repository` flag in the form `workspace/repository`. For example:
 
 ```bash
@@ -224,9 +235,12 @@ $ bb pr list --state all
 > body, a commit message -- can no longer blow one column, and with it every other column, out to
 > an unreadable width. This cap is cosmetic: it only affects the rendered table. `csv`, `tsv`,
 > `json`, and `yaml` output always contain the complete, untruncated value, since those formats
-> are meant for scripting. For the same reason, `description` is not one of `bb pullrequest
-> list`'s default columns (a truncated snippet of a PR body is rarely useful in a list view) --
-> pass `--columns description` (or `--columns all`) to include it anyway.
+> are meant for scripting. For the same reason, `description` and `participants` are not among
+> `bb pullrequest get`/`list`'s default columns (an unbounded, list-shaped value is rarely useful
+> in a rendered table) -- pass `--columns description`/`--columns participants` (or `--columns
+> all`) to include them anyway. In table/csv/tsv, `participants` renders a compact
+> `nickname:state` summary per reviewer; `-o json`/`yaml` carry the full participant objects
+> (role, approval state, participation date) regardless of `--columns`.
 
 ### Environment variables
 
@@ -592,6 +606,23 @@ You can get the list of pull requests for a given commit hash (it must be the fu
 ```bash
 bb pullrequest list --commit ae86d5323477989fab3bf3879cd1234543565753
 ```
+
+`--state` filters by pull request state and is repeatable (each occurrence adds a state to fetch); `all` is sugar for every state (`declined`, `merged`, `open`, `superseded`) rather than a real Bitbucket state. With no `--state` at all, the default is `open`:
+
+```bash
+bb pullrequest list --state merged
+bb pullrequest list --state open --state merged
+bb pullrequest list --state all
+```
+
+`--source` and `--destination` filter the list by source/destination branch name (composing with `--state` and `--query`, ANDed together). This is a *list filter*, distinct from `create`/`update`'s `--source`/`--destination`, which set a pull request's branches:
+
+```bash
+bb pullrequest list --source my-branch
+bb pullrequest list --destination master --state open
+```
+
+`--commit` is mutually exclusive with `--state`, `--query`, `--source`, and `--destination` (Bitbucket's by-commit endpoint takes no other filter).
 
 You can create a pull request with the `bb pullrequest create` command:
 
