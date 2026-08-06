@@ -69,12 +69,12 @@ func TestStepUnmarshalFixture(t *testing.T) {
 	}
 }
 
-// TestStepMarshalUnmarshalRoundTrip proves the rule-9 fix: MarshalJSON must write "started_on" (the
-// same field UnmarshalJSON reads), not "created_on" (upstream's bug, which silently dropped
-// StartedOn on a second unmarshal since nothing populated a "created_on" key on the way back out).
-// Marshaling the fixture-derived Step and unmarshaling the result again must reproduce the exact
-// same StartedOn/CompletedOn/Duration/MaxTime, proving the value survives a full round trip rather
-// than being renamed into a field nothing reads back.
+// TestStepMarshalUnmarshalRoundTrip proves MarshalJSON writes "started_on" (the same field
+// UnmarshalJSON reads), not "created_on" (a mismatch that would silently drop StartedOn on a
+// second unmarshal, since nothing populates a "created_on" key on the way back out). Marshaling
+// the fixture-derived Step and unmarshaling the result again must reproduce the exact same
+// StartedOn/CompletedOn/Duration/MaxTime, proving the value survives a full round trip rather than
+// being renamed into a field nothing reads back.
 func TestStepMarshalUnmarshalRoundTrip(t *testing.T) {
 	var original Step
 	if err := json.Unmarshal(loadTestData(t, "pipeline-step.json"), &original); err != nil {

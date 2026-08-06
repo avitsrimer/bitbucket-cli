@@ -9,46 +9,6 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 )
 
-func TestListProcessSuccessPreservesAPIOrderWithoutSortFlag(t *testing.T) {
-	var requests []*http.Request
-	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
-		requests = append(requests, r)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"values":[` +
-			`{"type":"commit","hash":"zzzzzzz","message":"zzz","date":"2026-01-02T00:00:00+00:00"},` +
-			`{"type":"commit","hash":"aaaaaaa","message":"aaa","date":"2026-01-01T00:00:00+00:00"}` +
-			`]}`))
-	}, false)
-
-	stdout := testutil.CaptureStdout(t, func() {
-		if err := listProcess(cmd, nil); err != nil {
-			t.Fatalf("listProcess() error = %v", err)
-		}
-	})
-
-	if len(requests) != 1 {
-		t.Fatalf("expected exactly 1 request, got %d", len(requests))
-	}
-	wantPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/commits"
-	if requests[0].URL.Path != wantPath {
-		t.Errorf("path = %s, want %s", requests[0].URL.Path, wantPath)
-	}
-
-	// Unmarshal into a minimal local struct rather than []Commit: the fixture responses carry no
-	// "repository" object, so the printed output's embedded repository is empty, and
-	// Repository.UnmarshalJSON's Validate call would reject round-tripping that back through the
-	// full Commit type.
-	var commits []struct {
-		Hash string `json:"hash"`
-	}
-	if err := json.Unmarshal([]byte(stdout), &commits); err != nil {
-		t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
-	}
-	if len(commits) != 2 || commits[0].Hash != "zzzzzzz" || commits[1].Hash != "aaaaaaa" {
-		t.Errorf("commits = %+v, want API order preserved (zzzzzzz, aaaaaaa) since --sort was not set", commits)
-	}
-}
-
 // commitOrderDisagreementFixture is shared by TestListProcessSortFlagChangedSorts and
 // TestListProcessDefaultSortsByDate: hash order and date order deliberately disagree (zzzzzzz is
 // EARLIER, aaaaaaa is LATER), so the two tests' expected orderings are each other's reverse --
@@ -67,7 +27,9 @@ const commitOrderDisagreementFixture = `{"values":[` +
 // expected orders demonstrate the comparator genuinely changes with --sort rather than both
 // tests accidentally agreeing with whatever the code happens to do.
 func TestListProcessDefaultSortsByDate(t *testing.T) {
-	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
+	var requests []*http.Request
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(commitOrderDisagreementFixture))
 	}, false)
@@ -77,6 +39,14 @@ func TestListProcessDefaultSortsByDate(t *testing.T) {
 			t.Fatalf("listProcess() error = %v", err)
 		}
 	})
+
+	if len(requests) != 1 {
+		t.Fatalf("expected exactly 1 request, got %d", len(requests))
+	}
+	wantPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/commits"
+	if requests[0].URL.Path != wantPath {
+		t.Errorf("path = %s, want %s", requests[0].URL.Path, wantPath)
+	}
 
 	var commits []struct {
 		Hash string `json:"hash"`
@@ -207,5 +177,35 @@ func TestListProcessQueryIncludeExcludeFlags(t *testing.T) {
 	}
 	if got := query.Get("exclude"); got != "main" {
 		t.Errorf("exclude query = %q, want %q", got, "main")
+	}
+}
+
+// TestListProcessRendersTableOutput proves the columns -> GetHeaders -> GetRow wiring actually
+// reaches profile.Print for --output table, not just the JSON path every other test in this file
+// drives.
+func TestListProcessRendersTableOutput(t *testing.T) {
+	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[{"type":"commit","hash":"cafebeef","message":"Add feature","date":"2026-01-01T00:00:00+00:00"}]}`))
+	}, false)
+	if err := cmd.Flags().Set("output", "table"); err != nil {
+		t.Fatalf("cannot set output flag: %v", err)
+	}
+
+	stdout := testutil.CaptureStdout(t, func() {
+		if err := listProcess(cmd, nil); err != nil {
+			t.Fatalf("listProcess() error = %v", err)
+		}
+	})
+
+	if !strings.Contains(stdout, "Add feature") {
+		t.Errorf("table output = %q, want it to contain the commit message", stdout)
+	}
+	if !strings.Contains(stdout, "+--") {
+		t.Errorf("table output = %q, want tablewriter's box-drawing border", stdout)
+	}
+	var probe any
+	if err := json.Unmarshal([]byte(stdout), &probe); err == nil {
+		t.Errorf("table output = %q, want it not to parse as JSON", stdout)
 	}
 }

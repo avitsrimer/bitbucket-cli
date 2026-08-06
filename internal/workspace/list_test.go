@@ -131,8 +131,8 @@ func TestListProcessDryRun(t *testing.T) {
 	}
 }
 
-// TestListProcessRendersTableOutput proves the columns -> GetHeaders -> GetRow wiring rule 1
-// covers actually reaches profile.Print for --output table, not just the JSON path every other
+// TestListProcessRendersTableOutput proves the columns -> GetHeaders -> GetRow wiring
+// actually reaches profile.Print for --output table, not just the JSON path every other
 // test in this file drives.
 func TestListProcessRendersTableOutput(t *testing.T) {
 	cmd := setupTest(t, "workspace-list-table", func(w http.ResponseWriter, _ *http.Request) {

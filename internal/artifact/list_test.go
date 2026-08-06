@@ -153,3 +153,33 @@ func TestListProcessQueryFlag(t *testing.T) {
 		t.Errorf("q query = %q, want %q", got, `name~"build"`)
 	}
 }
+
+// TestListProcessRendersTableOutput proves the columns -> GetHeaders -> GetRow wiring actually
+// reaches profile.Print for --output table, not just the JSON path every other test in this file
+// drives.
+func TestListProcessRendersTableOutput(t *testing.T) {
+	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[{"name":"build.log","size":100,"downloads":2}]}`))
+	}, false)
+	if err := cmd.Flags().Set("output", "table"); err != nil {
+		t.Fatalf("cannot set output flag: %v", err)
+	}
+
+	stdout := testutil.CaptureStdout(t, func() {
+		if err := listProcess(cmd, nil); err != nil {
+			t.Fatalf("listProcess() error = %v", err)
+		}
+	})
+
+	if !strings.Contains(stdout, "build.log") {
+		t.Errorf("table output = %q, want it to contain the artifact name", stdout)
+	}
+	if !strings.Contains(stdout, "+--") {
+		t.Errorf("table output = %q, want tablewriter's box-drawing border", stdout)
+	}
+	var probe any
+	if err := json.Unmarshal([]byte(stdout), &probe); err == nil {
+		t.Errorf("table output = %q, want it not to parse as JSON", stdout)
+	}
+}

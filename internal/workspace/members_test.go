@@ -223,8 +223,8 @@ func TestGetMembersUsesItsOwnContextParameterNotCmdContext(t *testing.T) {
 	}
 }
 
-// TestMembersProcessRendersTableOutput proves the columns -> GetHeaders -> GetRow wiring rule 1
-// covers actually reaches profile.Print for --output table, not just the JSON path every other
+// TestMembersProcessRendersTableOutput proves the columns -> GetHeaders -> GetRow wiring
+// actually reaches profile.Print for --output table, not just the JSON path every other
 // test in this file drives.
 func TestMembersProcessRendersTableOutput(t *testing.T) {
 	const slug = "acme-members-table"

@@ -157,3 +157,33 @@ func TestListProcessQueryFlag(t *testing.T) {
 		t.Errorf("q query = %q, want %q", got, `target.branch.name="main"`)
 	}
 }
+
+// TestListProcessRendersTableOutput proves the columns -> GetHeaders -> GetRow wiring actually
+// reaches profile.Print for --output table, not just the JSON path every other test in this file
+// drives.
+func TestListProcessRendersTableOutput(t *testing.T) {
+	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[{"type":"pipeline","uuid":"{11111111-1111-1111-1111-111111111111}","build_number":9,"state":{"type":"pipeline_state_completed","name":"COMPLETED"},"target":{"type":"pipeline_ref_target","ref_name":"main"},"created_on":"2026-01-02T00:00:00+00:00","duration_in_seconds":0}]}`))
+	}, false)
+	if err := cmd.Flags().Set("output", "table"); err != nil {
+		t.Fatalf("cannot set output flag: %v", err)
+	}
+
+	stdout := testutil.CaptureStdout(t, func() {
+		if err := listProcess(cmd, nil); err != nil {
+			t.Fatalf("listProcess() error = %v", err)
+		}
+	})
+
+	if !strings.Contains(stdout, "9") {
+		t.Errorf("table output = %q, want it to contain the build number", stdout)
+	}
+	if !strings.Contains(stdout, "+--") {
+		t.Errorf("table output = %q, want tablewriter's box-drawing border", stdout)
+	}
+	var probe any
+	if err := json.Unmarshal([]byte(stdout), &probe); err == nil {
+		t.Errorf("table output = %q, want it not to parse as JSON", stdout)
+	}
+}

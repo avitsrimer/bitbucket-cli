@@ -32,8 +32,8 @@ func TestGetArtifactNamesSortsCaseInsensitively(t *testing.T) {
 	}
 }
 
-// TestGetArtifactNamesIgnoresLimitFlag proves rule 7: a completion getter uses GetAllUnbounded, so
-// a --limit flag registered on cmd (belonging to a different, unrelated output query) never
+// TestGetArtifactNamesIgnoresLimitFlag proves a completion getter uses GetAllUnbounded, so a
+// --limit flag registered on cmd (belonging to a different, unrelated output query) never
 // truncates the enumeration.
 func TestGetArtifactNamesIgnoresLimitFlag(t *testing.T) {
 	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {

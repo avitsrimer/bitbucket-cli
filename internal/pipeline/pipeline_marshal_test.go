@@ -22,8 +22,8 @@ func loadTestData(t *testing.T, filename string) []byte {
 
 // TestPipelineMarshalUnmarshalRoundTrip proves Pipeline.UnmarshalJSON/MarshalJSON round-trip a
 // branch-target pipeline byte-for-byte (structurally): unmarshaling testdata/pipeline.json and
-// re-marshaling it must reproduce the same JSON, catching the kind of upstream MarshalJSON quirk
-// (rule 9) where a field written on marshal disagreed with the field read on unmarshal.
+// re-marshaling it must reproduce the same JSON, catching a MarshalJSON field disagreeing with
+// the field UnmarshalJSON actually reads back.
 func TestPipelineMarshalUnmarshalRoundTrip(t *testing.T) {
 	expected := loadTestData(t, "pipeline.json")
 

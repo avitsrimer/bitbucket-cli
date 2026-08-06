@@ -35,6 +35,6 @@ func setupTest(t *testing.T, handler http.HandlerFunc, dryRun bool) *cobra.Comma
 	cmd.Flags().StringSlice("include", []string{}, "")
 	cmd.Flags().StringSlice("exclude", []string{}, "")
 	cmd.Flags().StringSlice("columns", []string{}, "")
-	cmd.Flags().String("sort", "", "")
+	cmd.Flags().String("sort", "date", "")
 	return cmd
 }

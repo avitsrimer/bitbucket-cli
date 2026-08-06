@@ -66,8 +66,8 @@ func TestStepGetRowUnknownColumnFillsPlaceholder(t *testing.T) {
 	}
 }
 
-// TestStepGetRowZeroTimestampsFillPlaceholder proves rule 2: a zero StartedOn/CompletedOn (a step
-// that has not started, or is still running) renders " ", never the zero time.Time's
+// TestStepGetRowZeroTimestampsFillPlaceholder proves a zero StartedOn/CompletedOn (a step that
+// has not started, or is still running) renders " ", never the zero time.Time's
 // "0001-01-01T00:00:00Z".
 func TestStepGetRowZeroTimestampsFillPlaceholder(t *testing.T) {
 	target := Step{Name: "build"}
