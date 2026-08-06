@@ -199,3 +199,50 @@ func TestGetCommitByHashAPIError(t *testing.T) {
 		t.Errorf("error = %q, want it to contain the BitBucket error message", err.Error())
 	}
 }
+
+// TestGetCommitHashesIgnoresLimitFlag proves a completion getter uses GetAllUnbounded (via
+// GetCommitsWithPrefix), so a --limit flag registered on cmd (belonging to a different,
+// unrelated output query) never truncates the enumeration.
+func TestGetCommitHashesIgnoresLimitFlag(t *testing.T) {
+	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[` +
+			`{"type":"commit","hash":"Zeta","date":"2026-01-01T00:00:00+00:00"},` +
+			`{"type":"commit","hash":"alpha","date":"2026-01-01T00:00:00+00:00"}` +
+			`]}`))
+	}, false)
+	if err := cmd.Flags().Set("limit", "1"); err != nil {
+		t.Fatalf("cannot set limit flag: %v", err)
+	}
+
+	hashes, err := GetCommitHashes(t.Context(), cmd, nil, "")
+	if err != nil {
+		t.Fatalf("GetCommitHashes() error = %v", err)
+	}
+	if len(hashes) != 2 {
+		t.Errorf("hashes = %v, want 2 hashes despite --limit=1 on cmd", hashes)
+	}
+}
+
+// TestGetCommitsWithPrefixIgnoresLimitFlag is the same proof directly against
+// GetCommitsWithPrefix, which GetCommitHashes wraps.
+func TestGetCommitsWithPrefixIgnoresLimitFlag(t *testing.T) {
+	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[` +
+			`{"type":"commit","hash":"Zeta","date":"2026-01-01T00:00:00+00:00"},` +
+			`{"type":"commit","hash":"alpha","date":"2026-01-01T00:00:00+00:00"}` +
+			`]}`))
+	}, false)
+	if err := cmd.Flags().Set("limit", "1"); err != nil {
+		t.Fatalf("cannot set limit flag: %v", err)
+	}
+
+	commits, err := GetCommitsWithPrefix(t.Context(), cmd, "")
+	if err != nil {
+		t.Fatalf("GetCommitsWithPrefix() error = %v", err)
+	}
+	if len(commits) != 2 {
+		t.Errorf("commits = %v, want 2 commits despite --limit=1 on cmd", commits)
+	}
+}

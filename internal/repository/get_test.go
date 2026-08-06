@@ -119,10 +119,18 @@ func TestGetProcessDryRun(t *testing.T) {
 		t.Fatalf("cannot prime repository cache: %v", err)
 	}
 
-	if err := getProcess(cmd, []string{slug}); err != nil {
-		t.Fatalf("getProcess() error = %v", err)
-	}
+	stdout := captureStdout(t, func() {
+		if err := getProcess(cmd, []string{slug}); err != nil {
+			t.Fatalf("getProcess() error = %v", err)
+		}
+	})
 	if requestCount != 0 {
 		t.Errorf("expected no HTTP request in dry-run mode, got %d", requestCount)
+	}
+	// getProcess resolves the target from the cache before checking common.WhatIf: without this
+	// assertion, deleting the WhatIf check entirely would still make zero requests (the cache hit
+	// hides that), and this test would still pass while Print dumped the object to stdout.
+	if stdout != "" {
+		t.Errorf("expected no printed output in dry-run mode, got %q", stdout)
 	}
 }

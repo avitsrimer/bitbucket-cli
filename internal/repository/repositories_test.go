@@ -49,3 +49,27 @@ func TestGetRepositorySlugsAPIError(t *testing.T) {
 		t.Errorf("error = %q, want it to contain the BitBucket error message", err.Error())
 	}
 }
+
+// TestGetRepositorySlugsIgnoresLimitFlag proves a completion getter uses GetAllUnbounded, so a
+// --limit flag registered on cmd (belonging to a different, unrelated output query) never
+// truncates the enumeration.
+func TestGetRepositorySlugsIgnoresLimitFlag(t *testing.T) {
+	cmd := setupTest(t, "repository-slugs-limit", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[` +
+			`{"type":"repository","uuid":"{11111111-1111-1111-1111-111111111111}","name":"Zeta","full_name":"acme/zeta","slug":"zeta"},` +
+			`{"type":"repository","uuid":"{22222222-2222-2222-2222-222222222222}","name":"Acme","full_name":"acme/acme-repo","slug":"acme-repo"}` +
+			`]}`))
+	}, false)
+	if err := cmd.Flags().Set("limit", "1"); err != nil {
+		t.Fatalf("cannot set limit flag: %v", err)
+	}
+
+	slugs, err := GetRepositorySlugs(t.Context(), cmd)
+	if err != nil {
+		t.Fatalf("GetRepositorySlugs() error = %v", err)
+	}
+	if len(slugs) != 2 {
+		t.Errorf("slugs = %v, want 2 slugs despite --limit=1 on cmd", slugs)
+	}
+}

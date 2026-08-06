@@ -60,3 +60,27 @@ func TestGetWorkspaceAllowedSlugsAPIError(t *testing.T) {
 		t.Errorf("error = %q, want it to contain the BitBucket error message", err.Error())
 	}
 }
+
+// TestGetWorkspaceAllowedSlugsIgnoresLimitFlag proves a completion getter uses GetAllUnbounded,
+// so a --limit flag registered on cmd (belonging to a different, unrelated output query) never
+// truncates the enumeration of allowed values.
+func TestGetWorkspaceAllowedSlugsIgnoresLimitFlag(t *testing.T) {
+	cmd := setupAllowedSlugsTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[` +
+			`{"type":"workspace_access","administrator":false,"workspace":{"type":"workspace_base","slug":"zeta"}},` +
+			`{"type":"workspace_access","administrator":false,"workspace":{"type":"workspace_base","slug":"acme"}}` +
+			`]}`))
+	})
+	if err := cmd.Flags().Set("limit", "1"); err != nil {
+		t.Fatalf("cannot set limit flag: %v", err)
+	}
+
+	slugs, err := workspace.GetWorkspaceAllowedSlugs(t.Context(), cmd, nil, "")
+	if err != nil {
+		t.Fatalf("GetWorkspaceAllowedSlugs() error = %v", err)
+	}
+	if len(slugs) != 2 {
+		t.Errorf("slugs = %v, want 2 slugs despite --limit=1 on cmd", slugs)
+	}
+}
