@@ -2,8 +2,10 @@ package task
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
@@ -75,6 +77,9 @@ func createProcess(cmd *cobra.Command, args []string) error {
 	if err := common.ValidatePathIdentifier("pullrequest-id", pullRequestID); err != nil {
 		return fmt.Errorf("cannot create task: %w", err)
 	}
+	if strings.TrimSpace(createOptions.Content) == "" {
+		return errors.New("task content is empty")
+	}
 
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
@@ -102,8 +107,14 @@ func createProcess(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	if err = prcommon.ExistsPullRequest(cmd.Context(), cmd, repository, pullRequestID); err != nil {
+		return fmt.Errorf("cannot create task: %w", err)
+	}
+
+	uripath := repository.GetPath("pullrequests", pullRequestID, "tasks")
+
 	lgr.Printf("[DEBUG] creating pullrequest task on pullrequest %s", pullRequestID)
-	if !common.WhatIf(cmd, "Creating pullrequest task on pullrequest "+pullRequestID) {
+	if !common.WhatIfPayload(cmd, uripath, task, "Creating pullrequest task on pullrequest "+pullRequestID) {
 		return nil
 	}
 
@@ -111,7 +122,7 @@ func createProcess(cmd *cobra.Command, args []string) error {
 
 	err = profile.Post(
 		cmd.Context(),
-		repository.GetPath("pullrequests", pullRequestID, "tasks"),
+		uripath,
 		task,
 		&created,
 	)

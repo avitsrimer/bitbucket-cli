@@ -33,12 +33,14 @@ func updateProcess(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("cannot update comment: %w", validateErr)
 	}
 
-	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
+	ctx := cmd.Context()
+
+	profile, err := profile.GetProfileFromCommand(ctx, cmd)
 	if err != nil {
 		return fmt.Errorf("cannot get profile: %w", err)
 	}
 
-	repository, err := repository.GetRepository(cmd.Context(), cmd)
+	repository, err := repository.GetRepository(ctx, cmd)
 	if err != nil {
 		return fmt.Errorf("cannot get repository: %w", err)
 	}
@@ -48,15 +50,24 @@ func updateProcess(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 
+	if err = existsComment(ctx, cmd, repository, pullRequestID, commentID); err != nil {
+		return fmt.Errorf("cannot update comment: %w", err)
+	}
+	if anchorErr := validateFileAnchor(ctx, cmd, repository, pullRequestID, payload.Anchor); anchorErr != nil {
+		return anchorErr
+	}
+
+	uripath := repository.GetPath("pullrequests", pullRequestID, "comments", commentID)
+
 	lgr.Printf("[DEBUG] updating pullrequest comment")
-	if !common.WhatIf(cmd, "Updating comment %s for pullrequest %s", commentID, pullRequestID) {
+	if !common.WhatIfPayload(cmd, uripath, payload, "Updating comment %s for pullrequest %s", commentID, pullRequestID) {
 		return nil
 	}
 	var comment Comment
 
 	err = profile.Put(
-		cmd.Context(),
-		repository.GetPath("pullrequests", pullRequestID, "comments", commentID),
+		ctx,
+		uripath,
 		payload,
 		&comment,
 	)

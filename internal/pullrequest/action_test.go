@@ -59,10 +59,16 @@ func testRunActionSuccess(t *testing.T, spec actionSpec) {
 
 	var requests []*http.Request
 	responseBody := []byte(`{"role":"REVIEWER","approved":true,"state":"approved","user":{"display_name":"Ada Lovelace"}}`)
+	wantPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/pullrequests/42/" + spec.endpoint
 
 	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r)
 		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			// the preflight existence check GETs the pullrequest itself, not spec.endpoint
+			_, _ = w.Write([]byte(`{"id":42}`))
+			return
+		}
 		if spec.post {
 			_, _ = w.Write(responseBody)
 		}
@@ -80,19 +86,25 @@ func testRunActionSuccess(t *testing.T, spec actionSpec) {
 		call()
 	}
 
-	if len(requests) != 1 {
-		t.Fatalf("expected exactly 1 request, got %d", len(requests))
+	if len(requests) != 2 {
+		t.Fatalf("expected exactly 2 requests (preflight GET, write), got %d", len(requests))
+	}
+	if requests[0].Method != http.MethodGet {
+		t.Errorf("first request method = %s, want GET (preflight existence check)", requests[0].Method)
+	}
+	wantGetPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/pullrequests/42"
+	if requests[0].URL.Path != wantGetPath {
+		t.Errorf("first request path = %s, want %s", requests[0].URL.Path, wantGetPath)
 	}
 	wantMethod := http.MethodDelete
 	if spec.post {
 		wantMethod = http.MethodPost
 	}
-	if requests[0].Method != wantMethod {
-		t.Errorf("method = %s, want %s", requests[0].Method, wantMethod)
+	if requests[1].Method != wantMethod {
+		t.Errorf("method = %s, want %s", requests[1].Method, wantMethod)
 	}
-	wantPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/pullrequests/42/" + spec.endpoint
-	if requests[0].URL.Path != wantPath {
-		t.Errorf("path = %s, want %s", requests[0].URL.Path, wantPath)
+	if requests[1].URL.Path != wantPath {
+		t.Errorf("path = %s, want %s", requests[1].URL.Path, wantPath)
 	}
 
 	if spec.post {
@@ -119,7 +131,7 @@ func testRunActionAPIError(t *testing.T, spec actionSpec) {
 	if err == nil {
 		t.Fatal("runAction() expected an error, got nil")
 	}
-	wantSubstring := fmt.Sprintf("failed to %s pull request 42", spec.errVerb)
+	wantSubstring := fmt.Sprintf("cannot %s pull request", spec.errVerb)
 	if !strings.Contains(err.Error(), wantSubstring) {
 		t.Errorf("error = %q, want it to contain %q", err.Error(), wantSubstring)
 	}
@@ -131,14 +143,18 @@ func testRunActionAPIError(t *testing.T, spec actionSpec) {
 func testRunActionDryRun(t *testing.T, spec actionSpec) {
 	t.Helper()
 
-	var requestCount int
-	cmd := setupTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, true)
+	var requests []*http.Request
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":42}`))
+	}, true)
 
 	if err := runAction(cmd, []string{"42"}, spec); err != nil {
 		t.Fatalf("runAction() error = %v", err)
 	}
-	if requestCount != 0 {
-		t.Errorf("expected no HTTP request in dry-run mode, got %d", requestCount)
+	if len(requests) != 1 || requests[0].Method != http.MethodGet {
+		t.Errorf("requests = %v, want exactly one preflight GET and no write in dry-run mode", requests)
 	}
 }
 
@@ -235,6 +251,10 @@ func TestMergeProcessSyncSuccess(t *testing.T) {
 	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r)
 		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"id":42}`))
+			return
+		}
 		_, _ = w.Write([]byte(`{"id":42,"title":"Add feature"}`))
 	}, false)
 
@@ -244,15 +264,18 @@ func TestMergeProcessSyncSuccess(t *testing.T) {
 		}
 	})
 
-	if len(requests) != 1 {
-		t.Fatalf("expected exactly 1 request, got %d", len(requests))
+	if len(requests) != 2 {
+		t.Fatalf("expected exactly 2 requests (preflight GET, merge POST), got %d", len(requests))
 	}
-	if requests[0].Method != http.MethodPost {
-		t.Errorf("method = %s, want POST", requests[0].Method)
+	if requests[0].Method != http.MethodGet {
+		t.Errorf("first request method = %s, want GET (preflight existence check)", requests[0].Method)
+	}
+	if requests[1].Method != http.MethodPost {
+		t.Errorf("method = %s, want POST", requests[1].Method)
 	}
 	wantPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/pullrequests/42/merge"
-	if requests[0].URL.Path != wantPath {
-		t.Errorf("path = %s, want %s", requests[0].URL.Path, wantPath)
+	if requests[1].URL.Path != wantPath {
+		t.Errorf("path = %s, want %s", requests[1].URL.Path, wantPath)
 	}
 
 	var pr PullRequest
@@ -274,6 +297,11 @@ func TestMergeProcessAsyncSuccessUsesLocationHeader(t *testing.T) {
 	var requests []*http.Request
 	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r)
+		if r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":42}`))
+			return
+		}
 		w.Header().Set(
 			"Location",
 			"https://api.bitbucket.org/2.0/repositories/acme/widgets/pullrequests/42/merge/task-status/abc123",
@@ -287,11 +315,11 @@ func TestMergeProcessAsyncSuccessUsesLocationHeader(t *testing.T) {
 		}
 	})
 
-	if len(requests) != 1 {
-		t.Fatalf("expected exactly 1 request, got %d", len(requests))
+	if len(requests) != 2 {
+		t.Fatalf("expected exactly 2 requests (preflight GET, async merge POST), got %d", len(requests))
 	}
-	if requests[0].URL.RawQuery != "async=true" {
-		t.Errorf("query = %s, want async=true", requests[0].URL.RawQuery)
+	if requests[1].URL.RawQuery != "async=true" {
+		t.Errorf("query = %s, want async=true", requests[1].URL.RawQuery)
 	}
 
 	var status PullRequestMergeStatus
@@ -315,6 +343,10 @@ func TestMergeProcessAPIError(t *testing.T) {
 
 	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"id":42}`))
+			return
+		}
 		w.WriteHeader(http.StatusConflict)
 		_, _ = w.Write([]byte(`{"type":"error","error":{"message":"merge conflict"}}`))
 	}, false)
@@ -331,6 +363,74 @@ func TestMergeProcessAPIError(t *testing.T) {
 	}
 }
 
+// TestMergeProcessPreflightAPIError verifies that a failure in the preflight existence GET (e.g.
+// pull request 999999 does not exist) surfaces before any merge POST is attempted -- the same
+// error a real merge against that id would eventually produce, but now caught during preflight
+// instead of only by the (skipped) write under --dry-run.
+func TestMergeProcessPreflightAPIError(t *testing.T) {
+	withMergeOptions(t, func() {
+		mergeOptions.Async = false
+		mergeOptions.Message = ""
+		mergeOptions.CloseSourceBranch = false
+	})
+
+	var requests []*http.Request
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"message":"pull request not found"}}`))
+	}, false)
+
+	err := mergeProcess(cmd, []string{"999999"})
+	if err == nil {
+		t.Fatal("mergeProcess() expected an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to get pullrequest 999999") {
+		t.Errorf("error = %q, want it to mention the failed preflight get", err.Error())
+	}
+	if !strings.Contains(err.Error(), "pull request not found") {
+		t.Errorf("error = %q, want it to contain the BitBucket error message", err.Error())
+	}
+	if len(requests) != 1 || requests[0].Method != http.MethodGet {
+		t.Errorf("requests = %v, want exactly one preflight GET and no merge POST", requests)
+	}
+}
+
+// TestMergeProcessDryRunNonexistentPRFails is the FR-6 headline scenario: a nonexistent pull
+// request (999999) must fail under --dry-run with the same error a real merge against that id
+// would produce, instead of the pre-fix behavior of reporting a fixed, input-independent dry-run
+// line at exit 0 regardless of whether the id exists.
+func TestMergeProcessDryRunNonexistentPRFails(t *testing.T) {
+	withMergeOptions(t, func() {
+		mergeOptions.Async = false
+		mergeOptions.Message = ""
+		mergeOptions.CloseSourceBranch = false
+	})
+
+	var requests []*http.Request
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"message":"pull request not found"}}`))
+	}, true)
+
+	err := mergeProcess(cmd, []string{"999999"})
+	if err == nil {
+		t.Fatal("mergeProcess() expected an error for a nonexistent pull request under --dry-run, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to get pullrequest 999999") {
+		t.Errorf("error = %q, want it to mention the failed preflight get", err.Error())
+	}
+	if !strings.Contains(err.Error(), "pull request not found") {
+		t.Errorf("error = %q, want it to contain the BitBucket error message", err.Error())
+	}
+	if len(requests) != 1 || requests[0].Method != http.MethodGet {
+		t.Errorf("requests = %v, want exactly one preflight GET and no merge POST", requests)
+	}
+}
+
 func TestMergeProcessDryRun(t *testing.T) {
 	withMergeOptions(t, func() {
 		mergeOptions.Async = false
@@ -338,14 +438,18 @@ func TestMergeProcessDryRun(t *testing.T) {
 		mergeOptions.CloseSourceBranch = false
 	})
 
-	var requestCount int
-	cmd := setupTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, true)
+	var requests []*http.Request
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":42}`))
+	}, true)
 
 	if err := mergeProcess(cmd, []string{"42"}); err != nil {
 		t.Fatalf("mergeProcess() error = %v", err)
 	}
-	if requestCount != 0 {
-		t.Errorf("expected no HTTP request in dry-run mode, got %d", requestCount)
+	if len(requests) != 1 || requests[0].Method != http.MethodGet {
+		t.Errorf("requests = %v, want exactly one preflight GET and no merge POST in dry-run mode", requests)
 	}
 }
 

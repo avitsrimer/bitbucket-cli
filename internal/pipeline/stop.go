@@ -32,6 +32,15 @@ func stopProcess(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot get repository: %w", err)
 	}
 
+	profileCurrent, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
+	if err != nil {
+		return fmt.Errorf("cannot get profile: %w", err)
+	}
+
+	if getErr := profileCurrent.Get(cmd.Context(), repo.GetPath("pipelines", pipelineID), nil); getErr != nil {
+		return fmt.Errorf("cannot stop pipeline %s: %w", pipelineID, getErr)
+	}
+
 	lgr.Printf("[DEBUG] stopping pipeline %s", pipelineID)
 	proceed, err := common.Confirm(cmd, fmt.Sprintf("Stop pipeline %s?", pipelineID))
 	if err != nil {
@@ -42,16 +51,12 @@ func stopProcess(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	if !common.WhatIf(cmd, "Stopping pipeline %s", pipelineID) {
+	uripath := repo.GetPath("pipelines", pipelineID, "stopPipeline")
+	if !common.WhatIfPayload(cmd, uripath, nil, "Stopping pipeline %s", pipelineID) {
 		return nil
 	}
 
-	profileCurrent, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
-	if err != nil {
-		return fmt.Errorf("cannot get profile: %w", err)
-	}
-
-	result, err := profileCurrent.PostWithResult(cmd.Context(), repo.GetPath("pipelines", pipelineID, "stopPipeline"), nil)
+	result, err := profileCurrent.PostWithResult(cmd.Context(), uripath, nil)
 	if err != nil {
 		return fmt.Errorf("cannot stop pipeline %s: %w", pipelineID, err)
 	}

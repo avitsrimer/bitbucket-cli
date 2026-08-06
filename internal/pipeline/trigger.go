@@ -111,7 +111,9 @@ func triggerProcess(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	if !common.WhatIf(cmd, "Triggering pipeline on %s", description) {
+	uripath := repo.GetPath("pipelines")
+
+	if !common.WhatIfPayload(cmd, uripath, dryRunTriggerPayload(payload), "Triggering pipeline on %s", description) {
 		return nil
 	}
 
@@ -121,7 +123,7 @@ func triggerProcess(cmd *cobra.Command, args []string) error {
 	}
 
 	var triggered Pipeline
-	if err := profileCurrent.Post(cmd.Context(), repo.GetPath("pipelines"), payload, &triggered); err != nil {
+	if err := profileCurrent.Post(cmd.Context(), uripath, payload, &triggered); err != nil {
 		return fmt.Errorf("cannot trigger pipeline on %s: %w", description, err)
 	}
 	if err := profileCurrent.Print(cmd.Context(), cmd, triggered); err != nil {
@@ -201,6 +203,22 @@ func branchTriggerTarget(cmd *cobra.Command) (target Target, description string,
 // triggerVariablesFlagValue reads cmd's own --variable values.
 func triggerVariablesFlagValue(cmd *cobra.Command) []string {
 	return common.StringArrayFlagValue(cmd, "variable")
+}
+
+// dryRunTriggerPayload returns a copy of payload safe to echo in a --dry-run preflight message:
+// every variable's Value is replaced with a fixed placeholder. A --variable value is routinely a
+// secret and must never be logged or printed (see the comment above triggerProcess's own
+// key-only debug log), so common.WhatIfPayload must never be handed the real payload directly.
+func dryRunTriggerPayload(payload triggerBody) triggerBody {
+	if len(payload.Variables) == 0 {
+		return payload
+	}
+	redacted := payload
+	redacted.Variables = make([]Variable, len(payload.Variables))
+	for i, variable := range payload.Variables {
+		redacted.Variables[i] = Variable{ID: variable.ID, Key: variable.Key, Value: "***", Secured: variable.Secured}
+	}
+	return redacted
 }
 
 // parseTriggerVariables converts "KEY=VALUE" strings into Variables, returning the keys separately

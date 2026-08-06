@@ -17,12 +17,26 @@ func setupStopTest(t *testing.T, handler http.HandlerFunc, dryRun bool) *cobra.C
 	return cmd
 }
 
+// stopPreflightHandler responds to the preflight existence GET with a minimal pipeline body,
+// dispatching any other method to handleWrite -- the shape every stopProcess test needs since the
+// preflight GET now always runs before the confirmation prompt and the stop write itself.
+func stopPreflightHandler(requests *[]*http.Request, handleWrite http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		*requests = append(*requests, r)
+		if r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"uuid":"{11111111-1111-1111-1111-111111111111}"}`))
+			return
+		}
+		handleWrite(w, r)
+	}
+}
+
 func TestStopProcessConfirmYesProceeds(t *testing.T) {
 	var requests []*http.Request
-	cmd := setupStopTest(t, func(w http.ResponseWriter, r *http.Request) {
-		requests = append(requests, r)
+	cmd := setupStopTest(t, stopPreflightHandler(&requests, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
-	}, false)
+	}), false)
 	cmd.SetIn(strings.NewReader("y\n"))
 
 	stdout := testutil.CaptureStdout(t, func() {
@@ -31,12 +45,15 @@ func TestStopProcessConfirmYesProceeds(t *testing.T) {
 		}
 	})
 
-	if len(requests) != 1 {
-		t.Fatalf("expected exactly 1 request, got %d", len(requests))
+	if len(requests) != 2 {
+		t.Fatalf("expected exactly 2 requests (preflight GET, stop POST), got %d", len(requests))
+	}
+	if requests[0].Method != http.MethodGet {
+		t.Errorf("first request method = %s, want GET (preflight existence check)", requests[0].Method)
 	}
 	wantPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/pipelines/42/stopPipeline"
-	if requests[0].URL.Path != wantPath {
-		t.Errorf("path = %s, want %s", requests[0].URL.Path, wantPath)
+	if requests[1].URL.Path != wantPath {
+		t.Errorf("path = %s, want %s", requests[1].URL.Path, wantPath)
 	}
 	if !strings.Contains(stdout, "204 No Content") {
 		t.Errorf("stdout = %q, want it to report the actual API status", stdout)
@@ -44,8 +61,10 @@ func TestStopProcessConfirmYesProceeds(t *testing.T) {
 }
 
 func TestStopProcessConfirmNoZeroHandlerHits(t *testing.T) {
-	var requestCount int
-	cmd := setupStopTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, false)
+	var requests []*http.Request
+	cmd := setupStopTest(t, stopPreflightHandler(&requests, func(http.ResponseWriter, *http.Request) {
+		t.Error("no stop request expected")
+	}), false)
 	cmd.SetIn(strings.NewReader("n\n"))
 
 	stdout := testutil.CaptureStdout(t, func() {
@@ -54,8 +73,8 @@ func TestStopProcessConfirmNoZeroHandlerHits(t *testing.T) {
 		}
 	})
 
-	if requestCount != 0 {
-		t.Errorf("expected no HTTP request when confirmation is declined, got %d", requestCount)
+	if len(requests) != 1 || requests[0].Method != http.MethodGet {
+		t.Errorf("requests = %v, want exactly one preflight GET and no stop request when confirmation is declined", requests)
 	}
 	if !strings.Contains(stdout, "canceled") {
 		t.Errorf("stdout = %q, want it to mention the stop was canceled", stdout)
@@ -63,11 +82,10 @@ func TestStopProcessConfirmNoZeroHandlerHits(t *testing.T) {
 }
 
 func TestStopProcessForceSkipsPrompt(t *testing.T) {
-	var requestCount int
-	cmd := setupStopTest(t, func(w http.ResponseWriter, _ *http.Request) {
-		requestCount++
+	var requests []*http.Request
+	cmd := setupStopTest(t, stopPreflightHandler(&requests, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
-	}, false)
+	}), false)
 	_ = cmd.Flags().Set("force", "true")
 	cmd.SetIn(poisonStdin{t})
 
@@ -77,40 +95,49 @@ func TestStopProcessForceSkipsPrompt(t *testing.T) {
 		}
 	})
 
-	if requestCount != 1 {
-		t.Errorf("expected exactly 1 HTTP request with --force, got %d", requestCount)
+	if len(requests) != 2 {
+		t.Errorf("expected exactly 2 HTTP requests (preflight GET, stop POST) with --force, got %d", len(requests))
 	}
 }
 
 func TestStopProcessDryRunWithoutForceOrTTYDoesNotError(t *testing.T) {
-	var requestCount int
-	cmd := setupStopTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, true)
+	var requests []*http.Request
+	cmd := setupStopTest(t, stopPreflightHandler(&requests, func(http.ResponseWriter, *http.Request) {
+		t.Error("no stop request expected in dry-run mode")
+	}), true)
 	swapStdinToNonInteractivePipe(t)
 
 	if err := stopProcess(cmd, []string{"42"}); err != nil {
 		t.Fatalf("stopProcess() error = %v, want nil in dry-run mode", err)
 	}
-	if requestCount != 0 {
-		t.Errorf("expected no HTTP request in dry-run mode, got %d", requestCount)
+	if len(requests) != 1 || requests[0].Method != http.MethodGet {
+		t.Errorf("requests = %v, want exactly one preflight GET and no stop request in dry-run mode", requests)
 	}
 }
 
 func TestStopProcessNonInteractiveWithoutForceErrors(t *testing.T) {
-	var requestCount int
-	cmd := setupStopTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, false)
+	var requests []*http.Request
+	cmd := setupStopTest(t, stopPreflightHandler(&requests, func(http.ResponseWriter, *http.Request) {
+		t.Error("no stop request expected")
+	}), false)
 	swapStdinToNonInteractivePipe(t)
 
 	err := stopProcess(cmd, []string{"42"})
 	if err == nil {
 		t.Fatal("stopProcess() expected an error for non-interactive stdin without --force, got nil")
 	}
-	if requestCount != 0 {
-		t.Errorf("expected no HTTP request, got %d", requestCount)
+	if len(requests) != 1 || requests[0].Method != http.MethodGet {
+		t.Errorf("requests = %v, want exactly one preflight GET and no stop request", requests)
 	}
 }
 
-func TestStopProcessAPIError(t *testing.T) {
-	cmd := setupStopTest(t, func(w http.ResponseWriter, _ *http.Request) {
+// TestStopProcessPreflightAPIError verifies that a nonexistent pipeline (a failure of the
+// preflight existence GET) fails stopProcess before the confirmation prompt or any stop request,
+// with the same error a real stop against that id would eventually produce.
+func TestStopProcessPreflightAPIError(t *testing.T) {
+	var requests []*http.Request
+	cmd := setupStopTest(t, func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`{"type":"error","error":{"message":"pipeline not found"}}`))
@@ -123,5 +150,32 @@ func TestStopProcessAPIError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "pipeline not found") {
 		t.Errorf("error = %q, want it to contain the BitBucket error message", err.Error())
+	}
+	if len(requests) != 1 || requests[0].Method != http.MethodGet {
+		t.Errorf("requests = %v, want exactly one preflight GET and no stop request", requests)
+	}
+}
+
+// TestStopProcessWriteAPIError verifies that a failure of the stop request itself (as opposed to
+// the preflight existence GET) still surfaces the BitBucket error, after the preflight GET
+// succeeded.
+func TestStopProcessWriteAPIError(t *testing.T) {
+	var requests []*http.Request
+	cmd := setupStopTest(t, stopPreflightHandler(&requests, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"message":"pipeline already stopped"}}`))
+	}), false)
+	_ = cmd.Flags().Set("force", "true")
+
+	err := stopProcess(cmd, []string{"42"})
+	if err == nil {
+		t.Fatal("stopProcess() expected an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "pipeline already stopped") {
+		t.Errorf("error = %q, want it to contain the BitBucket error message", err.Error())
+	}
+	if len(requests) != 2 {
+		t.Errorf("expected exactly 2 requests (preflight GET, stop POST), got %d", len(requests))
 	}
 }

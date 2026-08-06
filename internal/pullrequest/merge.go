@@ -5,6 +5,7 @@ import (
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
+	prcommon "github.com/avitsrimer/bitbucket-cli/internal/pullrequest/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
@@ -56,6 +57,10 @@ func mergeProcess(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("cannot merge pull request: %w", err)
 	}
 
+	if err = prcommon.ExistsPullRequest(cmd.Context(), cmd, repository, pullRequestID); err != nil {
+		return fmt.Errorf("cannot merge pull request: %w", err)
+	}
+
 	uripath := repository.GetPath("pullrequests", pullRequestID, "merge")
 
 	if mergeOptions.Async {
@@ -73,7 +78,7 @@ func mergeProcess(cmd *cobra.Command, args []string) (err error) {
 	}
 
 	lgr.Printf("[DEBUG] merging pullrequest %s", pullRequestID)
-	if !common.WhatIf(cmd, "Merging pullrequest %s", pullRequestID) {
+	if !common.WhatIfPayload(cmd, uripath, payload, "Merging pullrequest %s", pullRequestID) {
 		return nil
 	}
 

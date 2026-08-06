@@ -65,3 +65,22 @@ func GetPullRequestIDs(context context.Context, cmd *cobra.Command, args []strin
 	}
 	return GetPullRequestIDsWithState(context, cmd, "ALL")
 }
+
+// ExistsPullRequest validates via a GET that pullRequestID names an existing pull request in repo,
+// returning the same error a write against that id would produce. Every mutating command whose
+// target sub-resource does not exist yet (pullrequest merge/approve/decline/..., a new comment or
+// task) calls this as part of its full preflight (see FR-6) so a nonexistent pull request id fails
+// identically whether or not --dry-run is set, instead of dry-run's skipped write silently hiding
+// the failure. A command whose target IS an existing sub-resource (updating/reopening/resolving/
+// deleting a comment or task) instead GETs that sub-resource directly, which validates the parent
+// pull request's existence too.
+func ExistsPullRequest(ctx context.Context, cmd *cobra.Command, repo *repository.Repository, pullRequestID string) error {
+	currentProfile, err := profile.GetProfileFromCommand(ctx, cmd)
+	if err != nil {
+		return fmt.Errorf("cannot get profile: %w", err)
+	}
+	if err := currentProfile.Get(ctx, repo.GetPath("pullrequests", pullRequestID), nil); err != nil {
+		return fmt.Errorf("failed to get pullrequest %s: %w", pullRequestID, err)
+	}
+	return nil
+}

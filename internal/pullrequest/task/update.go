@@ -58,6 +58,11 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot get repository: %w", err)
 	}
 
+	uripath := repository.GetPath("pullrequests", pullRequestID, "tasks", taskID)
+	if err = profile.Get(cmd.Context(), uripath, nil); err != nil {
+		return fmt.Errorf("failed to get task %s of pullrequest %s: %w", taskID, pullRequestID, err)
+	}
+
 	taskUpdater := TaskUpdater{}
 	if updateOptions.Content != "" {
 		taskUpdater.Content = &ContentUpdater{
@@ -69,7 +74,7 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 	}
 
 	lgr.Printf("[DEBUG] updating pullrequest task %s on pullrequest %s", taskID, pullRequestID)
-	if !common.WhatIf(cmd, fmt.Sprintf("Updating pullrequest task %s on pullrequest %s", taskID, pullRequestID)) {
+	if !common.WhatIfPayload(cmd, uripath, taskUpdater, "Updating pullrequest task %s on pullrequest %s", taskID, pullRequestID) {
 		return nil
 	}
 
@@ -77,7 +82,7 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 
 	err = profile.Put(
 		cmd.Context(),
-		repository.GetPath("pullrequests", pullRequestID, "tasks", taskID),
+		uripath,
 		taskUpdater,
 		&updated,
 	)
