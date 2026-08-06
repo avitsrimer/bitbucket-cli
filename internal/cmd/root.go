@@ -9,6 +9,7 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/branch"
 	"github.com/avitsrimer/bitbucket-cli/internal/commit"
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
+	"github.com/avitsrimer/bitbucket-cli/internal/pipeline"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/avitsrimer/bitbucket-cli/internal/pullrequest"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
@@ -81,6 +82,7 @@ func init() {
 
 	RootCmd.AddCommand(branch.Command)
 	RootCmd.AddCommand(commit.Command)
+	RootCmd.AddCommand(pipeline.Command)
 	RootCmd.AddCommand(profile.Command)
 	RootCmd.AddCommand(pullrequest.Command)
 	RootCmd.AddCommand(repository.Command)
