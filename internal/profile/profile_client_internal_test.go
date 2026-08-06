@@ -19,8 +19,10 @@ import (
 )
 
 // These tests live in package profile (not profile_test) specifically to reach
-// resolvePageLengthAndLimit, nextPageURL, basicAuthorization, and sendOAuthTokenRequest, none of
-// which are exported: profile_client_test.go's external package cannot call them directly.
+// resolvePageLengthAndLimit, basicAuthorization, and sendOAuthTokenRequest, none of which are
+// exported: profile_client_test.go's external package cannot call them directly.
+// TestNextPageURL exercises the now-exported NextPageURL; it stays in this file for proximity to
+// TestResolvePageLengthAndLimit, which it is always used alongside.
 
 func TestResolvePageLengthAndLimit(t *testing.T) {
 	// resolvePageLengthAndLimit reads --page-length/--limit as ints via cmd.Flags().GetInt.
@@ -93,9 +95,9 @@ func TestResolvePageLengthAndLimit(t *testing.T) {
 func TestNextPageURL(t *testing.T) {
 	t.Run("preserves original query parameters missing from next", func(t *testing.T) {
 		original := url.Values{"q": {`state="OPEN"`}}
-		got, err := nextPageURL("https://api.example.com/x?page=2", original, 0, 0, 10)
+		got, err := NextPageURL("https://api.example.com/x?page=2", original, 0, 0, 10)
 		if err != nil {
-			t.Fatalf("nextPageURL() error = %v", err)
+			t.Fatalf("NextPageURL() error = %v", err)
 		}
 		parsed, _ := url.Parse(got)
 		if parsed.Query().Get("q") != `state="OPEN"` {
@@ -105,9 +107,9 @@ func TestNextPageURL(t *testing.T) {
 
 	t.Run("does not overwrite a query parameter already present in next", func(t *testing.T) {
 		original := url.Values{"q": {"original"}}
-		got, err := nextPageURL("https://api.example.com/x?page=2&q=fromnext", original, 0, 0, 10)
+		got, err := NextPageURL("https://api.example.com/x?page=2&q=fromnext", original, 0, 0, 10)
 		if err != nil {
-			t.Fatalf("nextPageURL() error = %v", err)
+			t.Fatalf("NextPageURL() error = %v", err)
 		}
 		parsed, _ := url.Parse(got)
 		if parsed.Query().Get("q") != "fromnext" {
@@ -116,9 +118,9 @@ func TestNextPageURL(t *testing.T) {
 	})
 
 	t.Run("shrinks pagelen once the limit is close to being reached", func(t *testing.T) {
-		got, err := nextPageURL("https://api.example.com/x?page=2&pagelen=10", url.Values{}, 12, 8, 10)
+		got, err := NextPageURL("https://api.example.com/x?page=2&pagelen=10", url.Values{}, 12, 8, 10)
 		if err != nil {
-			t.Fatalf("nextPageURL() error = %v", err)
+			t.Fatalf("NextPageURL() error = %v", err)
 		}
 		parsed, _ := url.Parse(got)
 		if parsed.Query().Get("pagelen") != "4" {
@@ -127,9 +129,9 @@ func TestNextPageURL(t *testing.T) {
 	})
 
 	t.Run("leaves pagelen alone when there is no limit", func(t *testing.T) {
-		got, err := nextPageURL("https://api.example.com/x?page=2&pagelen=10", url.Values{}, 0, 8, 10)
+		got, err := NextPageURL("https://api.example.com/x?page=2&pagelen=10", url.Values{}, 0, 8, 10)
 		if err != nil {
-			t.Fatalf("nextPageURL() error = %v", err)
+			t.Fatalf("NextPageURL() error = %v", err)
 		}
 		parsed, _ := url.Parse(got)
 		if parsed.Query().Get("pagelen") != "10" {
@@ -138,9 +140,9 @@ func TestNextPageURL(t *testing.T) {
 	})
 
 	t.Run("returns an error for an unparsable next URL", func(t *testing.T) {
-		_, err := nextPageURL("://not-a-url", url.Values{}, 0, 0, 10)
+		_, err := NextPageURL("://not-a-url", url.Values{}, 0, 0, 10)
 		if err == nil {
-			t.Fatal("nextPageURL() expected an error for an invalid URL, got nil")
+			t.Fatal("NextPageURL() expected an error for an invalid URL, got nil")
 		}
 	})
 }

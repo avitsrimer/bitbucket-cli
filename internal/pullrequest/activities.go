@@ -167,6 +167,11 @@ func activityPageLengthAndLimit(cmd *cobra.Command, defaultPageLength int) (page
 // this function stops on, so filterUnknownActivityKinds (run once, by the caller, on the returned
 // slice) still sees -- and warns about -- every unknown-kind entry actually fetched, deduped across
 // every page instead of per page.
+//
+// Page-2+ requests go through profile.NextPageURL, the same invariant profile.GetAll itself uses,
+// instead of assigning paginated.Next verbatim: that re-adds any original query parameter (uripath's
+// own q=/pagelen) BitBucket's own "next" link omits, and shrinks pagelen once known-kind activities
+// collected so far are close to limit.
 func fetchActivityPages(ctx context.Context, currentProfile *profile.Profile, uripath string, pageLength, limit int) ([]Activity, error) {
 	var activities []Activity
 	if pageLength > 0 && !strings.Contains(uripath, "pagelen") {
@@ -175,6 +180,11 @@ func fetchActivityPages(ctx context.Context, currentProfile *profile.Profile, ur
 			separator = "&"
 		}
 		uripath = fmt.Sprintf("%s%spagelen=%d", uripath, separator, pageLength)
+	}
+
+	originalQuery := url.Values{}
+	if parsed, parseErr := url.Parse(uripath); parseErr == nil {
+		originalQuery = parsed.Query()
 	}
 
 	knownCount := 0
@@ -195,7 +205,11 @@ func fetchActivityPages(ctx context.Context, currentProfile *profile.Profile, ur
 		if paginated.Next == "" {
 			return activities, nil
 		}
-		uripath = paginated.Next
+		var nextErr error
+		uripath, nextErr = profile.NextPageURL(paginated.Next, originalQuery, limit, knownCount, pageLength)
+		if nextErr != nil {
+			return nil, fmt.Errorf("cannot get activities: %w", nextErr)
+		}
 	}
 }
 

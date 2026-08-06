@@ -171,6 +171,13 @@ func TestGetRepositoryNameLogsWarnOnProfileLoadError(t *testing.T) {
 	cmd.Flags().String("repository", "", "")
 	cmd.Flags().String("profile", "bogus-profile", "")
 
+	// Point BB_CONFIG at a scratch path before warming up the config: cmd carries no --config
+	// flag, so common.Initialize's ConfigPath would otherwise fall through to the real
+	// os.UserConfigDir()/bitbucket/config-cli.yml -- the developer's actual config file -- making
+	// this test load real profiles into the profile.Profiles global and depend on that file's
+	// content (or absence) instead of running hermetically.
+	t.Setenv("BB_CONFIG", filepath.Join(t.TempDir(), "config-cli.yml"))
+
 	// Warm up common.CurrentConfig() before installing captureLog's buffer: profile.Profiles.Load
 	// (reached below via GetRepositoryName -> profile.GetProfileFromCommand) only calls
 	// common.Initialize -- which unconditionally resets the global lgr logger to os.Stderr -- when
