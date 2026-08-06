@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/avitsrimer/bitbucket-cli/internal/workspace"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -89,7 +91,7 @@ func setupTest(t *testing.T, profileName string, handler http.HandlerFunc, dryRu
 	cmd.Flags().String("role", "owner", "")
 	cmd.Flags().Int("page-length", 0, "")
 	cmd.Flags().Int("limit", 0, "")
-	cmd.Flags().String("sort", "", "")
+	cmd.Flags().String("sort", "name", "")
 	return cmd
 }
 
@@ -124,4 +126,22 @@ func captureStdout(t *testing.T, fn func()) string {
 
 	_ = w.Close()
 	return <-captured
+}
+
+// captureLog redirects the global lgr logger to a buffer for the duration of the test, with
+// [DEBUG] lines enabled, and returns that buffer. It restores whatever logger was active
+// beforehand once the test ends -- rather than a hardcoded quiet baseline -- by wrapping the
+// previous logger as a slog.Handler and forwarding every record to it, so a test run after this
+// one sees exactly the logging behavior it would have without this call. Identical to
+// testutil.CaptureLog, duplicated locally for the same import-cycle reason as the rest of this
+// file (see the comment above setupTest).
+func captureLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	previous := lgr.Default()
+	var buf bytes.Buffer
+	lgr.Setup(lgr.Out(&buf), lgr.Err(&buf), lgr.Debug)
+	t.Cleanup(func() {
+		lgr.Setup(lgr.Debug, lgr.SlogHandler(lgr.ToSlogHandler(previous)))
+	})
+	return &buf
 }

@@ -1,13 +1,17 @@
 package pullrequest
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"strings"
 	"testing"
 
+	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
+	"github.com/spf13/cobra"
 )
 
 func withListOptions(t *testing.T, mutate func()) {
@@ -179,5 +183,62 @@ func TestListProcessRespectsLimitFlag(t *testing.T) {
 	}
 	if len(pullrequests) != 1 {
 		t.Fatalf("expected exactly 1 pullrequest with --limit 1, got %d", len(pullrequests))
+	}
+}
+
+// TestListProcessSucceedsWithWorkspaceFlagWhenWorkspaceListingIsForbidden reproduces a real
+// production failure (field report FR-1): a token scoped only for read:repository+read:pullrequest
+// could not run "pullrequest list --repository X --workspace Y" at all, because --workspace's
+// root-level EnumFlag validated the value by enumerating every allowed workspace (an endpoint
+// needing read:workspace) before the command itself -- which never needed that scope, since the
+// repository is already given explicitly -- ever ran. This drives the same shape of flag (a
+// common.EnumFlag backed by an AllowedFunc that fails exactly the way an insufficient-scope 403
+// would) through cmd.Flags().Set the way pflag itself calls it while parsing the command line, then
+// runs listProcess to completion, proving the whole command succeeds despite the workspace-listing
+// endpoint being unusable.
+func TestListProcessSucceedsWithWorkspaceFlagWhenWorkspaceListingIsForbidden(t *testing.T) {
+	withListOptions(t, func() {
+		listOptions.Commit = ""
+		listOptions.Query = ""
+	})
+
+	fixture, err := os.ReadFile("../../testdata/pullrequests.json")
+	if err != nil {
+		t.Fatalf("cannot read testdata: %v", err)
+	}
+
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(fixture)
+	}, false)
+
+	var workspaceListingCalls int
+	workspaceFlag := common.NewEnumFlagWithFunc(cmd, "", func(context.Context, *cobra.Command, []string, string) ([]string, error) {
+		workspaceListingCalls++
+		return nil, errors.New("Your credentials lack one or more required privilege scopes. (required: read:workspace:bitbucket)")
+	})
+	cmd.Flags().Var(workspaceFlag, "workspace", "")
+
+	// This is exactly what pflag does while parsing "--workspace sportpursuit" on the real
+	// command line -- the failure in the field report happened here, before listProcess ever ran.
+	if err := cmd.Flags().Set("workspace", testutil.FixtureWorkspaceSlug); err != nil {
+		t.Fatalf("parsing --workspace failed even though the value was supplied explicitly: %v", err)
+	}
+	if workspaceListingCalls != 0 {
+		t.Fatalf("parsing --workspace called the workspace-listing AllowedFunc %d times, want 0", workspaceListingCalls)
+	}
+
+	stdout := testutil.CaptureStdout(t, func() {
+		if err := listProcess(cmd, nil); err != nil {
+			t.Fatalf("listProcess() error = %v (workspace-listing endpoint being forbidden must not affect a command that never needed it)", err)
+		}
+	})
+
+	var pullrequests []PullRequest
+	if err := json.Unmarshal([]byte(stdout), &pullrequests); err != nil {
+		t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
+	}
+	if len(pullrequests) != 2 {
+		t.Fatalf("expected 2 pullrequests, got %d", len(pullrequests))
 	}
 }

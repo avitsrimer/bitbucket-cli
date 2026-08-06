@@ -9,14 +9,21 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 )
 
-func TestListProcessSuccessPreservesAPIOrderWithoutSortFlag(t *testing.T) {
+// TestListProcessDefaultSortsByID proves the real command's documented default ("--sort string
+// Column to sort by (default \"id\")") actually applies when --sort is not passed: columns marks
+// "id" as its DefaultSorter, and common.SortFlagValue resolves that default from the flag itself,
+// so this must always sort ascending by uuid -- not merely preserve whatever order the API
+// happened to return. The fixture's API order (the larger uuid 22222222... first, then the
+// smaller 11111111...) is deliberately reversed from the expected sorted order, so the two orders
+// can never be confused.
+func TestListProcessDefaultSortsByID(t *testing.T) {
 	var requests []*http.Request
 	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"values":[` +
-			`{"type":"pipeline_step","uuid":"{11111111-1111-1111-1111-111111111111}","name":"b-step","run_number":2,"state":{"type":"pipeline_step_state_completed","name":"COMPLETED"},"image":{"name":"golang:1.25"},"started_on":"2026-01-01T00:00:00Z","duration_in_seconds":0},` +
-			`{"type":"pipeline_step","uuid":"{22222222-2222-2222-2222-222222222222}","name":"a-step","run_number":1,"state":{"type":"pipeline_step_state_completed","name":"COMPLETED"},"image":{"name":"golang:1.25"},"started_on":"2026-01-01T00:00:00Z","duration_in_seconds":0}` +
+			`{"type":"pipeline_step","uuid":"{22222222-2222-2222-2222-222222222222}","name":"b-step","run_number":2,"state":{"type":"pipeline_step_state_completed","name":"COMPLETED"},"image":{"name":"golang:1.25"},"started_on":"2026-01-01T00:00:00Z","duration_in_seconds":0},` +
+			`{"type":"pipeline_step","uuid":"{11111111-1111-1111-1111-111111111111}","name":"a-step","run_number":1,"state":{"type":"pipeline_step_state_completed","name":"COMPLETED"},"image":{"name":"golang:1.25"},"started_on":"2026-01-01T00:00:00Z","duration_in_seconds":0}` +
 			`]}`))
 	}, false)
 	if err := cmd.Flags().Set("pipeline", "42"); err != nil {
@@ -41,31 +48,28 @@ func TestListProcessSuccessPreservesAPIOrderWithoutSortFlag(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &steps); err != nil {
 		t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
 	}
-	if len(steps) != 2 || steps[0].Name != "b-step" || steps[1].Name != "a-step" {
-		t.Errorf("steps = %+v, want API order preserved (b-step, a-step) since --sort was not set", steps)
+	if len(steps) != 2 || steps[0].Name != "a-step" || steps[1].Name != "b-step" {
+		t.Errorf("steps = %+v, want sorted by id ascending (a-step's 11111111..., then b-step's 22222222...) by default, not the API's raw order", steps)
 	}
 }
 
-// TestListProcessSortFlagChangedSorts proves the sort-guard (rule 3): core.Sort only runs when
-// cmd's "sort" flag is Changed, never unconditionally against an untouched default. The sort value
-// exercised is "id" -- the column table's DefaultSorter -- mirroring internal/pipeline/list_test.go's
-// own TestListProcessSortFlagChangedSorts: listOptions.SortBy is a package-level *common.EnumFlag
-// bound to the real listCmd's own "sort" pflag.Value, so a standalone test cmd's separate "sort"
-// string flag (registered by setupTest) only ever flips cmd.Flag("sort").Changed to trigger the
-// guard -- the actual sort key used is always listOptions.SortBy's own value, which is why this
-// works precisely because "id" already is that default.
+// TestListProcessSortFlagChangedSorts proves --sort actually selects the comparator core.Sort
+// runs, not just the column table's DefaultSorter ("id"): the fixture's id order and name order
+// deliberately disagree (the alphabetically-later "zulu-step" carries the lexically-smaller uuid,
+// and vice versa for "alpha-step"), so sorting by the explicitly requested "name" produces a
+// different order than the default "id" sort would.
 func TestListProcessSortFlagChangedSorts(t *testing.T) {
 	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"values":[` +
-			`{"type":"pipeline_step","uuid":"{bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb}","name":"b-step","started_on":"2026-01-01T00:00:00Z"},` +
-			`{"type":"pipeline_step","uuid":"{aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa}","name":"a-step","started_on":"2026-01-01T00:00:00Z"}` +
+			`{"type":"pipeline_step","uuid":"{aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa}","name":"zulu-step","started_on":"2026-01-01T00:00:00Z"},` +
+			`{"type":"pipeline_step","uuid":"{bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb}","name":"alpha-step","started_on":"2026-01-01T00:00:00Z"}` +
 			`]}`))
 	}, false)
 	if err := cmd.Flags().Set("pipeline", "42"); err != nil {
 		t.Fatalf("cannot set pipeline flag: %v", err)
 	}
-	if err := cmd.Flags().Set("sort", "id"); err != nil {
+	if err := cmd.Flags().Set("sort", "name"); err != nil {
 		t.Fatalf("cannot set sort flag: %v", err)
 	}
 
@@ -79,12 +83,12 @@ func TestListProcessSortFlagChangedSorts(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &steps); err != nil {
 		t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
 	}
-	if len(steps) != 2 || steps[0].Name != "a-step" || steps[1].Name != "b-step" {
-		t.Errorf("steps = %+v, want sorted by id ascending (a-step, b-step) once --sort is Changed", steps)
+	if len(steps) != 2 || steps[0].Name != "alpha-step" || steps[1].Name != "zulu-step" {
+		t.Errorf("steps = %+v, want sorted by name ascending (alpha-step, zulu-step) -- the reverse of the id-ascending default order this fixture would produce", steps)
 	}
 }
 
-// TestListProcessNoResults proves rule 4: an empty list prints "No step found" on stdout, fixing
+// TestListProcessNoResults proves an empty list prints "No step found" on stdout, fixing
 // upstream's copy-paste "No comment found".
 func TestListProcessNoResults(t *testing.T) {
 	var requests []*http.Request

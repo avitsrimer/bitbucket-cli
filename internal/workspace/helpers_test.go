@@ -73,7 +73,7 @@ func setupTest(t *testing.T, profileName string, handler http.HandlerFunc, dryRu
 	cmd.Flags().String("workspace", "", "")
 	cmd.Flags().Int("page-length", 0, "")
 	cmd.Flags().Int("limit", 0, "")
-	cmd.Flags().String("sort", "", "")
+	cmd.Flags().String("sort", "name", "")
 	return cmd
 }
 

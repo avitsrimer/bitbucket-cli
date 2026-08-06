@@ -54,6 +54,64 @@ func TestDownloadProcessWritesContentToDestination(t *testing.T) {
 	}
 }
 
+// TestDownloadProcessNameWithSpecialCharacters proves the three cases that, before name was
+// escaped before reaching GetPath, either silently sent the download request to the API root
+// (a bare "%") or mistook part of the filename for a query string (a "?") -- verified empirically
+// against Go's net/url: url.URL.JoinPath treats each path element as already percent-encoded, so
+// an unescaped "%" that isn't a valid escape sequence makes its internal setPath fail; JoinPath
+// swallows that error and returns the URL essentially unmodified (no path at all), and a
+// downstream request would then hit the bare API root with an authenticated GET, downloading the
+// API index document under the artifact's intended filename with no error.
+func TestDownloadProcessNameWithSpecialCharacters(t *testing.T) {
+	tests := []struct {
+		name         string
+		artifactName string
+	}{
+		{name: "bare percent sign", artifactName: "release (100%).zip"},
+		{name: "question mark", artifactName: "a?b.zip"},
+		{name: "literal percent-two-five", artifactName: "50%25.zip"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			const content = "artifact-bytes"
+			destDir := t.TempDir()
+
+			var requests []*http.Request
+			cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+				requests = append(requests, r)
+				_, _ = w.Write([]byte(content))
+			}, false)
+			if err := cmd.Flags().Set("destination", destDir); err != nil {
+				t.Fatalf("cannot set destination flag: %v", err)
+			}
+
+			if err := downloadProcess(cmd, []string{tt.artifactName}); err != nil {
+				t.Fatalf("downloadProcess() error = %v", err)
+			}
+
+			if len(requests) != 1 {
+				t.Fatalf("expected exactly 1 request, got %d", len(requests))
+			}
+			wantPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/downloads/" + tt.artifactName
+			if requests[0].URL.Path != wantPath {
+				t.Errorf("request path = %q, want %q (the request must never silently target the API root)", requests[0].URL.Path, wantPath)
+			}
+			if requests[0].URL.Path == "" || requests[0].URL.Path == "/" {
+				t.Fatalf("request path = %q, silently hit the API root instead of the downloads endpoint", requests[0].URL.Path)
+			}
+
+			data, err := os.ReadFile(filepath.Join(destDir, filepath.Base(tt.artifactName)))
+			if err != nil {
+				t.Fatalf("cannot read downloaded file: %v", err)
+			}
+			if string(data) != content {
+				t.Errorf("downloaded content = %q, want %q", string(data), content)
+			}
+		})
+	}
+}
+
 // TestDownloadProcessDefaultDestinationIsCurrentDirectory proves the documented default: an unset
 // --destination writes into the current directory, not some other implicit location.
 func TestDownloadProcessDefaultDestinationIsCurrentDirectory(t *testing.T) {
@@ -223,6 +281,154 @@ func TestDownloadProcessAPIErrorLeavesNoStrayFile(t *testing.T) {
 	}
 }
 
+// TestDownloadProcessMissingDestinationErrors proves the documented behavior: "the destination
+// directory itself is never created and must already exist". Passing a --destination that
+// doesn't exist must surface an error (from the underlying os.CreateTemp), not silently succeed
+// or panic.
+func TestDownloadProcessMissingDestinationErrors(t *testing.T) {
+	missingDir := filepath.Join(t.TempDir(), "does-not-exist")
+	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("content"))
+	}, false)
+	if err := cmd.Flags().Set("destination", missingDir); err != nil {
+		t.Fatalf("cannot set destination flag: %v", err)
+	}
+
+	err := downloadProcess(cmd, []string{"build.log"})
+	if err == nil {
+		t.Fatal("downloadProcess() expected an error for a missing destination directory, got nil")
+	}
+	if _, statErr := os.Stat(missingDir); statErr == nil {
+		t.Error("downloadProcess() created the destination directory, want it to require the directory already exist")
+	}
+}
+
+// TestDownloadProcessOverwritesExistingFile proves the documented overwrite behavior: a name that
+// already exists at the destination is replaced with the newly downloaded content.
+func TestDownloadProcessOverwritesExistingFile(t *testing.T) {
+	destDir := t.TempDir()
+	destPath := filepath.Join(destDir, "build.log")
+	if err := os.WriteFile(destPath, []byte("stale content"), 0o644); err != nil {
+		t.Fatalf("cannot seed existing destination file: %v", err)
+	}
+
+	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("fresh content"))
+	}, false)
+	if err := cmd.Flags().Set("destination", destDir); err != nil {
+		t.Fatalf("cannot set destination flag: %v", err)
+	}
+
+	if err := downloadProcess(cmd, []string{"build.log"}); err != nil {
+		t.Fatalf("downloadProcess() error = %v", err)
+	}
+
+	data, err := os.ReadFile(destPath)
+	if err != nil {
+		t.Fatalf("cannot read downloaded file: %v", err)
+	}
+	if string(data) != "fresh content" {
+		t.Errorf("downloaded content = %q, want %q (overwritten)", string(data), "fresh content")
+	}
+}
+
+// TestDownloadOneOverwritePreservesExistingMode proves downloaded artifacts no longer silently
+// downgrade an existing destination file's mode to os.CreateTemp's owner-only 0600: overwriting a
+// 0644 file must leave it 0644.
+func TestDownloadOneOverwritePreservesExistingMode(t *testing.T) {
+	destDir := t.TempDir()
+	destPath := filepath.Join(destDir, "build.log")
+	if err := os.WriteFile(destPath, []byte("stale"), 0o644); err != nil {
+		t.Fatalf("cannot seed existing destination file: %v", err)
+	}
+
+	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("fresh"))
+	}, false)
+	if err := cmd.Flags().Set("destination", destDir); err != nil {
+		t.Fatalf("cannot set destination flag: %v", err)
+	}
+
+	if err := downloadProcess(cmd, []string{"build.log"}); err != nil {
+		t.Fatalf("downloadProcess() error = %v", err)
+	}
+
+	info, err := os.Stat(destPath)
+	if err != nil {
+		t.Fatalf("cannot stat downloaded file: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o644 {
+		t.Errorf("mode after overwrite = %v, want the pre-existing file's mode (0644) preserved, not os.CreateTemp's 0600", got)
+	}
+}
+
+// TestDownloadOneNewFileIsNotOwnerOnlyMode proves a newly downloaded artifact (no pre-existing
+// file at the destination) does not keep os.CreateTemp's owner-only 0600: it should land at the
+// normal 0666-minus-umask a fresh file would otherwise get.
+func TestDownloadOneNewFileIsNotOwnerOnlyMode(t *testing.T) {
+	destDir := t.TempDir()
+	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("content"))
+	}, false)
+	if err := cmd.Flags().Set("destination", destDir); err != nil {
+		t.Fatalf("cannot set destination flag: %v", err)
+	}
+
+	if err := downloadProcess(cmd, []string{"build.log"}); err != nil {
+		t.Fatalf("downloadProcess() error = %v", err)
+	}
+
+	info, err := os.Stat(filepath.Join(destDir, "build.log"))
+	if err != nil {
+		t.Fatalf("cannot stat downloaded file: %v", err)
+	}
+	if got := info.Mode().Perm(); got == 0o600 {
+		t.Errorf("mode = %v, want a normal (umask-adjusted) file mode, not os.CreateTemp's owner-only 0600", got)
+	}
+}
+
+// TestDownloadProcessFailureNeverCorruptsExistingFile proves the whole point of the temp-file +
+// rename design stated in download.go's own doc comment: a failing download must never corrupt a
+// file already at that destination, since the destination path is only ever touched by the final
+// rename, which never runs when the download itself failed.
+func TestDownloadProcessFailureNeverCorruptsExistingFile(t *testing.T) {
+	destDir := t.TempDir()
+	destPath := filepath.Join(destDir, "build.log")
+	const originalContent = "untouched original content"
+	if err := os.WriteFile(destPath, []byte(originalContent), 0o644); err != nil {
+		t.Fatalf("cannot seed existing destination file: %v", err)
+	}
+
+	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"message":"server exploded"}}`))
+	}, false)
+	if err := cmd.Flags().Set("destination", destDir); err != nil {
+		t.Fatalf("cannot set destination flag: %v", err)
+	}
+
+	if err := downloadProcess(cmd, []string{"build.log"}); err == nil {
+		t.Fatal("downloadProcess() expected an error, got nil")
+	}
+
+	data, err := os.ReadFile(destPath)
+	if err != nil {
+		t.Fatalf("cannot read destination file after failed download: %v", err)
+	}
+	if string(data) != originalContent {
+		t.Errorf("destination file content = %q after a failed download, want the original %q untouched", string(data), originalContent)
+	}
+
+	entries, err := os.ReadDir(destDir)
+	if err != nil {
+		t.Fatalf("cannot read destination directory: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("destination directory has %d entries after a failed download, want exactly 1 (no stray temp file)", len(entries))
+	}
+}
+
 func TestDownloadProcessDryRun(t *testing.T) {
 	destDir := t.TempDir()
 	var requestCount int
@@ -312,10 +518,18 @@ func TestDownloadProcessWarnOnErrorProcessesAllNames(t *testing.T) {
 }
 
 // TestDownloadProcessIgnoreErrorsSucceedsSilently proves the --ignore-errors branch: a failing
-// name is swallowed entirely (no stderr output required, nil error returned).
+// name is swallowed entirely (nil error returned, nothing on stderr), and processing continues to
+// the remaining names rather than stopping at the first failure -- contrast the StopOnError test,
+// which stops after exactly 1 request.
 func TestDownloadProcessIgnoreErrorsSucceedsSilently(t *testing.T) {
 	destDir := t.TempDir()
-	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
+	var requestPaths []string
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		requestPaths = append(requestPaths, r.URL.Path)
+		if strings.HasSuffix(r.URL.Path, "good.log") {
+			_, _ = w.Write([]byte("ok"))
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`{"type":"error","error":{"message":"not found"}}`))
@@ -327,7 +541,53 @@ func TestDownloadProcessIgnoreErrorsSucceedsSilently(t *testing.T) {
 		t.Fatalf("cannot set ignore-errors flag: %v", err)
 	}
 
-	if err := downloadProcess(cmd, []string{"bad.log"}); err != nil {
-		t.Fatalf("downloadProcess() with --ignore-errors should not return an error, got %v", err)
+	stderr := testutil.CaptureStderr(t, func() {
+		if err := downloadProcess(cmd, []string{"bad.log", "good.log"}); err != nil {
+			t.Fatalf("downloadProcess() with --ignore-errors should not return an error, got %v", err)
+		}
+	})
+
+	if len(requestPaths) != 2 {
+		t.Fatalf("expected both names to be attempted despite the first failing, got %d requests: %v", len(requestPaths), requestPaths)
+	}
+	if stderr != "" {
+		t.Errorf("stderr = %q, want no output under --ignore-errors", stderr)
+	}
+	if _, err := os.Stat(filepath.Join(destDir, "good.log")); err != nil {
+		t.Errorf("expected good.log to have been downloaded despite bad.log failing: %v", err)
+	}
+}
+
+// TestDownloadProcessIgnoreErrorsOnFullSuccessNeverLogsNilJoin is the regression test for the
+// nil-join defect: with --ignore-errors set and every download succeeding, errs is empty and
+// errors.Join(errs...) is nil. The buggy shape of this code logged the [WARN] "ignoring errors"
+// line unconditionally once ShouldIgnoreErrors was true, formatting that nil error as the literal
+// string "%!s(<nil>)" -- a warning about nothing, printed on every single successful
+// --ignore-errors run. common.TolerateErrors (and, before that fix, an explicit `if joined ==
+// nil` guard) must return before ever reaching that log line.
+func TestDownloadProcessIgnoreErrorsOnFullSuccessNeverLogsNilJoin(t *testing.T) {
+	destDir := t.TempDir()
+	logBuf := testutil.CaptureLog(t)
+
+	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}, false)
+	if err := cmd.Flags().Set("destination", destDir); err != nil {
+		t.Fatalf("cannot set destination flag: %v", err)
+	}
+	if err := cmd.Flags().Set("ignore-errors", "true"); err != nil {
+		t.Fatalf("cannot set ignore-errors flag: %v", err)
+	}
+
+	if err := downloadProcess(cmd, []string{"good.log"}); err != nil {
+		t.Fatalf("downloadProcess() error = %v", err)
+	}
+
+	logged := logBuf.String()
+	if strings.Contains(logged, "<nil>") {
+		t.Errorf("log output = %q, want no nil-formatted warning when every download succeeded", logged)
+	}
+	if strings.Contains(logged, "ignoring errors") {
+		t.Errorf("log output = %q, want no \"ignoring errors\" warning when there was nothing to ignore", logged)
 	}
 }

@@ -147,7 +147,10 @@ func TestGetCommitByHashSuccess(t *testing.T) {
 	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"type":"commit","hash":"` + hash + `","date":"2026-01-01T00:00:00+00:00"}`))
+		// The real Bitbucket "commits/{revision}" endpoint returns a list-shaped body even
+		// though its documentation implies a single object; the fixture reproduces that so this
+		// test proves GetCommitByHash unwraps values[0] rather than decoding the page itself.
+		_, _ = w.Write([]byte(`{"values":[{"type":"commit","hash":"` + hash + `","date":"2026-01-01T00:00:00+00:00"}]}`))
 	}, false)
 
 	target, err := GetCommitByHash(t.Context(), cmd, hash)
@@ -157,9 +160,27 @@ func TestGetCommitByHashSuccess(t *testing.T) {
 	if target.Hash != hash {
 		t.Errorf("GetCommitByHash().Hash = %q, want %q", target.Hash, hash)
 	}
-	wantPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/commit/" + hash
+	wantPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/commits/" + hash
 	if len(requests) != 1 || requests[0].URL.Path != wantPath {
 		t.Errorf("request path = %v, want exactly one request to %s", requests, wantPath)
+	}
+}
+
+func TestGetCommitByHashEmptyValuesErrors(t *testing.T) {
+	// A commit endpoint that returns a well-formed but empty page must not silently produce an
+	// all-zero Commit with no error -- this is exactly the failure mode the singular
+	// "commit/{revision}" endpoint has (see the doc comment on GetCommitByHash).
+	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[]}`))
+	}, false)
+
+	_, err := GetCommitByHash(t.Context(), cmd, "deadbeef")
+	if err == nil {
+		t.Fatal("GetCommitByHash() expected an error for an empty values page, got nil")
+	}
+	if !strings.Contains(err.Error(), "deadbeef") {
+		t.Errorf("error = %q, want it to mention the requested hash", err.Error())
 	}
 }
 

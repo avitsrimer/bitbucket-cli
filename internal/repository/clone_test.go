@@ -1,10 +1,9 @@
 package repository
 
 import (
-	"bytes"
-	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,7 +11,6 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/avitsrimer/bitbucket-cli/internal/workspace"
-	"github.com/go-pkgz/lgr"
 )
 
 // setCloneProtocolForTest overrides the package-level cloneOptions.Protocol.Value (the real
@@ -193,9 +191,135 @@ func TestCloneProcessSetsGitSSHCommandWhenKeyFileConfigured(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot read GIT_SSH_COMMAND capture file: %v", err)
 	}
-	want := "ssh -i " + keyFile
+	want := "ssh -i " + shellQuoteSingle(keyFile)
 	if string(got) != want {
 		t.Errorf("GIT_SSH_COMMAND = %q, want %q", string(got), want)
+	}
+}
+
+// verifyGitSSHCommandSurvivesShell takes the GIT_SSH_COMMAND value cloneProcess constructed
+// (captured via setupGitShim's ssh file) and feeds it through an actual /bin/sh, the same way
+// git itself interprets GIT_SSH_COMMAND (as a shell command line, not an argv vector, per
+// git-config(1)). It fails the test unless the shell parses it into exactly one "ssh", one "-i",
+// and one path argument equal to keyFile — proving the value survived shell re-parsing intact.
+// This is what actually distinguishes the quoted fix from the unquoted regression: capturing the
+// raw string (as the other clone tests do) cannot, since env vars are never shell-parsed when set.
+func verifyGitSSHCommandSurvivesShell(t *testing.T, sshFile, keyFile string) {
+	t.Helper()
+
+	captured, err := os.ReadFile(sshFile)
+	if err != nil {
+		t.Fatalf("cannot read GIT_SSH_COMMAND capture file: %v", err)
+	}
+
+	sshShimDir := t.TempDir()
+	sshArgvFile := filepath.Join(t.TempDir(), "ssh-argv")
+	sshMarkerFile := filepath.Join(t.TempDir(), "injection-marker")
+	sshShimScript := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + shellQuoteSingle(sshArgvFile) + "\n"
+	if writeErr := os.WriteFile(filepath.Join(sshShimDir, "ssh"), []byte(sshShimScript), 0o755); writeErr != nil {
+		t.Fatalf("cannot write ssh shim: %v", writeErr)
+	}
+	if writeErr := os.WriteFile(filepath.Join(sshShimDir, "touch"), []byte("#!/bin/sh\n: > "+shellQuoteSingle(sshMarkerFile)+"\n"), 0o755); writeErr != nil {
+		t.Fatalf("cannot write touch shim: %v", writeErr)
+	}
+
+	// git invokes GIT_SSH_COMMAND as a shell command line, appending the ssh host/remote-command
+	// arguments; reproduce that here without going through git itself.
+	shCmd := exec.Command("sh", "-c", string(captured)+" fakehost true")
+	shCmd.Env = append(os.Environ(), "PATH="+sshShimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if out, runErr := shCmd.CombinedOutput(); runErr != nil {
+		t.Fatalf("sh -c %q failed: %v (output: %s)", string(captured), runErr, out)
+	}
+
+	if _, statErr := os.Stat(sshMarkerFile); statErr == nil {
+		t.Fatal("shell command injection: a semicolon in the key path ran a second command")
+	}
+
+	argv, err := os.ReadFile(sshArgvFile)
+	if err != nil {
+		t.Fatalf("ssh was never invoked by the shell (cannot read its argv capture): %v", err)
+	}
+	gotArgv := strings.Split(strings.TrimSuffix(string(argv), "\n"), "\n")
+	wantArgv := []string{"-i", keyFile, "fakehost", "true"}
+	if !slicesEqual(gotArgv, wantArgv) {
+		t.Errorf("ssh argv after shell re-parsing = %q, want %q (key path was split or otherwise mangled)", gotArgv, wantArgv)
+	}
+}
+
+func TestCloneProcessSetsGitSSHCommandWithSpaceInKeyPath(t *testing.T) {
+	const slug = "clone-ssh-key-space"
+	const keyFile = "/home/tester/My Keys/id_ed25519"
+
+	_, sshFile := setupGitShim(t)
+	cmd := setupTest(t, "repository-clone-ssh-key-space", failIfCalled(t), false)
+	primeRepositoryForClone(t, slug)
+	setCloneProtocolForTest(t, "ssh")
+	setCloneSSHKeyFileForTest(t, keyFile)
+
+	if err := cloneProcess(cmd, []string{slug}); err != nil {
+		t.Fatalf("cloneProcess() error = %v", err)
+	}
+
+	verifyGitSSHCommandSurvivesShell(t, sshFile, keyFile)
+}
+
+func TestCloneProcessSetsGitSSHCommandWithSemicolonInKeyPath(t *testing.T) {
+	const slug = "clone-ssh-key-semicolon"
+	// a key path containing ';' would, if interpolated unquoted into a string handed to /bin/sh,
+	// let an attacker-controlled config value run an arbitrary second command.
+	const keyFile = "/tmp/pwned;touch /tmp/clone-ssh-injection-marker"
+
+	_, sshFile := setupGitShim(t)
+	cmd := setupTest(t, "repository-clone-ssh-key-semicolon", failIfCalled(t), false)
+	primeRepositoryForClone(t, slug)
+	setCloneProtocolForTest(t, "ssh")
+	setCloneSSHKeyFileForTest(t, keyFile)
+
+	if err := cloneProcess(cmd, []string{slug}); err != nil {
+		t.Fatalf("cloneProcess() error = %v", err)
+	}
+
+	verifyGitSSHCommandSurvivesShell(t, sshFile, keyFile)
+}
+
+func TestCloneProcessNoGitSSHCommandForHTTPS(t *testing.T) {
+	const slug = "clone-https-no-ssh-command"
+	const keyFile = "/home/tester/.ssh/id_ed25519"
+
+	_, sshFile := setupGitShim(t)
+	cmd := setupTest(t, "repository-clone-https-no-ssh-command", failIfCalled(t), false)
+	primeRepositoryForClone(t, slug)
+	setCloneProtocolForTest(t, "https")
+	setCloneSSHKeyFileForTest(t, keyFile)
+
+	if err := cloneProcess(cmd, []string{slug}); err != nil {
+		t.Fatalf("cloneProcess() error = %v", err)
+	}
+
+	if _, err := os.Stat(sshFile); err == nil {
+		t.Error("GIT_SSH_COMMAND capture file exists, want it absent for --protocol https")
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("unexpected error checking ssh capture file: %v", err)
+	}
+}
+
+func TestCloneProcessDestinationTrimsGitSuffix(t *testing.T) {
+	const slug = "clone-destination-trim.git"
+	const wantDestination = "clone-destination-trim"
+
+	argvFile, _ := setupGitShim(t)
+	cmd := setupTest(t, "repository-clone-destination-trim", failIfCalled(t), false)
+	primeRepositoryForClone(t, slug)
+	setCloneProtocolForTest(t, "")
+
+	if err := cloneProcess(cmd, []string{slug}); err != nil {
+		t.Fatalf("cloneProcess() error = %v", err)
+	}
+
+	gotArgv := readLines(t, argvFile)
+	wantArgv := []string{"clone", "git@bitbucket.org:" + testWorkspaceSlug + "/" + slug + ".git", wantDestination}
+	if !slicesEqual(gotArgv, wantArgv) {
+		t.Errorf("git argv = %q, want %q", gotArgv, wantArgv)
 	}
 }
 
@@ -241,8 +365,12 @@ func TestCloneProcessDryRunDoesNotInvokeGit(t *testing.T) {
 	const slug = "clone-dry-run"
 
 	binDir := t.TempDir()
-	// deliberately no git binary written into binDir: any exec("git", ...) attempt fails the test.
-	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	argvFile := filepath.Join(t.TempDir(), "argv")
+	t.Setenv("GIT_SHIM_ARGV_FILE", argvFile)
+	// deliberately no git binary written into binDir, and PATH set to binDir ONLY (not appended
+	// to the real PATH): system git must not be resolvable, so any exec("git", ...) attempt fails
+	// with "executable file not found" rather than silently succeeding against the real binary.
+	t.Setenv("PATH", binDir)
 
 	cmd := setupTest(t, "repository-clone-dry-run", failIfCalled(t), true)
 	primeRepositoryForClone(t, slug)
@@ -251,15 +379,19 @@ func TestCloneProcessDryRunDoesNotInvokeGit(t *testing.T) {
 	if err := cloneProcess(cmd, []string{slug}); err != nil {
 		t.Fatalf("cloneProcess() error = %v", err)
 	}
+
+	if _, err := os.Stat(argvFile); err == nil {
+		t.Error("git argv capture file exists, want git to never have been invoked in dry-run mode")
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("unexpected error checking argv capture file: %v", err)
+	}
 }
 
 func TestCloneProcessNeverLogsUserinfo(t *testing.T) {
 	const slug = "clone-userinfo"
 	const cloneUser = "sekret-clone-user"
 
-	var logBuf bytes.Buffer
-	lgr.Setup(lgr.Out(&logBuf), lgr.Err(&logBuf), lgr.Debug)
-	t.Cleanup(func() { lgr.Setup(lgr.Out(io.Discard), lgr.Err(io.Discard)) })
+	logBuf := captureLog(t)
 
 	setupGitShim(t)
 	cmd := setupTest(t, "repository-clone-userinfo", failIfCalled(t), false)
@@ -307,15 +439,47 @@ func TestResolveProtocol(t *testing.T) {
 		flagValue       string
 		profileProtocol string
 		want            string
+		wantErr         bool
 	}{
 		{name: "flag set wins", flagValue: "https", profileProtocol: "ssh", want: "https"},
 		{name: "profile wins when flag unset", flagValue: "", profileProtocol: "ssh", want: "ssh"},
 		{name: "default when neither set", flagValue: "", profileProtocol: "", want: "git"},
+		{name: "flag set wins even over an invalid profile value", flagValue: "https", profileProtocol: "bogus", want: "https"},
+		{name: "invalid profile value is rejected", flagValue: "", profileProtocol: "http", wantErr: true},
+		{name: "typo'd profile value is rejected", flagValue: "", profileProtocol: "gti", wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := resolveProtocol(tt.flagValue, tt.profileProtocol); got != tt.want {
+			got, err := resolveProtocol(tt.flagValue, tt.profileProtocol)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("resolveProtocol(%q, %q) expected an error, got nil", tt.flagValue, tt.profileProtocol)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveProtocol(%q, %q) unexpected error: %v", tt.flagValue, tt.profileProtocol, err)
+			}
+			if got != tt.want {
 				t.Errorf("resolveProtocol(%q, %q) = %q, want %q", tt.flagValue, tt.profileProtocol, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestShellQuoteSingle(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "plain", in: "id_ed25519", want: "'id_ed25519'"},
+		{name: "embedded single quote", in: "it's-a-key", want: `'it'\''s-a-key'`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shellQuoteSingle(tt.in); got != tt.want {
+				t.Errorf("shellQuoteSingle(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
 	}

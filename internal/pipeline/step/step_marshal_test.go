@@ -139,6 +139,26 @@ func TestStepMarshalOmitsCompletedOnWhenZero(t *testing.T) {
 	}
 }
 
+// TestStepMarshalOmitsStartedOnWhenZero proves a not-yet-started step (zero StartedOn, e.g. a
+// PENDING step) omits the key entirely on marshal too, rather than emitting the zero time.Time's
+// "0001-01-01T00:00:00Z" -- the same defect CompletedOn was already guarded against, but StartedOn
+// was not.
+func TestStepMarshalOmitsStartedOnWhenZero(t *testing.T) {
+	target := Step{Name: "pending"}
+
+	data, err := json.Marshal(target)
+	if err != nil {
+		t.Fatalf("cannot marshal step: %v", err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("cannot unmarshal marshaled step: %v", err)
+	}
+	if _, present := raw["started_on"]; present {
+		t.Errorf("marshaled step carries a \"started_on\" key %v for a zero StartedOn, want it absent", raw["started_on"])
+	}
+}
+
 // TestStepUnmarshalRejectsWrongType proves UnmarshalJSON validates the "type" discriminator.
 func TestStepUnmarshalRejectsWrongType(t *testing.T) {
 	var target Step

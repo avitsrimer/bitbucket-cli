@@ -9,7 +9,14 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 )
 
-func TestListProcessSuccessPreservesAPIOrderWithoutSortFlag(t *testing.T) {
+// TestListProcessDefaultSortsByBuildNumber proves the real command's documented default
+// ("--sort string   Column to sort by (default \"build_number\")") actually applies when --sort
+// is not passed: columns marks "build_number" as its DefaultSorter, and common.SortFlagValue
+// resolves that default from the flag itself, so this must always sort ascending by build number
+// -- not merely preserve whatever order the API happened to return. The fixture's API order (9,
+// then 3) is deliberately reversed from the expected sorted order, so the two orders can never be
+// confused.
+func TestListProcessDefaultSortsByBuildNumber(t *testing.T) {
 	var requests []*http.Request
 	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r)
@@ -41,13 +48,16 @@ func TestListProcessSuccessPreservesAPIOrderWithoutSortFlag(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &pipelines); err != nil {
 		t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
 	}
-	if len(pipelines) != 2 || pipelines[0].BuildNumber != 9 || pipelines[1].BuildNumber != 3 {
-		t.Errorf("pipelines = %+v, want API order preserved (9, 3) since --sort was not set", pipelines)
+	if len(pipelines) != 2 || pipelines[0].BuildNumber != 3 || pipelines[1].BuildNumber != 9 {
+		t.Errorf("pipelines = %+v, want sorted by build_number ascending (3, 9) by default, not the API's raw order (9, 3)", pipelines)
 	}
 }
 
-// TestListProcessSortFlagChangedSorts proves the sort-guard (rule 3): core.Sort only runs when
-// cmd's "sort" flag is Changed, never unconditionally against an untouched default.
+// TestListProcessSortFlagChangedSorts proves --sort actually selects the comparator
+// core.Sort runs: reading it via common.SortFlagValue(cmd) (cmd's own --sort flag, not a
+// package-level SortBy.Value binding that is only ever populated on the real command) means
+// the process sorts identically whether cmd is the real command or, as here, a standalone
+// test command carrying its own --sort flag.
 func TestListProcessSortFlagChangedSorts(t *testing.T) {
 	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

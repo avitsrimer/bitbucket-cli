@@ -171,9 +171,9 @@ func GetWorkspaceBySlugOrID(ctx context.Context, cmd *cobra.Command, slugOrID st
 }
 
 // GetMembers gets the members of the workspace
-func (workspace Workspace) GetMembers(context context.Context, cmd *cobra.Command) (members []Member, err error) {
+func (workspace Workspace) GetMembers(ctx context.Context, cmd *cobra.Command) (members []Member, err error) {
 	members, err = profile.GetAll[Member](
-		cmd.Context(),
+		ctx,
 		cmd,
 		fmt.Sprintf("/workspaces/%s/members", workspace.Slug),
 	)

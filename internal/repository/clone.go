@@ -68,12 +68,15 @@ func cloneProcess(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	destination := target.Slug
+	destination := strings.TrimSuffix(target.Slug, ".git")
 	if len(args) > 1 {
 		destination = args[1]
 	}
 
-	protocol := resolveProtocol(cloneOptions.Protocol.Value, currentProfile.CloneProtocol)
+	protocol, err := resolveProtocol(cloneOptions.Protocol.Value, currentProfile.CloneProtocol)
+	if err != nil {
+		return err
+	}
 
 	lgr.Printf("[DEBUG] cloning %s/%s (protocol=%s) to %s", workspaceSlug, target.Slug, protocol, destination)
 	if !common.WhatIf(cmd, "cloning %s/%s to %s", workspaceSlug, target.Slug, destination) {
@@ -87,9 +90,14 @@ func cloneProcess(cmd *cobra.Command, args []string) error {
 	gitCmd.Stdout = os.Stdout
 	gitCmd.Stderr = os.Stderr
 
-	if sshKeyFilename := resolveSSHKeyFilename(cloneOptions.SSHKeyFilename, currentProfile.SshKeyFilename); sshKeyFilename != "" {
+	// GIT_SSH_COMMAND is only meaningful for the git/ssh protocols: git never shells out over ssh
+	// for an https remote, and setting it unconditionally would be misleading (and, per the
+	// README, is documented as applying to git/ssh only).
+	if sshKeyFilename := resolveSSHKeyFilename(cloneOptions.SSHKeyFilename, currentProfile.SshKeyFilename); sshKeyFilename != "" && protocol != "https" {
 		lgr.Printf("[DEBUG] using ssh key file %s", sshKeyFilename)
-		gitCmd.Env = append(os.Environ(), "GIT_SSH_COMMAND=ssh -i "+sshKeyFilename)
+		// git passes GIT_SSH_COMMAND to /bin/sh, not an argv vector, so the key path must be
+		// single-quoted and escaped here even though gitCmd's own argv above needs no quoting.
+		gitCmd.Env = append(os.Environ(), "GIT_SSH_COMMAND=ssh -i "+shellQuoteSingle(sshKeyFilename))
 	}
 
 	if err := gitCmd.Run(); err != nil {
@@ -112,15 +120,28 @@ func repositoryWorkspaceSlug(repository *Repository) (string, error) {
 }
 
 // resolveProtocol resolves the clone protocol using --protocol, then profile.CloneProtocol, then
-// "git" as the final default.
-func resolveProtocol(flagValue, profileProtocol string) string {
+// "git" as the final default. profileProtocol is validated against the same three values as
+// --protocol: an unrecognized value (e.g. a typo, or "http") is rejected rather than silently
+// falling through buildCloneURL's default "git" arm.
+func resolveProtocol(flagValue, profileProtocol string) (string, error) {
 	if flagValue != "" {
-		return flagValue
+		return flagValue, nil
 	}
 	if profileProtocol != "" {
-		return profileProtocol
+		switch profileProtocol {
+		case "git", "https", "ssh":
+			return profileProtocol, nil
+		default:
+			return "", fmt.Errorf("invalid clone-protocol %q in profile, expected one of: git, https, ssh", profileProtocol)
+		}
 	}
-	return "git"
+	return "git", nil
+}
+
+// shellQuoteSingle single-quotes s for safe inclusion in a string passed to /bin/sh (as
+// GIT_SSH_COMMAND is), escaping any embedded single quotes.
+func shellQuoteSingle(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // resolveSSHKeyFilename resolves the SSH private key file using --ssh-key-file, then

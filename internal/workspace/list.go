@@ -25,7 +25,7 @@ var listOptions struct {
 func init() {
 	Command.AddCommand(listCmd)
 
-	listOptions.Columns, listOptions.SortBy = registerListFlags(listCmd, columns, "workspaces")
+	listOptions.Columns, listOptions.SortBy = common.RegisterListFlags(listCmd, columns, "workspaces")
 }
 
 func listProcess(cmd *cobra.Command, args []string) error {
@@ -42,8 +42,8 @@ func listProcess(cmd *cobra.Command, args []string) error {
 		fmt.Println("No workspace found")
 		return nil
 	}
-	if sortFlag := cmd.Flag("sort"); sortFlag != nil && sortFlag.Changed {
-		core.Sort(workspaces, columns.SortBy(listOptions.SortBy.Value))
+	if sortValue := common.SortFlagValue(cmd); sortValue != "" {
+		core.Sort(workspaces, columns.SortBy(sortValue))
 	}
 	if err := profile.Current.Print(cmd.Context(), cmd, Workspaces(workspaces)); err != nil {
 		return fmt.Errorf("cannot print result: %w", err)

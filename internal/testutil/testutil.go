@@ -1,9 +1,19 @@
 // Package testutil provides the test-harness helpers shared by every package that spins up an
-// httptest server, primes the workspace/repository/user caches, or captures os.Stdout: the
-// pullrequest command tree (and its comment/task/common subpackages) and the user package.
+// httptest server, primes the workspace/repository/user caches, captures os.Stdout/os.Stderr, or
+// captures the global lgr logger. Because this package itself imports internal/repository,
+// internal/user, and internal/workspace, only packages *outside* that trio (and outside anything
+// they import) can import it without a cycle -- currently the pullrequest command tree and its
+// comment/task/common subpackages, the user package, and the restored artifact, branch, commit,
+// pipeline, pipeline/step, and pipeline/common packages. internal/repository and
+// internal/workspace's own tests, which cannot import it, instead duplicate the specific helpers
+// they need in a local helpers_test.go (e.g. internal/repository/helpers_test.go); their external
+// (package foo_test) test files can still import it, since only the internal (package foo) test
+// files sit inside the cycle -- see internal/workspace/allowed_slugs_test.go for that escape
+// hatch in use.
 package testutil
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -18,6 +28,7 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
 	"github.com/avitsrimer/bitbucket-cli/internal/workspace"
+	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -146,6 +157,23 @@ func CaptureStdout(t *testing.T, fn func()) string {
 func CaptureStderr(t *testing.T, fn func()) string {
 	t.Helper()
 	return captureStream(t, &os.Stderr, fn)
+}
+
+// CaptureLog redirects the global lgr logger to a buffer for the duration of the test, with
+// [DEBUG] lines enabled, and returns that buffer. It restores whatever logger was active
+// beforehand once the test ends -- rather than a hardcoded quiet baseline -- by wrapping the
+// previous logger as a slog.Handler and forwarding every record to it: that previous logger's own
+// Logf decides for itself whether a DEBUG line was really enabled, so a test run after this one
+// sees exactly the logging behavior it would have without this call, whatever that was.
+func CaptureLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	previous := lgr.Default()
+	var buf bytes.Buffer
+	lgr.Setup(lgr.Out(&buf), lgr.Err(&buf), lgr.Debug)
+	t.Cleanup(func() {
+		lgr.Setup(lgr.Debug, lgr.SlogHandler(lgr.ToSlogHandler(previous)))
+	})
+	return &buf
 }
 
 // captureStream redirects *stream (os.Stdout or os.Stderr) for the duration of fn and returns

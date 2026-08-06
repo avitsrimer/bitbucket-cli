@@ -9,7 +9,13 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 )
 
-func TestListProcessSuccessPreservesAPIOrderWithoutSortFlag(t *testing.T) {
+// TestListProcessDefaultSortsByName proves the real command's documented default ("--sort string
+// Column to sort by (default \"name\")") actually applies when --sort is not passed: columns
+// marks "name" as its DefaultSorter, and common.SortFlagValue resolves that default from the flag
+// itself, so this must always sort ascending by name -- not merely preserve whatever order the
+// API happened to return. The fixture's API order (zeta.log, then alpha.log) is deliberately
+// reversed from the expected sorted order, so the two orders can never be confused.
+func TestListProcessDefaultSortsByName(t *testing.T) {
 	var requests []*http.Request
 	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r)
@@ -38,13 +44,16 @@ func TestListProcessSuccessPreservesAPIOrderWithoutSortFlag(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &artifacts); err != nil {
 		t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
 	}
-	if len(artifacts) != 2 || artifacts[0].Name != "zeta.log" || artifacts[1].Name != "alpha.log" {
-		t.Errorf("artifacts = %+v, want API order preserved (zeta.log, alpha.log) since --sort was not set", artifacts)
+	if len(artifacts) != 2 || artifacts[0].Name != "alpha.log" || artifacts[1].Name != "zeta.log" {
+		t.Errorf("artifacts = %+v, want sorted by name ascending (alpha.log, zeta.log) by default, not the API's raw order (zeta.log, alpha.log)", artifacts)
 	}
 }
 
-// TestListProcessSortFlagChangedSorts proves the sort-guard (rule 3): core.Sort only runs when
-// cmd's "sort" flag is Changed, never unconditionally against an untouched default.
+// TestListProcessSortFlagChangedSorts proves --sort actually selects the comparator
+// core.Sort runs: reading it via common.SortFlagValue(cmd) (cmd's own --sort flag, not a
+// package-level SortBy.Value binding that is only ever populated on the real command) means
+// the process sorts identically whether cmd is the real command or, as here, a standalone
+// test command carrying its own --sort flag.
 func TestListProcessSortFlagChangedSorts(t *testing.T) {
 	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -214,6 +214,10 @@ func (step Step) String() string {
 func (step Step) MarshalJSON() (data []byte, err error) {
 	type surrogate Step
 
+	var startedOn string
+	if !step.StartedOn.IsZero() {
+		startedOn = step.StartedOn.Format(common.JSONTimeFormat)
+	}
 	var completedOn string
 	if !step.CompletedOn.IsZero() {
 		completedOn = step.CompletedOn.Format(common.JSONTimeFormat)
@@ -222,14 +226,14 @@ func (step Step) MarshalJSON() (data []byte, err error) {
 	data, err = json.Marshal(struct {
 		Type string `json:"type"`
 		surrogate
-		StartedOn         string `json:"started_on"`
+		StartedOn         string `json:"started_on,omitempty"`
 		CompletedOn       string `json:"completed_on,omitempty"`
 		MaxTime           uint64 `json:"maxTime"`
 		DurationInSeconds uint64 `json:"duration_in_seconds"`
 	}{
 		Type:              step.GetType(),
 		surrogate:         surrogate(step),
-		StartedOn:         step.StartedOn.Format(common.JSONTimeFormat),
+		StartedOn:         startedOn,
 		CompletedOn:       completedOn,
 		MaxTime:           uint64(step.MaxTime.Seconds()),
 		DurationInSeconds: uint64(step.Duration.Seconds()),

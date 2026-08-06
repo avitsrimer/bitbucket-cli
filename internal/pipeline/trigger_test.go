@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
-	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
 
@@ -140,9 +139,7 @@ func TestTriggerProcessNonInteractiveWithoutForceErrors(t *testing.T) {
 func TestTriggerProcessPayloadIncludesVariablesButNeverLogsValues(t *testing.T) {
 	const secretValue = "super-secret-token"
 
-	var logBuf bytes.Buffer
-	lgr.Setup(lgr.Out(&logBuf), lgr.Err(&logBuf), lgr.Debug)
-	t.Cleanup(func() { lgr.Setup(lgr.Out(io.Discard), lgr.Err(io.Discard)) })
+	logBuf := testutil.CaptureLog(t)
 
 	var body []byte
 	cmd := setupTriggerTest(t, func(w http.ResponseWriter, r *http.Request) {
@@ -154,10 +151,13 @@ func TestTriggerProcessPayloadIncludesVariablesButNeverLogsValues(t *testing.T) 
 	_ = cmd.Flags().Set("force", "true")
 	_ = cmd.Flags().Set("variable", "DEPLOY_TOKEN="+secretValue)
 
-	testutil.CaptureStdout(t, func() {
-		if err := triggerProcess(cmd, nil); err != nil {
-			t.Fatalf("triggerProcess() error = %v", err)
-		}
+	var stderr string
+	stdout := testutil.CaptureStdout(t, func() {
+		stderr = testutil.CaptureStderr(t, func() {
+			if err := triggerProcess(cmd, nil); err != nil {
+				t.Fatalf("triggerProcess() error = %v", err)
+			}
+		})
 	})
 
 	if !bytes.Contains(body, []byte(secretValue)) {
@@ -177,6 +177,12 @@ func TestTriggerProcessPayloadIncludesVariablesButNeverLogsValues(t *testing.T) 
 	}
 	if !strings.Contains(logged, "DEPLOY_TOKEN") {
 		t.Errorf("log output = %q, want it to still mention the variable key", logged)
+	}
+	if strings.Contains(stdout, secretValue) {
+		t.Errorf("stdout leaked a variable value: %q", stdout)
+	}
+	if strings.Contains(stderr, secretValue) {
+		t.Errorf("stderr leaked a variable value: %q", stderr)
 	}
 }
 
@@ -236,6 +242,74 @@ func TestTriggerProcessPullRequestTarget(t *testing.T) {
 	if sent.Target.Type != "pipeline_pullrequest_target" || sent.Target.PullRequestID != 62 {
 		t.Errorf("target = %+v, want type pipeline_pullrequest_target with pull request id 62", sent.Target)
 	}
+}
+
+// TestTriggerProcessCommitPinsBranchTarget pins the payload shape --commit produces on a branch
+// target: buildTriggerTarget attaches a Commit reference alongside the branch ref, not in place of
+// it.
+func TestTriggerProcessCommitPinsBranchTarget(t *testing.T) {
+	var body []byte
+	cmd := setupTriggerTest(t, func(w http.ResponseWriter, r *http.Request) {
+		body, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(pipelineTriggeredResponse))
+	}, false)
+	_ = cmd.Flags().Set("branch", "main")
+	_ = cmd.Flags().Set("commit", "abc1234")
+	_ = cmd.Flags().Set("force", "true")
+
+	testutil.CaptureStdout(t, func() {
+		if err := triggerProcess(cmd, nil); err != nil {
+			t.Fatalf("triggerProcess() error = %v", err)
+		}
+	})
+
+	var sent triggerBody
+	if err := json.Unmarshal(body, &sent); err != nil {
+		t.Fatalf("cannot unmarshal POST body: %v", err)
+	}
+	if sent.Target.Type != "pipeline_ref_target" || sent.Target.RefName != "main" {
+		t.Errorf("target = %+v, want a branch ref target for main", sent.Target)
+	}
+	if sent.Target.Commit == nil || sent.Target.Commit.Hash != "abc1234" {
+		t.Errorf("target.Commit = %+v, want a commit reference pinning hash abc1234", sent.Target.Commit)
+	}
+}
+
+// TestTriggerCmdRejectsPullRequestWithBranchOrCommit proves the real triggerCmd (not a standalone
+// test command) rejects --branch/--pullrequest and --commit/--pullrequest together at flag-parse
+// time: BitBucket derives a pull request target's branch/commit server-side, so combining them
+// with --pullrequest is rejected outright rather than silently discarding one of them.
+func TestTriggerCmdRejectsPullRequestWithBranchOrCommit(t *testing.T) {
+	t.Run("branch and pullrequest", func(t *testing.T) {
+		if err := triggerCmd.Flags().Set("branch", "main"); err != nil {
+			t.Fatalf("cannot set --branch: %v", err)
+		}
+		t.Cleanup(func() { _ = triggerCmd.Flags().Set("branch", "") })
+		if err := triggerCmd.Flags().Set("pullrequest", "1"); err != nil {
+			t.Fatalf("cannot set --pullrequest: %v", err)
+		}
+		t.Cleanup(func() { _ = triggerCmd.Flags().Set("pullrequest", "0") })
+
+		if err := triggerCmd.ValidateFlagGroups(); err == nil {
+			t.Error("ValidateFlagGroups() expected an error for --branch with --pullrequest, got nil")
+		}
+	})
+
+	t.Run("commit and pullrequest", func(t *testing.T) {
+		if err := triggerCmd.Flags().Set("commit", "abc1234"); err != nil {
+			t.Fatalf("cannot set --commit: %v", err)
+		}
+		t.Cleanup(func() { _ = triggerCmd.Flags().Set("commit", "") })
+		if err := triggerCmd.Flags().Set("pullrequest", "1"); err != nil {
+			t.Fatalf("cannot set --pullrequest: %v", err)
+		}
+		t.Cleanup(func() { _ = triggerCmd.Flags().Set("pullrequest", "0") })
+
+		if err := triggerCmd.ValidateFlagGroups(); err == nil {
+			t.Error("ValidateFlagGroups() expected an error for --commit with --pullrequest, got nil")
+		}
+	})
 }
 
 func TestTriggerProcessDefaultBranchUsesCurrentGitBranch(t *testing.T) {

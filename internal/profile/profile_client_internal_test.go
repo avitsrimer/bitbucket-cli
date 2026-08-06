@@ -552,3 +552,56 @@ func TestDoRequestWithRetryStopsAtOverallBudget(t *testing.T) {
 		t.Errorf("attempts = %d, want fewer than maxRequestAttempts (%d): the budget should have cut the loop short", got, maxRequestAttempts)
 	}
 }
+
+// TestResolveRequestURLRejectsMalformedPercentEscape proves resolveRequestURL now errors instead
+// of silently returning apiRoot essentially unmodified when the path portion carries a percent
+// sign that isn't part of a valid escape sequence -- url.URL.JoinPath treats each element as
+// already percent-encoded, so an invalid "%" makes its internal setPath fail, and JoinPath itself
+// swallows that error rather than surfacing it. Before this guard, a caller building uripath from
+// an unescaped literal (e.g. an artifact name containing a bare "%") would unknowingly send an
+// authenticated request to the bare API root instead of the intended path.
+func TestResolveRequestURLRejectsMalformedPercentEscape(t *testing.T) {
+	apiRoot, err := url.Parse("https://api.bitbucket.org")
+	if err != nil {
+		t.Fatalf("cannot parse api root: %v", err)
+	}
+
+	_, err = resolveRequestURL(apiRoot, "/repositories/acme/widgets/downloads/release (100%).zip")
+	if err == nil {
+		t.Fatal("resolveRequestURL() expected an error for a malformed percent escape, got nil")
+	}
+}
+
+// TestResolveRequestURLAcceptsProperlyEscapedPath proves the companion fix: a caller that escapes
+// its path segment first (url.PathEscape, as artifact download now does) round-trips through
+// resolveRequestURL to exactly the intended path, including a segment that legitimately contains a
+// literal "%" or "?".
+func TestResolveRequestURLAcceptsProperlyEscapedPath(t *testing.T) {
+	apiRoot, err := url.Parse("https://api.bitbucket.org")
+	if err != nil {
+		t.Fatalf("cannot parse api root: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		rawName  string
+		wantPath string
+	}{
+		{name: "bare percent sign", rawName: "release (100%).zip", wantPath: "2.0/repositories/acme/widgets/downloads/release (100%).zip"},
+		{name: "question mark", rawName: "a?b.zip", wantPath: "2.0/repositories/acme/widgets/downloads/a?b.zip"},
+		{name: "literal percent-two-five", rawName: "50%25.zip", wantPath: "2.0/repositories/acme/widgets/downloads/50%25.zip"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			uripath := "/repositories/acme/widgets/downloads/" + url.PathEscape(tt.rawName)
+
+			reqURL, err := resolveRequestURL(apiRoot, uripath)
+			if err != nil {
+				t.Fatalf("resolveRequestURL() unexpected error: %v", err)
+			}
+			if reqURL.Path != tt.wantPath {
+				t.Errorf("resolveRequestURL().Path = %q, want %q", reqURL.Path, tt.wantPath)
+			}
+		})
+	}
+}

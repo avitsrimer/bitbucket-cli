@@ -29,7 +29,7 @@ func init() {
 	Command.AddCommand(listCmd)
 
 	listOptions.Role = common.NewEnumFlag("all", "+owner", "admin", "contributor", "member")
-	listOptions.Columns, listOptions.SortBy = registerListFlags(listCmd, columns, "repositories")
+	listOptions.Columns, listOptions.SortBy = common.RegisterListFlags(listCmd, columns, "repositories")
 	listCmd.Flags().Var(listOptions.Role, "role", "Role of the user in the repository (all, owner, admin, contributor, member). Default: owner")
 	_ = listCmd.RegisterFlagCompletionFunc(listOptions.Role.CompletionFunc("role"))
 	listCmd.SetHelpFunc(common.HideUnsupportedFlags("repository"))
@@ -54,8 +54,8 @@ func listProcess(cmd *cobra.Command, args []string) error {
 		fmt.Println("No repository found")
 		return nil
 	}
-	if sortFlag := cmd.Flag("sort"); sortFlag != nil && sortFlag.Changed {
-		core.Sort(repositories, columns.SortBy(listOptions.SortBy.Value))
+	if sortValue := common.SortFlagValue(cmd); sortValue != "" {
+		core.Sort(repositories, columns.SortBy(sortValue))
 	}
 	if err := profile.Current.Print(cmd.Context(), cmd, Repositories(repositories)); err != nil {
 		return fmt.Errorf("cannot print result: %w", err)

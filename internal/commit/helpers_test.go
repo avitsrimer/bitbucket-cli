@@ -34,7 +34,7 @@ func setupTest(t *testing.T, handler http.HandlerFunc, dryRun bool) *cobra.Comma
 	cmd.Flags().String("query", "", "")
 	cmd.Flags().StringSlice("include", []string{}, "")
 	cmd.Flags().StringSlice("exclude", []string{}, "")
-	cmd.Flags().String("columns", "", "")
+	cmd.Flags().StringSlice("columns", []string{}, "")
 	cmd.Flags().String("sort", "", "")
 	return cmd
 }

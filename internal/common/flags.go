@@ -74,17 +74,24 @@ func (flag EnumFlag) String() string {
 
 // Set sets the flag value.
 //
-// If AllowedFunc is set and the allowed values have not been resolved yet, it is called
-// first to populate them.
+// A dynamic (AllowedFunc-backed) flag never calls AllowedFunc here: an explicitly supplied value
+// is accepted as-is and left for the server to reject if it is wrong. AllowedFunc's candidate
+// list is only ever needed for shell completion (see CompletionFunc); resolving it during
+// ParseFlags would otherwise require a network call, and one whose privilege scope has nothing to
+// do with the operation actually being requested (e.g. --workspace's AllowedFunc needs
+// read:workspace to enumerate workspaces, even for a command against an explicitly named
+// repository that needs no such scope at all) -- a token scoped only for the operation itself
+// would then be refused for the sole reason that it cannot also list every candidate.
+//
+// A static flag (no AllowedFunc, a fixed list from NewEnumFlag) keeps validating immediately:
+// its list is a compile-time constant, so validating costs nothing and gives fast feedback on a
+// typo.
 //
 // implements pflag.Value
 func (flag *EnumFlag) Set(value string) error {
-	if flag.AllowedFunc != nil && len(flag.Allowed) == 0 {
-		allowed, err := flag.AllowedFunc(flag.cmd.Context(), flag.cmd, nil, "")
-		if err != nil {
-			return fmt.Errorf("cannot resolve allowed values: %w", err)
-		}
-		flag.Allowed = allowed
+	if flag.AllowedFunc != nil {
+		flag.Value = value
+		return nil
 	}
 	if !slices.Contains(flag.Allowed, value) {
 		return fmt.Errorf("flag value %q is invalid, expected one of: %s", value, strings.Join(flag.Allowed, ", "))
@@ -160,21 +167,35 @@ func (flag EnumSliceFlag) String() string {
 	return "[" + strings.Join(flag.Values, ",") + "]"
 }
 
-// Set sets the flag value. It accepts a single value or a comma-separated list of values; every
-// value in the list must be allowed, or the whole call fails naming the first offending one (no
-// values are appended on a partial match).
+// Set sets the flag value. It accepts a single value or a comma-separated list of values.
 //
-// If AllowedFunc is set and the allowed values have not been resolved yet, it is called
-// first to populate them.
+// For a static flag (no AllowedFunc, a fixed list from NewEnumSliceFlag*), every value in the
+// list must be allowed, or the whole call fails naming the first offending one (no values are
+// appended on a partial match).
+//
+// For a dynamic (AllowedFunc-backed) flag, an explicit value is accepted as-is without calling
+// AllowedFunc, for the same reason as EnumFlag.Set: enumerating candidates can require a broader
+// privilege scope than the operation itself needs. "all" is the one exception -- it has no fixed
+// candidate list to fall back to, so resolving it still requires calling AllowedFunc.
 //
 // implements pflag.Value
 func (flag *EnumSliceFlag) Set(value string) error {
-	if flag.AllowedFunc != nil && len(flag.Allowed) == 0 {
-		allowed, err := flag.AllowedFunc(flag.cmd.Context(), flag.cmd, nil, "")
-		if err != nil {
-			return fmt.Errorf("cannot resolve allowed values: %w", err)
+	if flag.AllowedFunc != nil {
+		if value == "all" && flag.AllAllowed {
+			allowed, err := flag.AllowedFunc(flag.cmd.Context(), flag.cmd, nil, "")
+			if err != nil {
+				return fmt.Errorf("cannot resolve allowed values: %w", err)
+			}
+			flag.Allowed = allowed
+			flag.Values = slices.Clone(flag.Allowed)
+			return nil
 		}
-		flag.Allowed = allowed
+		for v := range strings.SplitSeq(value, ",") {
+			if !slices.Contains(flag.Values, v) {
+				flag.Values = append(flag.Values, v)
+			}
+		}
+		return nil
 	}
 	if value == "all" && flag.AllAllowed {
 		flag.Values = slices.Clone(flag.Allowed)

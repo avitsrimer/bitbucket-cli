@@ -1,9 +1,7 @@
 package task
 
 import (
-	"errors"
 	"fmt"
-	"os"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
@@ -75,14 +73,5 @@ func deleteProcess(cmd *cobra.Command, args []string) error {
 			lgr.Printf("[DEBUG] pullrequest task %s deleted", taskID)
 		}
 	}
-	joined := errors.Join(errs...)
-	if joined != nil && profile.ShouldWarnOnError(cmd) {
-		fmt.Fprintf(os.Stderr, "Failed to delete these tasks: %s\n", joined)
-		return nil
-	}
-	if profile.ShouldIgnoreErrors(cmd) {
-		lgr.Printf("[WARN] failed to delete these tasks, but ignoring errors: %s", joined)
-		return nil
-	}
-	return joined
+	return common.TolerateErrors(cmd, profile, errs, "delete these tasks") //nolint:wrapcheck // TolerateErrors returns the same joined error verbatim (or nil); wrapping would prefix it with redundant noise
 }
