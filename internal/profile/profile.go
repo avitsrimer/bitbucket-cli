@@ -43,6 +43,7 @@ type Profile struct {
 	Default           bool                   `json:"default"                     yaml:",omitempty"`
 	APIRoot           *url.URL               `json:"apiRoot,omitempty"           yaml:",omitempty"`
 	DefaultWorkspace  string                 `json:"defaultWorkspace,omitempty"  yaml:",omitempty"`
+	DefaultRepository string                 `json:"defaultRepository,omitempty" yaml:",omitempty"`
 	DefaultProject    string                 `json:"defaultProject,omitempty"    yaml:",omitempty"`
 	ErrorProcessing   common.ErrorProcessing `json:"errorProcessing,omitempty"   yaml:",omitempty"`
 	DefaultPageLength int                    `json:"defaultPageLength,omitempty" yaml:",omitempty"`
@@ -128,6 +129,9 @@ var columns = common.Columns[*Profile]{
 	}},
 	{Name: "defaultworkspace", DefaultSorter: false, Compare: func(a, b *Profile) bool {
 		return strings.ToLower(a.DefaultWorkspace) < strings.ToLower(b.DefaultWorkspace)
+	}},
+	{Name: "defaultrepository", DefaultSorter: false, Compare: func(a, b *Profile) bool {
+		return strings.ToLower(a.DefaultRepository) < strings.ToLower(b.DefaultRepository)
 	}},
 	{Name: "defaultproject", DefaultSorter: false, Compare: func(a, b *Profile) bool {
 		return strings.ToLower(a.DefaultProject) < strings.ToLower(b.DefaultProject)
@@ -223,6 +227,7 @@ func (profile Profile) GetRow(headers []string) []string {
 		"description":       profile.Description,
 		"default":           strconv.FormatBool(profile.Default),
 		"defaultworkspace":  profile.DefaultWorkspace,
+		"defaultrepository": profile.DefaultRepository,
 		"defaultproject":    profile.DefaultProject,
 		"callbackport":      strconv.FormatUint(uint64(profile.CallbackPort), 10),
 		"user":              profile.User,
@@ -378,6 +383,9 @@ func (profile *Profile) updateSimpleFields(other Profile) {
 	}
 	if other.DefaultWorkspace != "" {
 		profile.DefaultWorkspace = other.DefaultWorkspace
+	}
+	if other.DefaultRepository != "" {
+		profile.DefaultRepository = other.DefaultRepository
 	}
 	if other.DefaultProject != "" {
 		profile.DefaultProject = other.DefaultProject

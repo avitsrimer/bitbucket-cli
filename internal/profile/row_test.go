@@ -22,12 +22,13 @@ func TestProfileGetRow(t *testing.T) {
 		ClientID:          "myclientid",
 		AccessToken:       "mytoken",
 		DefaultPageLength: 25,
+		DefaultRepository: "acme/myrepo",
 	}
 
-	headers := []string{"name", "description", "default", "apiroot", "accesstoken", "defaultpagelength", "unknownheader"}
+	headers := []string{"name", "description", "default", "apiroot", "accesstoken", "defaultpagelength", "defaultrepository", "unknownheader"}
 	row := target.GetRow(headers)
 
-	assert.Equal(t, []string{"myprofile", "my description", "true", "https://api.bitbucket.org", "mytoken", "25", " "}, row)
+	assert.Equal(t, []string{"myprofile", "my description", "true", "https://api.bitbucket.org", "mytoken", "25", "acme/myrepo", " "}, row)
 }
 
 func TestProfileGetRowBlanksEmptyAPIRootAndAccessToken(t *testing.T) {

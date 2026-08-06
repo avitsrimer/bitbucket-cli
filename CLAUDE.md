@@ -44,7 +44,11 @@ key file as `--protocol`/`--ssh-key-file` flag > profile field > default, and us
 the `https` clone URL's username. `Progress` and `DefaultProject` remain inert — no restored
 command reads them. Don't wire those two up to "fix" a seemingly-dead flag, and don't delete any
 of the five either — removing a field would silently drop that data from a user's existing config
-file on the next save.
+file on the next save. `DefaultRepository` sits outside this group of five: like `DefaultWorkspace`,
+it is a fully functional persisted field, not upstream-compat dead weight. It is the last rung of
+`internal/repository.GetRepositoryName`'s `--repository` flag > Bitbucket git remote > profile
+default precedence chain (mirroring `internal/workspace.GetWorkspaceName`'s workspace chain), set
+via `--default-repository` on `bb profile create`/`update`.
 
 The fork is permanently detached from upstream (different module path, no shared
 history intent) — do not try to keep it merge-compatible.
