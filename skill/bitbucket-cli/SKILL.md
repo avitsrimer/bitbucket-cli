@@ -129,7 +129,11 @@ positional or `--current`; given neither, it errors `argument profile is missing
   fails the command when `--reviewer default` was given explicitly, but when `--reviewer` was
   omitted (the fallback fired implicitly) the same failure instead follows the usual
   `--warn-on-error`/`--ignore-errors` tolerance — the pullrequest is still created, just with no
-  reviewers, since the caller never asked for any.
+  reviewers, since the caller never asked for any. `--reviewer none` (exactly, and alone) skips
+  reviewer resolution entirely — no default-reviewers lookup, no reviewers on the created
+  pullrequest; use it when the caller explicitly wants no reviewers rather than falling back to
+  the repository's defaults. Combining `none` with any other `--reviewer` value (in any position,
+  whether repeated flags or one comma-separated list) is a hard error before any request is sent.
 - `bb pullrequest update <id> [--title ...] [--description ... | --description-file ...]
   [--destination <branch>] [--close-source-branch] [--add-reviewer <user>]...
   [--remove-reviewer <user>]...` (aliases `edit`)

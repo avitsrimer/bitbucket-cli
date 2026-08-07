@@ -41,7 +41,6 @@ var createOptions struct {
 	DescriptionFile   string
 	Source            *common.EnumFlag
 	Destination       *common.EnumFlag
-	Reviewers         []string
 	CloseSourceBranch bool
 	Draft             bool
 }
@@ -57,14 +56,14 @@ func init() {
 	registerDescriptionFileFlag(createCmd, &createOptions.DescriptionFile)
 	createCmd.Flags().Var(createOptions.Source, "source", "Source branch of the pullrequest")
 	createCmd.Flags().Var(createOptions.Destination, "destination", "Destination branch of the pullrequest")
-	createCmd.Flags().StringSliceVar(&createOptions.Reviewers, "reviewer", nil, "Reviewer(s) of the pullrequest. Can be specified multiple times, or as a comma-separated list. Can be the user Account ID, UUID, name, or nickname. If the first reviewer is `default`, the command will try to find the default reviewers from the repository or project settings.")
+	createCmd.Flags().StringSlice("reviewer", nil, "Reviewer(s) of the pullrequest. Can be specified multiple times, or as a comma-separated list. Can be the user Account ID, UUID, name, or nickname. If the first reviewer is `default`, the command will try to find the default reviewers from the repository or project settings. If it is exactly `none`, the pullrequest is created with no reviewers and the default-reviewers lookup is skipped entirely.")
 	createCmd.Flags().BoolVar(&createOptions.CloseSourceBranch, "close-source-branch", false, "Close the source branch of the pullrequest")
 	createCmd.Flags().BoolVar(&createOptions.Draft, "draft", false, "Create the pullrequest as a draft")
 	_ = createCmd.MarkFlagRequired("title")
 	_ = createCmd.MarkFlagRequired("source")
 	_ = createCmd.RegisterFlagCompletionFunc(createOptions.Source.CompletionFunc("source"))
 	_ = createCmd.RegisterFlagCompletionFunc(createOptions.Destination.CompletionFunc("destination"))
-	_ = createCmd.RegisterFlagCompletionFunc("reviewer", reviewerCompletionFunc)
+	_ = createCmd.RegisterFlagCompletionFunc("reviewer", createReviewerCompletionFunc)
 }
 
 func createProcess(cmd *cobra.Command, args []string) (err error) {
@@ -102,13 +101,24 @@ func createProcess(cmd *cobra.Command, args []string) (err error) {
 
 	lgr.Printf("[DEBUG] using repository: %s", repository)
 
-	if len(createOptions.Reviewers) > 0 && createOptions.Reviewers[0] != "default" {
-		payload.Reviewers, err = resolveExplicitReviewers(ctx, cmd, profile, repository, createOptions.Reviewers)
+	reviewerValues, err := cmd.Flags().GetStringSlice("reviewer")
+	if err != nil {
+		return fmt.Errorf("cannot get reviewer flag: %w", err)
+	}
+
+	switch {
+	case slices.Contains(reviewerValues, "none"):
+		if len(reviewerValues) > 1 {
+			return errors.New(`cannot combine reviewer "none" with other reviewers`)
+		}
+		// exactly ["none"]: leave payload.Reviewers nil, skip resolution entirely
+	case len(reviewerValues) > 0 && reviewerValues[0] != "default":
+		payload.Reviewers, err = resolveExplicitReviewers(ctx, cmd, profile, repository, reviewerValues)
 		if err != nil {
 			return err
 		}
-	} else {
-		explicitDefault := len(createOptions.Reviewers) > 0
+	default:
+		explicitDefault := len(reviewerValues) > 0
 		payload.Reviewers, err = resolveCreateDefaultReviewers(ctx, cmd, profile, repository, explicitDefault)
 		if err != nil {
 			return err

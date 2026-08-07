@@ -2,6 +2,7 @@ package pullrequest
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
+	"github.com/spf13/cobra"
 )
 
 // withCreateOptions saves/restores the package-level createOptions (bound to createCmd's flags
@@ -19,7 +21,6 @@ func withCreateOptions(t *testing.T, mutate func()) {
 	t.Helper()
 	oldTitle, oldDescription, oldDescriptionFile := createOptions.Title, createOptions.Description, createOptions.DescriptionFile
 	oldSourceValue, oldDestinationValue := createOptions.Source.Value, createOptions.Destination.Value
-	oldReviewerValues := createOptions.Reviewers
 	oldCloseSourceBranch, oldDraft := createOptions.CloseSourceBranch, createOptions.Draft
 	t.Cleanup(func() {
 		createOptions.Title = oldTitle
@@ -27,11 +28,25 @@ func withCreateOptions(t *testing.T, mutate func()) {
 		createOptions.DescriptionFile = oldDescriptionFile
 		createOptions.Source.Value = oldSourceValue
 		createOptions.Destination.Value = oldDestinationValue
-		createOptions.Reviewers = oldReviewerValues
 		createOptions.CloseSourceBranch = oldCloseSourceBranch
 		createOptions.Draft = oldDraft
 	})
 	mutate()
+}
+
+// setReviewerFlag sets cmd's --reviewer flag to values, calling Set once per element so a test
+// can distinguish "--reviewer a --reviewer b" (repeated flag, append semantics) from a single
+// comma-separated element such as "a,b" (one Set call, CSV-split) -- both are real invocation
+// shapes createProcess must treat identically. createProcess reads this flag directly off cmd
+// (never the package-level createOptions), so it must be set here rather than via
+// withCreateOptions.
+func setReviewerFlag(t *testing.T, cmd *cobra.Command, values ...string) {
+	t.Helper()
+	for _, value := range values {
+		if err := cmd.Flags().Set("reviewer", value); err != nil {
+			t.Fatalf("cannot set --reviewer=%s: %v", value, err)
+		}
+	}
 }
 
 func TestCreateProcessSuccessWithDefaultReviewers(t *testing.T) {
@@ -40,7 +55,6 @@ func TestCreateProcessSuccessWithDefaultReviewers(t *testing.T) {
 		createOptions.Description = "some description"
 		createOptions.Source.Value = "feature"
 		createOptions.Destination.Value = ""
-		createOptions.Reviewers = nil
 	})
 
 	var requests []*http.Request
@@ -111,7 +125,6 @@ func TestCreateProcessDefaultReviewersAPIError(t *testing.T) {
 		createOptions.Title = "Add feature"
 		createOptions.Source.Value = "feature"
 		createOptions.Destination.Value = ""
-		createOptions.Reviewers = nil
 	})
 
 	var pullrequestRequests int
@@ -158,7 +171,6 @@ func TestCreateProcessDefaultReviewersAPIErrorWarnOnErrorProceedsWithoutReviewer
 		createOptions.Title = "Add feature"
 		createOptions.Source.Value = "feature"
 		createOptions.Destination.Value = ""
-		createOptions.Reviewers = nil
 	})
 
 	var postBody PullRequestCreator
@@ -218,7 +230,6 @@ func TestCreateProcessExplicitDefaultReviewersAPIErrorIgnoresWarnOnError(t *test
 		createOptions.Title = "Add feature"
 		createOptions.Source.Value = "feature"
 		createOptions.Destination.Value = ""
-		createOptions.Reviewers = []string{"default"}
 	})
 
 	var pullrequestRequests int
@@ -236,6 +247,7 @@ func TestCreateProcessExplicitDefaultReviewersAPIErrorIgnoresWarnOnError(t *test
 	})
 
 	cmd := setupTestNamed(t, "create-explicit-default-reviewers-warn-on-error", mux.ServeHTTP, false)
+	setReviewerFlag(t, cmd, "default")
 	if err := cmd.Flags().Set("warn-on-error", "true"); err != nil {
 		t.Fatalf("cannot set --warn-on-error: %v", err)
 	}
@@ -257,7 +269,6 @@ func TestCreateProcessPostAPIError(t *testing.T) {
 		createOptions.Title = "Add feature"
 		createOptions.Source.Value = "dummy"
 		createOptions.Destination.Value = ""
-		createOptions.Reviewers = nil
 	})
 
 	fixture, err := os.ReadFile("../../testdata/error-badrequest-nobranch.json")
@@ -323,7 +334,6 @@ func TestCreateProcessUnresolvedReviewerErrorsBeforePost(t *testing.T) {
 				createOptions.Title = "Add feature"
 				createOptions.Source.Value = "feature"
 				createOptions.Destination.Value = ""
-				createOptions.Reviewers = tt.reviewers
 			})
 
 			var pullrequestRequests int
@@ -337,6 +347,7 @@ func TestCreateProcessUnresolvedReviewerErrorsBeforePost(t *testing.T) {
 			})
 
 			cmd := setupTestNamed(t, tt.profileName, mux.ServeHTTP, false)
+			setReviewerFlag(t, cmd, tt.reviewers...)
 
 			err := createProcess(cmd, nil)
 			if err == nil {
@@ -366,7 +377,6 @@ func TestCreateProcessWarnOnErrorProceedsWithUnresolvedReviewer(t *testing.T) {
 		createOptions.Title = "Add feature"
 		createOptions.Source.Value = "feature"
 		createOptions.Destination.Value = ""
-		createOptions.Reviewers = []string{"jdoe-typo"}
 	})
 
 	var postBody PullRequestCreator
@@ -386,6 +396,7 @@ func TestCreateProcessWarnOnErrorProceedsWithUnresolvedReviewer(t *testing.T) {
 	})
 
 	cmd := setupTestNamed(t, "create-reviewer-warn-on-error", mux.ServeHTTP, false)
+	setReviewerFlag(t, cmd, "jdoe-typo")
 	if err := cmd.Flags().Set("warn-on-error", "true"); err != nil {
 		t.Fatalf("cannot set --warn-on-error: %v", err)
 	}
@@ -418,7 +429,6 @@ func TestCreateProcessReviewerAllExpandsToEveryMember(t *testing.T) {
 		createOptions.Title = "Add feature"
 		createOptions.Source.Value = "feature"
 		createOptions.Destination.Value = ""
-		createOptions.Reviewers = []string{"all"}
 	})
 
 	var postBody PullRequestCreator
@@ -440,6 +450,7 @@ func TestCreateProcessReviewerAllExpandsToEveryMember(t *testing.T) {
 
 	const profileName = "create-reviewer-all"
 	cmd := setupTestNamed(t, profileName, mux.ServeHTTP, false)
+	setReviewerFlag(t, cmd, "all")
 
 	if err := createProcess(cmd, nil); err != nil {
 		t.Fatalf("createProcess() error = %v", err)
@@ -470,7 +481,6 @@ func TestCreateProcessReviewerAllErrorsWhenMembersCannotBeListed(t *testing.T) {
 		createOptions.Title = "Add feature"
 		createOptions.Source.Value = "feature"
 		createOptions.Destination.Value = ""
-		createOptions.Reviewers = []string{"all"}
 	})
 
 	var pullrequestRequests int
@@ -483,6 +493,7 @@ func TestCreateProcessReviewerAllErrorsWhenMembersCannotBeListed(t *testing.T) {
 	})
 
 	cmd := setupTestNamed(t, "create-reviewer-all-members-error", mux.ServeHTTP, false)
+	setReviewerFlag(t, cmd, "all")
 
 	err := createProcess(cmd, nil)
 	if err == nil {
@@ -506,7 +517,6 @@ func TestCreateProcessReviewerAllDoesNotDuplicateAMatchingReviewer(t *testing.T)
 		createOptions.Title = "Add feature"
 		createOptions.Source.Value = "feature"
 		createOptions.Destination.Value = ""
-		createOptions.Reviewers = []string{"all"}
 	})
 
 	var postBody PullRequestCreator
@@ -529,6 +539,7 @@ func TestCreateProcessReviewerAllDoesNotDuplicateAMatchingReviewer(t *testing.T)
 	})
 
 	cmd := setupTestNamed(t, "create-reviewer-all-no-nickname", mux.ServeHTTP, false)
+	setReviewerFlag(t, cmd, "all")
 
 	if err := createProcess(cmd, nil); err != nil {
 		t.Fatalf("createProcess() error = %v", err)
@@ -546,12 +557,156 @@ func TestCreateProcessReviewerAllDoesNotDuplicateAMatchingReviewer(t *testing.T)
 	}
 }
 
+// TestCreateProcessReviewerNoneSkipsAllResolution verifies that a --reviewer value of exactly
+// "none" creates the pullrequest with no "reviewers" key in the posted payload at all (nil slice,
+// omitempty) and issues zero reviewer-resolution requests: no /user, no
+// effective-default-reviewers, no workspace members lookup.
+func TestCreateProcessReviewerNoneSkipsAllResolution(t *testing.T) {
+	withCreateOptions(t, func() {
+		createOptions.Title = "Add feature"
+		createOptions.Source.Value = "feature"
+		createOptions.Destination.Value = ""
+	})
+
+	var postBody string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/2.0/user", testutil.FailIfCalled(t, "a --reviewer none create"))
+	mux.HandleFunc("/2.0/repositories/"+testutil.FixtureRepositoryFlag+"/effective-default-reviewers", testutil.FailIfCalled(t, "a --reviewer none create"))
+	mux.HandleFunc("/2.0/workspaces/"+testutil.FixtureWorkspaceSlug+"/members", testutil.FailIfCalled(t, "a --reviewer none create"))
+	mux.HandleFunc("/2.0/repositories/"+testutil.FixtureRepositoryFlag+"/pullrequests", func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("cannot read POST body: %v", err)
+		}
+		postBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":99,"title":"Add feature"}`))
+	})
+
+	cmd := setupTestNamed(t, "create-reviewer-none", mux.ServeHTTP, false)
+	setReviewerFlag(t, cmd, "none")
+
+	testutil.CaptureStdout(t, func() {
+		if err := createProcess(cmd, nil); err != nil {
+			t.Fatalf("createProcess() error = %v", err)
+		}
+	})
+
+	if strings.Contains(postBody, `"reviewers"`) {
+		t.Errorf("posted payload = %s, want no \"reviewers\" key at all", postBody)
+	}
+}
+
+// TestCreateProcessReviewerNoneCombinedWithOthersErrorsBeforeAnyRequest verifies that "none"
+// appearing anywhere alongside another --reviewer value is rejected with the pinned error message
+// before any HTTP request, regardless of whether the values arrived as repeated flags or a single
+// comma-separated list, and regardless of what the other value is (a plain nickname or the "all"
+// sentinel).
+func TestCreateProcessReviewerNoneCombinedWithOthersErrorsBeforeAnyRequest(t *testing.T) {
+	tests := []struct {
+		name        string
+		profileName string
+		reviewers   []string
+	}{
+		{name: "none then alice as repeated flags", profileName: "create-reviewer-none-alice-repeated", reviewers: []string{"none", "alice"}},
+		{name: "none,alice as one comma-separated value", profileName: "create-reviewer-none-alice-csv", reviewers: []string{"none,alice"}},
+		{name: "none then all as repeated flags", profileName: "create-reviewer-none-all-repeated", reviewers: []string{"none", "all"}},
+	}
+
+	const wantErr = `cannot combine reviewer "none" with other reviewers`
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			withCreateOptions(t, func() {
+				createOptions.Title = "Add feature"
+				createOptions.Source.Value = "feature"
+				createOptions.Destination.Value = ""
+			})
+
+			cmd := setupTestNamed(t, tt.profileName, testutil.FailIfCalled(t, "a --reviewer none combined with other reviewers"), false)
+			setReviewerFlag(t, cmd, tt.reviewers...)
+
+			err := createProcess(cmd, nil)
+			if err == nil {
+				t.Fatal("createProcess() expected an error, got nil")
+			}
+			if err.Error() != wantErr {
+				t.Errorf("error = %q, want %q", err.Error(), wantErr)
+			}
+		})
+	}
+}
+
+// TestCreateProcessExplicitDefaultReviewersSuccess verifies that --reviewer default still resolves
+// and posts the repository's effective default reviewers, unchanged by the none-sentinel addition.
+func TestCreateProcessExplicitDefaultReviewersSuccess(t *testing.T) {
+	withCreateOptions(t, func() {
+		createOptions.Title = "Add feature"
+		createOptions.Source.Value = "feature"
+		createOptions.Destination.Value = ""
+	})
+
+	var postBody PullRequestCreator
+	mux := http.NewServeMux()
+	mux.HandleFunc("/2.0/user", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"uuid":"{55555555-5555-5555-5555-555555555555}","display_name":"Current User"}`))
+	})
+	mux.HandleFunc("/2.0/repositories/"+testutil.FixtureRepositoryFlag+"/effective-default-reviewers", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[{"user":{"uuid":"{33333333-3333-3333-3333-333333333333}","nickname":"alice"}}]}`))
+	})
+	mux.HandleFunc("/2.0/repositories/"+testutil.FixtureRepositoryFlag+"/pullrequests", func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&postBody); err != nil {
+			t.Errorf("cannot decode POST body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":99,"title":"Add feature"}`))
+	})
+
+	cmd := setupTestNamed(t, "create-reviewer-default-success", mux.ServeHTTP, false)
+	setReviewerFlag(t, cmd, "default")
+
+	testutil.CaptureStdout(t, func() {
+		if err := createProcess(cmd, nil); err != nil {
+			t.Fatalf("createProcess() error = %v", err)
+		}
+	})
+
+	if len(postBody.Reviewers) != 1 || postBody.Reviewers[0].Nickname != "alice" {
+		t.Errorf("posted reviewers = %+v, want exactly the effective default reviewer alice", postBody.Reviewers)
+	}
+}
+
+// TestCreateProcessDryRunReviewerNoneOmitsReviewersKey verifies that --reviewer none's dry-run
+// echo shows no "reviewers" key, matching what a real invocation would post -- FR-6's dry-run
+// symmetry, since both a dry run and a real run skip reviewer resolution identically under "none".
+func TestCreateProcessDryRunReviewerNoneOmitsReviewersKey(t *testing.T) {
+	withCreateOptions(t, func() {
+		createOptions.Title = "Add feature"
+		createOptions.Source.Value = "feature"
+		createOptions.Destination.Value = ""
+	})
+
+	cmd := setupTestNamed(t, "create-reviewer-none-dry-run", testutil.FailIfCalled(t, "a --reviewer none dry run"), true)
+	setReviewerFlag(t, cmd, "none")
+
+	stderr := testutil.CaptureStderr(t, func() {
+		if err := createProcess(cmd, nil); err != nil {
+			t.Fatalf("createProcess() error = %v", err)
+		}
+	})
+
+	if strings.Contains(stderr, `"reviewers"`) {
+		t.Errorf("dry-run echo = %s, want no \"reviewers\" key", stderr)
+	}
+}
+
 func TestCreateProcessDryRun(t *testing.T) {
 	withCreateOptions(t, func() {
 		createOptions.Title = "Add feature"
 		createOptions.Source.Value = "feature"
 		createOptions.Destination.Value = ""
-		createOptions.Reviewers = nil
 	})
 
 	var pullrequestRequests int
@@ -595,7 +750,6 @@ func TestCreateProcessDescriptionFromFileVerbatim(t *testing.T) {
 		createOptions.DescriptionFile = path
 		createOptions.Source.Value = "feature"
 		createOptions.Destination.Value = ""
-		createOptions.Reviewers = nil
 	})
 
 	var postBody PullRequestCreator

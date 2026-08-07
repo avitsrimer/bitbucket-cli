@@ -37,6 +37,9 @@ func setupTestNamed(t *testing.T, profileName string, handler http.HandlerFunc, 
 	// flag carries (see common.RegisterListFlags), so listProcess sorts identically here and on
 	// the real command when --sort is never passed.
 	cmd.Flags().String("sort", "id", "")
+	// createProcess reads --reviewer directly off cmd (not a package-level binding), so tests
+	// exercising it must have the flag registered here to set/get it.
+	cmd.Flags().StringSlice("reviewer", nil, "")
 	if dryRun {
 		_ = cmd.Flags().Set("dry-run", "true")
 	}
