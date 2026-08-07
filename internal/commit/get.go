@@ -52,6 +52,16 @@ func getProcess(cmd *cobra.Command, args []string) error {
 		// of erroring, silently retargeting the request at a *different* endpoint (the commits
 		// list, for an empty/"." hash) that then succeeds and prints the newest commit as if the
 		// given hash had matched.
+		//
+		// This deliberately stays ValidatePathIdentifier (single segment only), not
+		// ValidatePathRef, unlike diff/patch's own hash/ref arguments: verified live against
+		// Bitbucket's public API, GET /repositories/{workspace}/{repo_slug}/commit/{revision} 404s
+		// ("Resource not found ... There is no API hosted at this URL") for any multi-segment
+		// revision (a branch name containing "/", raw or percent-encoded) even though it accepts a
+		// single-segment branch/tag name exactly like a bare hash. /diff/{spec} and /patch/{spec} do
+		// not share that restriction -- both return the expected diff/patch for the same
+		// multi-segment branch name -- so accepting a ref there but not here reflects a genuine
+		// difference between the two endpoints, not an oversight.
 		if validateErr := common.ValidatePathIdentifier("commit-hash", args[0]); validateErr != nil {
 			return fmt.Errorf("cannot get commit: %w", validateErr)
 		}

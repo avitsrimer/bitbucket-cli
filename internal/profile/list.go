@@ -51,9 +51,17 @@ func listProcess(cmd *cobra.Command, args []string) (err error) {
 	if sortValue := common.SortFlagValue(cmd); sortValue != "" {
 		core.Sort(Profiles, columns.SortBy(sortValue))
 	}
+	// LoadSecrets is only called when -o/--output json or yaml was given EXPLICITLY on the command
+	// line (see explicitJSONOrYAMLOutput): a profile merely CONFIGURED with outputFormat: json/yaml
+	// must not, on its own, make a bare `bb profile list` load every profile's secret from the
+	// vault and then render it in cleartext (Print picks the profile's own OutputFormat ahead of
+	// -o, with no flag and no signal that a secret is about to be shown).
+	loadSecrets := explicitJSONOrYAMLOutput(cmd)
 	Profiles = core.Map(Profiles, func(profile *Profile) *Profile {
 		_ = profile.Validate()
-		_ = profile.LoadSecrets(ctx)
+		if loadSecrets {
+			_ = profile.LoadSecrets(ctx)
+		}
 		return profile
 	})
 	if len(Profiles) == 1 {

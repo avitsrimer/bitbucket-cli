@@ -25,6 +25,15 @@ func TestValidatePathIdentifier(t *testing.T) {
 		{name: "percent-encoded backslash lowercase", value: "foo%5cbar", wantErr: true},
 		{name: "percent-encoded backslash uppercase", value: "foo%5Cbar", wantErr: true},
 		{name: "percent-encoded dot-dot-slash", value: "%2e%2e%2f", wantErr: true},
+		{name: "percent-encoded dot lowercase", value: "%2e", wantErr: true},
+		{name: "percent-encoded dot uppercase", value: "%2E", wantErr: true},
+		{name: "percent-encoded dot-dot lowercase", value: "%2e%2e", wantErr: true},
+		{name: "percent-encoded dot-dot uppercase", value: "%2E%2E", wantErr: true},
+		{name: "percent-encoded dot-dot mixed case", value: "%2E%2e", wantErr: true},
+		{name: "mixed literal and percent-encoded dot-dot", value: ".%2e", wantErr: true},
+		{name: "mixed percent-encoded and literal dot-dot", value: "%2e.", wantErr: true},
+		{name: "literal dot embedded in a longer value", value: "a.b", wantErr: false},
+		{name: "percent-encoded dot embedded in a longer value", value: "a%2eb", wantErr: false},
 	}
 
 	for _, tt := range tests {
@@ -59,6 +68,8 @@ func TestValidatePathRef(t *testing.T) {
 		{name: "percent-encoded slash segment", value: "%2f", wantErr: true},
 		{name: "percent-encoded slash within segment", value: "a/%2f/b", wantErr: true},
 		{name: "backslash segment", value: `a\b`, wantErr: true},
+		{name: "percent-encoded dot-dot segment mid-ref", value: "a/%2e%2e/b", wantErr: true},
+		{name: "percent-encoded dot-dot single segment", value: "%2e%2e", wantErr: true},
 	}
 
 	for _, tt := range tests {

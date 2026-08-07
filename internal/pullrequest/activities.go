@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
@@ -174,17 +175,25 @@ func activityPageLengthAndLimit(cmd *cobra.Command, defaultPageLength int) (page
 // collected so far are close to limit.
 func fetchActivityPages(ctx context.Context, currentProfile *profile.Profile, uripath string, pageLength, limit int) ([]Activity, error) {
 	var activities []Activity
-	if pageLength > 0 && !strings.Contains(uripath, "pagelen") {
+
+	// originalQuery is parsed BEFORE any pagelen= is appended below, and the presence check that
+	// guards the append reads originalQuery's actual "pagelen" query KEY, not a substring test over
+	// the whole uripath: a substring test also matches "pagelen" occurring inside the escaped q=
+	// value itself (e.g. --query 'title~"pagelen"'), which silently dropped --page-length whenever
+	// the query TEXT happened to contain that word, even though no pagelen= parameter was ever
+	// actually present.
+	originalQuery := url.Values{}
+	if parsed, parseErr := url.Parse(uripath); parseErr == nil {
+		originalQuery = parsed.Query()
+	}
+
+	if pageLength > 0 && !originalQuery.Has("pagelen") {
 		separator := "?"
 		if strings.Contains(uripath, "?") {
 			separator = "&"
 		}
 		uripath = fmt.Sprintf("%s%spagelen=%d", uripath, separator, pageLength)
-	}
-
-	originalQuery := url.Values{}
-	if parsed, parseErr := url.Parse(uripath); parseErr == nil {
-		originalQuery = parsed.Query()
+		originalQuery.Set("pagelen", strconv.Itoa(pageLength))
 	}
 
 	knownCount := 0
