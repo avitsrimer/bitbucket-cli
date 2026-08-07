@@ -7,7 +7,6 @@ require (
 	github.com/go-pkgz/lgr v0.12.3
 	github.com/google/uuid v1.6.0
 	github.com/joho/godotenv v1.5.1
-	github.com/kataras/tablewriter v0.0.0-20180708051242-e063d29b7c23
 	github.com/mattn/go-runewidth v0.0.24
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
