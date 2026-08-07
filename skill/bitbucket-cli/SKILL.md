@@ -1,6 +1,6 @@
 ---
 name: bitbucket-cli
-description: Drive Bitbucket Cloud from the terminal via the bb CLI. Use when the user wants to open/create a pull request, review a pull request, list my pull requests, comment on a PR, approve a PR, request changes on a PR, unapprove a PR, merge a PR, decline a PR, check pull request activities/participants, list or read repositories, check the pipeline, why did the build fail, view pipeline step logs, trigger a pipeline, stop/cancel a running pipeline, download an artifact, list artifacts, clone a repository, list branches or commits, diff or patch a commit or PR, look up a Bitbucket user, list workspace members, or log in / set up a Bitbucket profile.
+description: Drive Bitbucket Cloud from the terminal via the bb CLI. Use when the user wants to open/create a pull request, review a pull request, list my pull requests, comment on a PR, approve a PR, request changes on a PR, unapprove a PR, hand a pull request merge to the user, decline a PR, check pull request activities/participants, list or read repositories, check the pipeline, why did the build fail, view pipeline step logs, trigger a pipeline, stop/cancel a running pipeline, download an artifact, list artifacts, clone a repository, list branches or commits, diff or patch a commit or PR, look up a Bitbucket user, list workspace members, or log in / set up a Bitbucket profile.
 ---
 
 # bitbucket-cli
@@ -26,11 +26,12 @@ pullrequests, specify one: <id>, <id>, ...`; if there are none, it errors `no op
 found for repository <repo>`. There is no "the PR for my current branch" resolution anywhere in
 this path.
 
-**For merge/decline/approve/request-changes/remove-request-changes/unapprove — every
-state-changing pullrequest command — always pass the explicit `<pullrequest-id>` yourself
+**For decline/approve/request-changes/remove-request-changes/unapprove — every state-changing
+pullrequest command you may run yourself — always pass the explicit `<pullrequest-id>` yourself
 (look it up first with `bb pullrequest list` if you don't have it) instead of relying on this
-fallback.** Relying on it risks silently merging/declining/approving the wrong pull request the
-moment a second open PR exists in the repository, and that action is not reversible.
+fallback.** Relying on it risks silently declining/approving the wrong pull request the moment a
+second open PR exists in the repository, and that action is not reversible. `merge` is not in
+this list: never invoke it yourself at all — see the MANDATORY note under Pipelines below.
 
 ## Profile / authentication
 
@@ -135,10 +136,16 @@ positional or `--current`; given neither, it errors `argument profile is missing
 - `bb pullrequest approve <id>` / `bb pullrequest unapprove <id>` / `bb pullrequest request-changes <id>` / `bb pullrequest
   remove-request-changes <id>` / `bb pullrequest decline <id>` / `bb pullrequest merge <id>` —
   the pull request id is optional on each (see the CRITICAL section above for what "omitted"
-  actually does — always pass it explicitly for these).
+  actually does — always pass it explicitly for these). `merge` additionally has its own
+  never-invoke-yourself rule below.
 - `bb pullrequest merge <id> [--message <text>] [--close-source-branch] [--merge-strategy
   merge_commit|squash|fast_forward] [--async]`. `--async` returns a task id; poll it with `bb
   pullrequest merge-status <id> --task-id <task-id>` (`<id>` optional here too, same fallback).
+  `merge` always asks an interactive `Merge pullrequest <id>? [y/N]` confirmation and has **no
+  `--force`** of any kind: piped/redirected/`/dev/null` stdin errors immediately with `cannot
+  confirm merge: ...: merging requires an interactive terminal` instead of prompting, and a real
+  or pty-backed terminal blocks waiting for a human's answer. See the MANDATORY note under
+  Pipelines below for why this means you must never run this command yourself.
 - `bb pullrequest diff <id> [--stat]`, `bb pullrequest patch <id>`, `bb pullrequest commits <id>`, `bb pullrequest activities
   <id>` — id optional on all four (same fallback as above; these are all read-only so the risk
   of the fallback here is "wrong PR shown", not an unrecoverable write). An activity kind newer
@@ -217,6 +224,13 @@ without `--force` depends on what stdin actually is:
 
 `--dry-run` also skips the prompt (and performs no write), which is the right choice when the
 goal is only to preview the request, not send it.
+
+**MANDATORY: never invoke `bb pullrequest merge` yourself.** It asks the same kind of
+interactive confirmation as `pipeline trigger`/`stop` above, but has **no `--force`** — piped or
+`/dev/null` stdin does not fall back to unattended success, it errors; a real or pty-backed
+terminal on stdin blocks your whole session waiting for a line of input nobody may ever type.
+Surface the pull request as ready to merge (its id, title, and current state) and ask the user
+to run `bb pullrequest merge` themselves instead.
 
 ### Pipeline steps — `bb pipeline step list <pipeline>` / `bb pipeline step <get|logs|report|cases> <pipeline> <step>`
 

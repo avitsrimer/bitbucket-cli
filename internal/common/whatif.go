@@ -48,8 +48,8 @@ func WhatIfPayload(cmd *cobra.Command, targetPath string, payload any, format st
 }
 
 // isDryRun reports whether cmd carries a dry-run/noop/whatif flag set to true. Shared by WhatIf
-// (which also prints the "would do X" message) and Confirm (which short-circuits before prompting,
-// leaving the caller's own WhatIf check to report the dry-run message once).
+// (which also prints the "would do X" message) and Confirm/ConfirmInteractive (which short-circuit
+// before prompting, leaving the caller's own WhatIf check to report the dry-run message once).
 func isDryRun(cmd *cobra.Command) bool {
 	for _, name := range []string{"dry-run", "noop", "whatif"} {
 		flag := cmd.Flag(name)

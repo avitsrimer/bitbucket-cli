@@ -60,12 +60,13 @@ func TestConfirmNoDeclines(t *testing.T) {
 	}
 }
 
-// poisonReader fails the test if it is ever read from, proving --force skipped the prompt entirely
-// instead of merely happening to decline it.
+// poisonReader fails the test if it is ever read from, proving a short-circuit (--force for
+// Confirm, --dry-run for either) skipped the prompt entirely instead of merely happening to
+// decline it.
 type poisonReader struct{ t *testing.T }
 
 func (p poisonReader) Read([]byte) (int, error) {
-	p.t.Fatal("Confirm read from stdin despite --force")
+	p.t.Fatal("read from stdin when the prompt should have been skipped")
 	return 0, io.EOF
 }
 
@@ -124,5 +125,135 @@ func TestConfirmNonInteractiveWithoutForceErrors(t *testing.T) {
 	}
 	if proceed {
 		t.Error("Confirm() proceed = true, want false alongside the error")
+	}
+}
+
+func TestConfirmInteractiveYesProceeds(t *testing.T) {
+	for _, answer := range []string{"y\n", "Y\n", "yes\n", "YES\n"} {
+		cmd := newConfirmCmd(t)
+		cmd.SetIn(strings.NewReader(answer))
+
+		proceed, err := common.ConfirmInteractive(cmd, "proceed?")
+		if err != nil {
+			t.Fatalf("ConfirmInteractive() error = %v, want nil", err)
+		}
+		if !proceed {
+			t.Errorf("ConfirmInteractive(%q) proceed = false, want true", answer)
+		}
+	}
+}
+
+func TestConfirmInteractiveNoDeclines(t *testing.T) {
+	for _, answer := range []string{"n\n", "no\n", "\n", "anything else\n"} {
+		cmd := newConfirmCmd(t)
+		cmd.SetIn(strings.NewReader(answer))
+
+		proceed, err := common.ConfirmInteractive(cmd, "proceed?")
+		if err != nil {
+			t.Fatalf("ConfirmInteractive() error = %v, want nil", err)
+		}
+		if proceed {
+			t.Errorf("ConfirmInteractive(%q) proceed = true, want false", answer)
+		}
+	}
+}
+
+// TestConfirmInteractiveAnswerWithoutTrailingNewlineIsNotAnError pins the predicate that
+// distinguishes a real (if unterminated) answer from an EOF-without-input non-answer:
+// strings.NewReader("y") returns ("y", io.EOF), which must proceed exactly like "y\n" does, not be
+// mistaken for nobody having answered at all.
+func TestConfirmInteractiveAnswerWithoutTrailingNewlineIsNotAnError(t *testing.T) {
+	cmd := newConfirmCmd(t)
+	cmd.SetIn(strings.NewReader("y"))
+
+	proceed, err := common.ConfirmInteractive(cmd, "proceed?")
+	if err != nil {
+		t.Fatalf("ConfirmInteractive() error = %v, want nil: an answer with no trailing newline is a real answer, not EOF-without-input", err)
+	}
+	if !proceed {
+		t.Error("ConfirmInteractive() proceed = false, want true")
+	}
+}
+
+// TestConfirmInteractiveForceFlagDoesNotSkipPrompt proves ConfirmInteractive never reads a
+// registered "force" flag at all: unlike Confirm, setting it true still prompts, and a decline
+// still declines instead of --force-style proceeding unconditionally.
+func TestConfirmInteractiveForceFlagDoesNotSkipPrompt(t *testing.T) {
+	for _, tc := range []struct {
+		answer string
+		want   bool
+	}{
+		{"y\n", true},
+		{"n\n", false},
+	} {
+		cmd := newConfirmCmd(t)
+		if err := cmd.Flags().Set("force", "true"); err != nil {
+			t.Fatalf("cannot set force flag: %v", err)
+		}
+		cmd.SetIn(strings.NewReader(tc.answer))
+
+		proceed, err := common.ConfirmInteractive(cmd, "proceed?")
+		if err != nil {
+			t.Fatalf("ConfirmInteractive() error = %v, want nil", err)
+		}
+		if proceed != tc.want {
+			t.Errorf("ConfirmInteractive(%q) with force=true, proceed = %v, want %v (a registered+set force flag must not skip the prompt)", tc.answer, proceed, tc.want)
+		}
+	}
+}
+
+func TestConfirmInteractiveNonInteractiveErrors(t *testing.T) {
+	cmd := newConfirmCmd(t)
+	r, w, pipeErr := os.Pipe()
+	if pipeErr != nil {
+		t.Fatalf("cannot create pipe: %v", pipeErr)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+	swapStdin(t, r)
+
+	proceed, err := common.ConfirmInteractive(cmd, "proceed?")
+	if err == nil {
+		t.Fatal("ConfirmInteractive() error = nil, want an error for non-interactive stdin")
+	}
+	if proceed {
+		t.Error("ConfirmInteractive() proceed = true, want false alongside the error")
+	}
+	if got, want := err.Error(), "proceed?: merging requires an interactive terminal"; got != want {
+		t.Errorf("error = %q, want %q", got, want)
+	}
+	if strings.Contains(err.Error(), "force") {
+		t.Errorf("error = %q, must not mention force: ConfirmInteractive has no bypass", err.Error())
+	}
+}
+
+func TestConfirmInteractiveEOFWithoutInputErrors(t *testing.T) {
+	cmd := newConfirmCmd(t)
+	cmd.SetIn(strings.NewReader(""))
+
+	proceed, err := common.ConfirmInteractive(cmd, "proceed?")
+	if err == nil {
+		t.Fatal("ConfirmInteractive() error = nil, want an error for EOF with no input")
+	}
+	if proceed {
+		t.Error("ConfirmInteractive() proceed = true, want false alongside the error")
+	}
+	if got, want := err.Error(), "proceed?: merging requires an interactive terminal"; got != want {
+		t.Errorf("error = %q, want %q", got, want)
+	}
+}
+
+func TestConfirmInteractiveDryRunSkipsPrompt(t *testing.T) {
+	cmd := newConfirmCmd(t)
+	if err := cmd.Flags().Set("dry-run", "true"); err != nil {
+		t.Fatalf("cannot set dry-run flag: %v", err)
+	}
+	cmd.SetIn(poisonReader{t})
+
+	proceed, err := common.ConfirmInteractive(cmd, "proceed?")
+	if err != nil {
+		t.Fatalf("ConfirmInteractive() error = %v, want nil in dry-run mode", err)
+	}
+	if !proceed {
+		t.Error("ConfirmInteractive() proceed = false, want true in dry-run mode")
 	}
 }

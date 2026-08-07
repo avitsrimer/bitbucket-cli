@@ -304,6 +304,7 @@ func TestMergeProcessSyncSuccess(t *testing.T) {
 		}
 		_, _ = w.Write([]byte(`{"id":42,"title":"Add feature"}`))
 	}, false)
+	cmd.SetIn(strings.NewReader("y\n"))
 
 	stdout := testutil.CaptureStdout(t, func() {
 		if err := mergeProcess(cmd, []string{"42"}); err != nil {
@@ -355,6 +356,7 @@ func TestMergeProcessAsyncSuccessUsesLocationHeader(t *testing.T) {
 		)
 		w.WriteHeader(http.StatusAccepted)
 	}, false)
+	cmd.SetIn(strings.NewReader("y\n"))
 
 	stdout := testutil.CaptureStdout(t, func() {
 		if err := mergeProcess(cmd, []string{"42"}); err != nil {
@@ -397,6 +399,7 @@ func TestMergeProcessAPIError(t *testing.T) {
 		w.WriteHeader(http.StatusConflict)
 		_, _ = w.Write([]byte(`{"type":"error","error":{"message":"merge conflict"}}`))
 	}, false)
+	cmd.SetIn(strings.NewReader("y\n"))
 
 	err := mergeProcess(cmd, []string{"42"})
 	if err == nil {
