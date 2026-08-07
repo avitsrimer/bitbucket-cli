@@ -135,13 +135,18 @@ positional or `--current`; given neither, it errors `argument profile is missing
   the repository's defaults. Combining `none` with any other `--reviewer` value (in any position,
   whether repeated flags or one comma-separated list) is a hard error before any write is sent
   (profile and repository resolution run first, and a repository lookup on a cache miss can still
-  issue a GET). `--reviewer all` (exactly, and alone) adds every workspace member as a reviewer,
-  excluding the current user (you cannot review your own pullrequest).
+  issue a GET). `--reviewer all` (exactly, and alone) adds every workspace member as a reviewer.
+  The current user is excluded when identifiable; with a token that cannot read the user
+  identity, Bitbucket rejects the self-review server-side instead.
 - `bb pullrequest update <id> [--title ...] [--description ... | --description-file ...]
   [--destination <branch>] [--close-source-branch] [--add-reviewer <user>]...
   [--remove-reviewer <user>]...` (aliases `edit`) — `--add-reviewer` accepts the same `default`
-  and `all` sentinels as `create`'s `--reviewer` (first/only value; both exclude the current
-  user); `--remove-reviewer` resolves neither, matching `default`/`all` literally against the
+  and `all` sentinels as `create`'s `--reviewer`, but `default` only has to be the FIRST value
+  here: `--add-reviewer default,bob` resolves the default reviewers AND still adds `bob`, unlike
+  `create`'s `--reviewer default,bob` which discards `bob`. `all` must be the ONLY value on both
+  commands. Both sentinels exclude the current user when identifiable; with a token that cannot
+  read the user identity, Bitbucket rejects the self-review server-side instead.
+  `--remove-reviewer` resolves neither, matching `default`/`all` literally against the
   pullrequest's current reviewers.
 - `bb pullrequest approve <id>` / `bb pullrequest unapprove <id>` / `bb pullrequest request-changes <id>` / `bb pullrequest
   remove-request-changes <id>` / `bb pullrequest decline <id>` / `bb pullrequest merge <id>` —
