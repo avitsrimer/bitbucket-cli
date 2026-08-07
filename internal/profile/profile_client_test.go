@@ -60,6 +60,42 @@ func (suite *ProfileSuite) TestGetAll_OriginalQueryIsPreservedForNextMissingPara
 	suite.Require().Equal("2", items[1].ID)
 }
 
+// TestGetAll_PageLengthNotDroppedWhenQueryTextContainsPagelenSubstring reproduces review-iter-8
+// finding #2: getAll's pagelen-present guard used to substring-test the WHOLE request path,
+// including the escaped q= value, for the literal text "pagelen". Every list command builds
+// user-controlled q= into the uripath passed to GetAll (pullrequest/comment/task/branch/pipeline/
+// artifact/commit list), so a query whose text happens to contain the word "pagelen" (e.g. a
+// branch search for "feature/pagelen-tuning") matched that substring test and silently dropped
+// --page-length/DefaultPageLength even though no pagelen= parameter was ever actually present.
+// After the fix, the guard checks the parsed query's actual "pagelen" KEY, so a q= value merely
+// containing the word must not suppress the append.
+func (suite *ProfileSuite) TestGetAll_PageLengthNotDroppedWhenQueryTextContainsPagelenSubstring() {
+	oldCurrent := profile.Current
+	defer func() { profile.Current = oldCurrent }()
+
+	const filter = `source.branch.name="feature/pagelen-tuning"`
+	var gotPagelen string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPagelen = r.URL.Query().Get("pagelen")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"values": []map[string]string{{"id": "1"}},
+		})
+	}))
+	defer server.Close()
+
+	apiRoot, err := url.Parse(server.URL)
+	suite.Require().NoError(err)
+	profile.Current = &profile.Profile{APIRoot: apiRoot, DefaultPageLength: 25, AccessToken: "dummy-token"}
+
+	cmd := &cobra.Command{}
+	cmd.Flags().String("profile", "", "")
+	cmd.Flags().Int("page-length", 0, "")
+	_, err = profile.GetAll[testItem](suite.Context, cmd, server.URL+"/pullrequests?q="+url.QueryEscape(filter))
+	suite.Require().NoError(err)
+	suite.Equal("25", gotPagelen, "pagelen must be appended from DefaultPageLength even though q= contains the substring \"pagelen\"")
+}
+
 // TestGetAllUnbounded_IgnoresLimitFlag is a regression test: GetAll sniffs --limit off the
 // ambient cmd, which is correct for a command's own output query but wrong for an internal
 // id-resolution query sharing that same cmd (e.g. resolving an omitted pullrequest-id before `pr

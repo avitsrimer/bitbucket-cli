@@ -205,17 +205,24 @@ func getAll[T any](ctx context.Context, cmd *cobra.Command, uripath string, hono
 
 	pageLength, limit := resolvePageLengthAndLimit(cmd, Current.DefaultPageLength, honorLimit)
 
-	if !strings.Contains(uripath, "pagelen") && pageLength > 0 {
+	// originalQuery is parsed BEFORE any pagelen= is appended below, and the presence check that
+	// guards the append reads originalQuery's actual "pagelen" query KEY, not a substring test over
+	// the whole uripath: a substring test also matches "pagelen" occurring inside the escaped q=
+	// value itself (e.g. a list command's --query containing the word "pagelen"), which silently
+	// dropped --page-length/DefaultPageLength whenever the query TEXT happened to contain that
+	// word, even though no pagelen= parameter was ever actually present.
+	originalQuery := url.Values{}
+	if parsed, parseErr := url.Parse(uripath); parseErr == nil {
+		originalQuery = parsed.Query()
+	}
+
+	if pageLength > 0 && !originalQuery.Has("pagelen") {
 		if strings.Contains(uripath, "?") {
 			uripath = fmt.Sprintf("%s&pagelen=%d", uripath, pageLength)
 		} else {
 			uripath = fmt.Sprintf("%s?pagelen=%d", uripath, pageLength)
 		}
-	}
-
-	originalQuery := url.Values{}
-	if parsed, parseErr := url.Parse(uripath); parseErr == nil {
-		originalQuery = parsed.Query()
+		originalQuery.Set("pagelen", strconv.Itoa(pageLength))
 	}
 
 	if limit > 0 {

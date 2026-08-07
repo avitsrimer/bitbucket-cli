@@ -367,13 +367,18 @@ When you use a user/password, the password is stored in the vault of the operati
 
 > [!NOTE]
 > `bb profile list`/`bb profile get` mask the access token in table/csv/tsv output (a masked
-> placeholder even under the explicit `--columns accesstoken`), but an EXPLICIT `-o json`/`-o yaml`
-> on the command line intentionally shows it in full -- that's the supported way to script
-> retrieval of a stored token. A profile merely configured with `outputformat: json`/`yaml` in its
-> config file does NOT trigger this on its own: a bare `bb profile list`/`bb profile get` (no `-o`
-> flag at all) never loads or shows any secret, regardless of what the profile's own output format
-> is set to. `client-secret` and `password` have no `--columns` value at all, so they never appear
-> in table/csv/tsv output regardless.
+> placeholder even under the explicit `--columns accesstoken`). The token is shown in full only
+> when `-o json`/`-o yaml` is passed EXPLICITLY on the command line -- that's the supported way to
+> script retrieval of a stored token. Neither a profile configured with `outputformat: json`/`yaml`
+> in its config file nor the `BB_OUTPUT_FORMAT` environment variable set to `json`/`yaml` triggers
+> this on its own: both only supply a *default* for `-o`, and this gate only fires when `-o`/
+> `--output` was actually passed on the command line -- a bare `bb profile list`/`bb profile get`
+> (no `-o` flag at all) never loads or shows any secret, regardless of what the profile's own
+> output format or `BB_OUTPUT_FORMAT` is set to. `bb profile get --current` is an exception in the
+> other direction: it prints the already-loaded current profile without ever reaching this gate, so
+> it never shows the access token in full even with an explicit `-o json`/`-o yaml`. `client-secret`
+> and `password` have no `--columns` value at all, so they never appear in table/csv/tsv output
+> regardless.
 
 You can get the list of your profiles with the `bb profile list` command:
 
