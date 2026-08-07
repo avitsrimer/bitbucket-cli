@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
+	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
-	"github.com/gildas/go-core"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -50,8 +50,8 @@ func GetWorkspaceAllowedSlugs(ctx context.Context, cmd *cobra.Command, _ []strin
 		return nil, err
 	}
 	lgr.Printf("[DEBUG] found %d workspaces", len(workspaces))
-	core.Sort(workspaces, func(a, b Workspace) bool {
+	common.Sort(workspaces, func(a, b Workspace) bool {
 		return strings.ToLower(a.Slug) < strings.ToLower(b.Slug)
 	})
-	return core.Map(workspaces, func(workspace Workspace) string { return workspace.Slug }), nil
+	return common.Map(workspaces, func(workspace Workspace) string { return workspace.Slug }), nil
 }

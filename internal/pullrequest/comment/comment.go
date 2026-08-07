@@ -14,7 +14,6 @@ import (
 	prcommon "github.com/avitsrimer/bitbucket-cli/internal/pullrequest/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
-	"github.com/gildas/go-core"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -364,7 +363,7 @@ func GetPullRequestCommentIDs(ctx context.Context, cmd *cobra.Command, pullReque
 		lgr.Printf("[ERROR] failed to get pullrequests: %v", err)
 		return nil, err
 	}
-	ids = core.Map(comments, func(comment Comment) string { return strconv.Itoa(comment.ID) })
+	ids = common.Map(comments, func(comment Comment) string { return strconv.Itoa(comment.ID) })
 	return ids, nil
 }
 

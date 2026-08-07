@@ -8,8 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"time"
-
-	"github.com/gildas/go-core"
 )
 
 // Cache is a persistent, TTL-based, on-disk cache.
@@ -66,7 +64,7 @@ func userCacheDir() string {
 // NewCache.
 func (cache *Cache[T]) resolveExpiration() time.Duration {
 	if cache.envExpiration {
-		return core.GetEnvAsDuration("BITBUCKET_CLI_CACHE_DURATION", 5*time.Minute)
+		return GetEnvAsDuration("BITBUCKET_CLI_CACHE_DURATION", 5*time.Minute)
 	}
 	return cache.expiration
 }

@@ -10,7 +10,6 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
-	"github.com/gildas/go-core"
 	"github.com/spf13/cobra"
 )
 
@@ -91,7 +90,7 @@ func GetArtifactNames(ctx context.Context, cmd *cobra.Command) (names []string, 
 	if err != nil {
 		return nil, fmt.Errorf("cannot get artifacts: %w", err)
 	}
-	names = core.Map(artifacts, func(artifact Artifact) string { return artifact.Name })
-	core.Sort(names, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
+	names = common.Map(artifacts, func(artifact Artifact) string { return artifact.Name })
+	common.Sort(names, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
 	return names, nil
 }

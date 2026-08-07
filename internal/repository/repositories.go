@@ -6,9 +6,9 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/avitsrimer/bitbucket-cli/internal/workspace"
-	"github.com/gildas/go-core"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -83,8 +83,8 @@ func GetRepositorySlugs(ctx context.Context, cmd *cobra.Command) (slugs []string
 		return nil, err
 	}
 	lgr.Printf("[DEBUG] found %d repositories", len(repositories))
-	core.Sort(repositories, func(a, b Repository) bool {
+	common.Sort(repositories, func(a, b Repository) bool {
 		return strings.ToLower(a.Slug) < strings.ToLower(b.Slug)
 	})
-	return core.Map(repositories, func(repository Repository) string { return repository.Slug }), nil
+	return common.Map(repositories, func(repository Repository) string { return repository.Slug }), nil
 }

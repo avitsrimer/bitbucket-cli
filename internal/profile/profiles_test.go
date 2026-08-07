@@ -77,7 +77,7 @@ func (suite *ProfileSuite) TestLoadParsesTestdataConfigYAMLProfilesIdentically()
 
 // TestGetProfileFromCommandHonorsBBProfileEnvironmentVariable reproduces the profile-selection half
 // of major finding #7: the "--profile" flag's default value is populated from BB_PROFILE
-// (core.GetEnvAsString("BB_PROFILE", "")) at the root command's package-init time, before main()
+// (common.GetEnvAsString("BB_PROFILE", "")) at the root command's package-init time, before main()
 // has had a chance to load a .env file, so a BB_PROFILE set only via .env was invisible to that
 // baked default -- and GetProfileFromCommand only ever consulted the flag's value when Changed was
 // true, which a flag holding only its default value never is. GetProfileFromCommand must fall back

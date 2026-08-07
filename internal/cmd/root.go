@@ -16,7 +16,6 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
 	"github.com/avitsrimer/bitbucket-cli/internal/workspace"
-	"github.com/gildas/go-core"
 	"github.com/spf13/cobra"
 )
 
@@ -61,9 +60,9 @@ func init() {
 
 	// Global flags
 	CmdOptions.Workspace = common.NewEnumFlagWithFunc("", workspace.GetWorkspaceAllowedSlugs)
-	CmdOptions.OutputFormat = common.EnumFlag{Allowed: []string{"csv", "json", "yaml", "table", "tsv"}, Value: core.GetEnvAsString("BB_OUTPUT_FORMAT", "")}
-	RootCmd.PersistentFlags().String("config", core.GetEnvAsString("BB_CONFIG", ""), "config file, also read from BB_CONFIG (default is "+filepath.Join(configDir, "bitbucket", "config-cli.yml")+")")
-	RootCmd.PersistentFlags().StringP("profile", "p", core.GetEnvAsString("BB_PROFILE", ""), "Profile to use. Overrides the default profile")
+	CmdOptions.OutputFormat = common.EnumFlag{Allowed: []string{"csv", "json", "yaml", "table", "tsv"}, Value: common.GetEnvAsString("BB_OUTPUT_FORMAT", "")}
+	RootCmd.PersistentFlags().String("config", common.GetEnvAsString("BB_CONFIG", ""), "config file, also read from BB_CONFIG (default is "+filepath.Join(configDir, "bitbucket", "config-cli.yml")+")")
+	RootCmd.PersistentFlags().StringP("profile", "p", common.GetEnvAsString("BB_PROFILE", ""), "Profile to use. Overrides the default profile")
 	RootCmd.PersistentFlags().Var(CmdOptions.Workspace, "workspace", "Workspace to use. Overrides the default workspace of the profile. \nBy default, the workspace is determined from the git or profile configuration")
 	RootCmd.PersistentFlags().String("repository", "", "Repository to use. Overrides the default repository of the profile. \nBy default, the repository is determined from the git configuration")
 	RootCmd.PersistentFlags().Bool("dry-run", false, "Dry run, the command will not modify anything but tell what it would do. \nAlso known as --noop or --whatif")

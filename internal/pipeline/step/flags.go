@@ -10,7 +10,6 @@ import (
 	plcommon "github.com/avitsrimer/bitbucket-cli/internal/pipeline/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
-	"github.com/gildas/go-core"
 	"github.com/spf13/cobra"
 )
 
@@ -87,7 +86,7 @@ func getStepNamesAndIDs(ctx context.Context, cmd *cobra.Command, pipelineID stri
 			names = append(names, name)
 		}
 	}
-	ids := core.Map(steps, func(step Step) string { return step.ID.String() })
+	ids := common.Map(steps, func(step Step) string { return step.ID.String() })
 	return append(names, ids...), nil
 }
 
@@ -144,7 +143,7 @@ func resolveStepID(ctx context.Context, cmd *cobra.Command, repo *repository.Rep
 		}
 		return "", fmt.Errorf("no step named %q found for pipeline %s; available step names: %s", stepArg, pipelineID, strings.Join(names, ", "))
 	default:
-		candidates := core.Map(matches, func(step Step) string { return fmt.Sprintf("%s (%s)", step.Name, step.ID.String()) })
+		candidates := common.Map(matches, func(step Step) string { return fmt.Sprintf("%s (%s)", step.Name, step.ID.String()) })
 		return "", fmt.Errorf("step name %q is ambiguous for pipeline %s (candidates: %s); pass a UUID instead", stepArg, pipelineID, strings.Join(candidates, ", "))
 	}
 }

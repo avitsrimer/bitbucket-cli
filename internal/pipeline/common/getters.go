@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
-	"github.com/gildas/go-core"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -42,7 +42,7 @@ func GetPipelineIDs(ctx context.Context, cmd *cobra.Command, args []string, toCo
 		return []string{}, err
 	}
 
-	ids = core.Map(pipelines, func(pipeline PipelineID) string { return strconv.FormatUint(pipeline.ID, 10) })
-	core.Sort(ids, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
+	ids = common.Map(pipelines, func(pipeline PipelineID) string { return strconv.FormatUint(pipeline.ID, 10) })
+	common.Sort(ids, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
 	return ids, nil
 }

@@ -1027,8 +1027,8 @@ func getWorkspaceSlugs(context context.Context, cmd *cobra.Command, args []strin
 		return []string{}, err
 	}
 	lgr.Printf("[DEBUG] found %d workspaces", len(workspaces))
-	slugs = core.Map(workspaces, func(workspace Workspace) string { return workspace.Workspace.Slug })
-	core.Sort(slugs, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
+	slugs = common.Map(workspaces, func(workspace Workspace) string { return workspace.Workspace.Slug })
+	common.Sort(slugs, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
 	return slugs, nil
 }
 
@@ -1050,8 +1050,8 @@ func getProjectKeys(context context.Context, cmd *cobra.Command, args []string, 
 		lgr.Printf("[ERROR] failed to get projects: %v", err)
 		return
 	}
-	keys = core.Map(projects, func(project Project) string { return project.Key })
-	core.Sort(keys, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
+	keys = common.Map(projects, func(project Project) string { return project.Key })
+	common.Sort(keys, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
 	return keys, nil
 }
 

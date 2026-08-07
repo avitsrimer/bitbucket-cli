@@ -54,7 +54,7 @@ func TestListProcessDefaultPreservesFetchOrder(t *testing.T) {
 }
 
 // TestListProcessSortFlagChangedSorts proves --sort actually selects the comparator
-// core.Sort runs: reading it via common.SortFlagValue(cmd) (cmd's own --sort flag, not a
+// common.Sort runs: reading it via common.SortFlagValue(cmd) (cmd's own --sort flag, not a
 // package-level SortBy.Value binding that is only ever populated on the real command) means
 // the process sorts identically whether cmd is the real command or, as here, a standalone
 // test command carrying its own --sort flag.

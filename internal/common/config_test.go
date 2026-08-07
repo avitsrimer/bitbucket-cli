@@ -44,7 +44,7 @@ func TestConfigPath(t *testing.T) {
 
 	// This proves BB_CONFIG is honored even when supplied only as the flag's default value: on
 	// the real root command the flag's *default* value is populated from BB_CONFIG
-	// (core.GetEnvAsString("BB_CONFIG", "")), which never marks the flag as Changed, so ConfigPath
+	// (common.GetEnvAsString("BB_CONFIG", "")), which never marks the flag as Changed, so ConfigPath
 	// must read the flag's current value directly rather than checking Changed("config").
 	t.Run("honors BB_CONFIG supplied only as the flag's default value", func(t *testing.T) {
 		cmd := &cobra.Command{Use: "test"}

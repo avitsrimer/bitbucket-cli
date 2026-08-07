@@ -52,7 +52,7 @@ func TestListProcessDefaultPreservesExecutionOrder(t *testing.T) {
 	}
 }
 
-// TestListProcessSortFlagChangedSorts proves --sort actually selects the comparator core.Sort
+// TestListProcessSortFlagChangedSorts proves --sort actually selects the comparator common.Sort
 // runs, not just the column table's DefaultSorter ("id"): the fixture's id order and name order
 // deliberately disagree (the alphabetically-later "zulu-step" carries the lexically-smaller uuid,
 // and vice versa for "alpha-step"), so sorting by the explicitly requested "name" produces a

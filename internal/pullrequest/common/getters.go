@@ -9,7 +9,6 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
-	"github.com/gildas/go-core"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -48,8 +47,8 @@ func GetPullRequestIDsFromRepositoryWithState(context context.Context, cmd *cobr
 		return []string{}, err
 	}
 
-	ids = core.Map(pullrequests, func(pullrequest PullRequestID) string { return strconv.Itoa(pullrequest.ID) })
-	core.Sort(ids, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
+	ids = common.Map(pullrequests, func(pullrequest PullRequestID) string { return strconv.Itoa(pullrequest.ID) })
+	common.Sort(ids, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
 	return ids, nil
 }
 
