@@ -64,10 +64,18 @@ time. `--default-workspace` is also available on both, but only `profile update
 --default-workspace` validates the value against the workspace list (which needs
 `read:workspace`); `profile create --default-workspace` stores whatever string you give it
 unvalidated, so a scoped-down token that lacks `read:workspace` can still set it at create time.
-`bb profile list`/`bb profile get` mask stored secrets in table/csv/tsv output unconditionally;
-the value is shown in full only with an EXPLICIT `-o json` or `-o yaml` on that command line.
-`bb profile get <profile-name>` requires either the name positional or `--current`; given
-neither, it errors `argument profile is missing`.
+`bb profile list`/`bb profile get` mask stored secrets in table/csv/tsv output unconditionally.
+For json/yaml output, the EXPLICIT `-o json`/`-o yaml` gate on that command line only controls
+whether the command *fetches* a vault-provenance secret to show it — a secret that is already
+sitting in memory for another reason renders in ANY json/yaml output regardless of how that
+format was chosen (an explicit `-o`, a profile-configured `outputFormat`, or `BB_OUTPUT_FORMAT`).
+That's the case for a profile created with `--no-vault` (its secret lives in plaintext in the
+config file and loads into memory the moment the profile is read, with no vault fetch involved)
+and for a profile whose vault store failed at creation/update time and fell back to plaintext.
+The one exception is `bb profile get --current`: it prints the already-resolved current profile
+without ever reaching the json/yaml secret gate, so it never shows the secret in full even with
+an explicit `-o json`/`-o yaml`. `bb profile get <profile-name>` requires either the name
+positional or `--current`; given neither, it errors `argument profile is missing`.
 
 ## Workspaces, repositories, branches, commits
 
@@ -99,7 +107,9 @@ neither, it errors `argument profile is missing`.
   is repeatable and defaults to `open` alone when omitted; `all` fetches every state. `--commit`
   is mutually exclusive with `--state`/`--query`/`--source`/`--destination`.
 - `bb pullrequest get <id>` (aliases `show`, `info`, `display`) — the id is REQUIRED here (no
-  fallback — unlike every command in the next two bullets). Participants (per-reviewer approval
+  fallback — unlike approve/unapprove/request-changes/remove-request-changes/decline/merge/
+  merge-status/diff/patch/commits/activities below; see the CRITICAL section above for what
+  their fallback does). Participants (per-reviewer approval
   state) are NOT in the default columns on `get` OR `list`. Always add `--columns
   participants` (or `-o json`/`-o yaml`, which include the full participant objects
   regardless of `--columns`) when the user's request is about who has/hasn't approved.
@@ -107,12 +117,18 @@ neither, it errors `argument profile is missing`.
   <user>]... [--description <text> | --description-file <path-or-->] [--draft]
   [--close-source-branch]` — `--title` and `--source` are required; `--destination` is
   optional (Bitbucket defaults it to the repository's main branch server-side when omitted).
-  At most one of `--description`/`--description-file`. A `--reviewer` list whose FIRST value is
-  `default` pulls the repository/project's default reviewers instead — and any further
-  `--reviewer` values after that first `default` are silently discarded (they are ONLY read when
-  the first value is not `default`), so never mix `default` with real reviewers in one command.
+  At most one of `--description`/`--description-file`. Default reviewers are pulled from the
+  repository/project settings whenever `--reviewer` is either omitted entirely OR given with
+  `default` as its FIRST value; any further `--reviewer` values after that first `default` are
+  silently discarded (they are ONLY read when the first value is not `default`), so never mix
+  `default` with real reviewers in one command. A failure to resolve the default reviewers hard-
+  fails the command when `--reviewer default` was given explicitly, but when `--reviewer` was
+  omitted (the fallback fired implicitly) the same failure instead follows the usual
+  `--warn-on-error`/`--ignore-errors` tolerance — the pullrequest is still created, just with no
+  reviewers, since the caller never asked for any.
 - `bb pullrequest update <id> [--title ...] [--description ... | --description-file ...]
-  [--add-reviewer <user>]... [--remove-reviewer <user>]...`
+  [--destination <branch>] [--close-source-branch] [--add-reviewer <user>]...
+  [--remove-reviewer <user>]...` (aliases `edit`)
 - `bb pullrequest approve <id>` / `bb pullrequest unapprove <id>` / `bb pullrequest request-changes <id>` / `bb pullrequest
   remove-request-changes <id>` / `bb pullrequest decline <id>` / `bb pullrequest merge <id>` —
   the pull request id is optional on each (see the CRITICAL section above for what "omitted"
@@ -152,7 +168,8 @@ flag anywhere in this subtree.
   `--file` must name a path the pull request's own diff actually touches (validated against
   the diffstat even under `--dry-run`), not an arbitrary local file.
 - `bb pullrequest comment update <pr-id> <comment-id> (--comment <text> | --comment-file
-  <path-or-->)` (aliases `edit`)
+  <path-or-->) [--file <path-in-diff> [(--line <n> | --from <n> [--to <n>])]] [--pending]
+  [--parent <comment-id>]` (aliases `edit`) — same flag set as `create` above.
 - `bb pullrequest comment delete <pr-id> <comment-id>...` (aliases `remove`, `rm`)
 - `bb pullrequest comment resolve <pr-id> <comment-id>`
 - `bb pullrequest comment reopen <pr-id> <comment-id>`
@@ -163,7 +180,8 @@ Same shape as comments: pull request id is the required first positional, no `--
 
 - `bb pullrequest task list <pr-id>`
 - `bb pullrequest task get <pr-id> <task-id>`
-- `bb pullrequest task create <pr-id> --content <text> [--comment <comment-id>]` (aliases `add`, `new`)
+- `bb pullrequest task create <pr-id> --content <text> [--comment <comment-id>] [--pending]`
+  (aliases `add`, `new`)
 - `bb pullrequest task update <pr-id> <task-id> [--content <text>] [--state RESOLVED|UNRESOLVED]`
   (aliases `edit`) — set `--state RESOLVED` to complete a task, `UNRESOLVED` to reopen it.
 - `bb pullrequest task delete <pr-id> <task-id>...` (aliases `remove`, `rm`)
