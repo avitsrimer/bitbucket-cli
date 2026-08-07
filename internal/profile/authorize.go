@@ -35,10 +35,6 @@ func init() {
 func authorizeProcess(cmd *cobra.Command, args []string) (err error) {
 	ctx := cmd.Context()
 
-	if len(args) == 0 {
-		return errors.New("argument profile is missing")
-	}
-
 	_, err = GetProfileFromCommand(ctx, cmd)
 	if errors.Is(err, ErrNoProfiles) || len(Profiles) == 0 {
 		return errors.New("no profiles found")
