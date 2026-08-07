@@ -134,7 +134,7 @@ flag anywhere in this subtree.
 - `bb pullrequest comment list <pr-id>`
 - `bb pullrequest comment get <pr-id> <comment-id>`
 - `bb pullrequest comment create <pr-id> (--comment <text> | --comment-file <path-or-->) [--file
-  <path-in-diff> (--line <n> | --from <n> [--to <n>])] [--pending] [--parent <comment-id>]`
+  <path-in-diff> [(--line <n> | --from <n> [--to <n>])]] [--pending] [--parent <comment-id>]`
   (aliases `add`, `new`). `--comment` and `--comment-file` are mutually exclusive and exactly one
   is required. `--line` is a plain alias for `--from` (same underlying value, mutually exclusive
   with `--from` itself); `--to` pairs with `--from` only — it is mutually exclusive with `--line`,
@@ -254,18 +254,14 @@ build-time output).
     would also need — then print the resolved API path and, when there is a request body, its
     JSON payload to stderr, and skip only the final write. A `--dry-run` against a nonexistent
     id still fails exactly like the real command would; it never fabricates a success line.
-  - Read commands (`get`/`list`/`diff`/`patch`/`commits`/`logs`/`report`/`cases`/...) always skip
-    the main/final request under `--dry-run`, printing just a "Dry run: <description>" line on
-    stderr instead — but most of them still resolve their target (repository lookup, PR id
-    lookup) BEFORE that dry-run check, and that resolution is a real GET. Only `pipeline list`,
-    `artifact list`, `commit list`, `branch list`, and `commit diff`/`patch` check dry-run before
-    touching the network at all. Everything else — `pullrequest get`/`diff`/`patch`/`commits`/
-    `activities`, `commit get`, `pipeline get`, `pipeline step get`/`list`/`logs`/`report`/
-    `cases`, `repo get`, `workspace get`, `pullrequest comment list` — resolves the repository
-    (and, where relevant, the pull request id) via a real request first, so `--dry-run` does not
-    guarantee zero network traffic for them. `commit get` goes further still: with no argument or
-    a valid ref it fetches the actual commit before the dry-run gate, not just the repository.
-    `bb commit get <bad-hash> --dry-run` still returns a real 404 from that resolution.
+  - `--dry-run` guarantees no write/mutating request is ever sent. On read commands
+    (`get`/`list`/`diff`/`patch`/`commits`/`logs`/`report`/`cases`/...) it skips the main/final
+    request, printing just a "Dry run: <description>" line on stderr instead — but do not rely on
+    it for zero network traffic. Depending on the command, target resolution (repository lookup,
+    PR id lookup, or even fetching the resource itself) may still run BEFORE the dry-run check and
+    issue real GETs, and caching may skip some of those. A `--dry-run` against a nonexistent id can
+    still fail with a real error from that resolution. To validate inputs without side effects,
+    prefer running the real read command (reads are safe) over read+`--dry-run`.
 - **Workspace/repository resolution** for every command follows the same order: the
   `--workspace`/`--repository` flag, then a Bitbucket git remote in the current directory,
   then the profile's `--default-workspace`/`--default-repository`. `--repository` (or

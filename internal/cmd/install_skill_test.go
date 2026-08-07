@@ -20,7 +20,7 @@ import (
 func newInstallSkillTestCmd() (cmd *cobra.Command, out *bytes.Buffer) {
 	out = &bytes.Buffer{}
 	cmd = &cobra.Command{Use: "install-skill", RunE: installSkillProcess}
-	cmd.Flags().String("to", "", "path to a .claude folder (default ~/.claude)")
+	cmd.Flags().String("to", "", "path to a .claude folder (default $CLAUDE_CONFIG_DIR or ~/.claude)")
 	cmd.Flags().Bool("dry-run", false, "")
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
@@ -181,11 +181,26 @@ func TestInstallSkillToFlagHonored(t *testing.T) {
 func TestInstallSkillDefaultsToHomeClaude(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	cmd, _ := newInstallSkillTestCmd()
 
 	require.NoError(t, cmd.RunE(cmd, nil))
 
 	assert.FileExists(t, filepath.Join(home, ".claude", "skills", "bitbucket-cli", "SKILL.md"))
+}
+
+func TestInstallSkillDefaultsToClaudeConfigDirWhenSet(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	configDir := filepath.Join(t.TempDir(), "custom-config-dir")
+	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+	cmd, _ := newInstallSkillTestCmd()
+
+	require.NoError(t, cmd.RunE(cmd, nil))
+
+	assert.FileExists(t, filepath.Join(configDir, "skills", "bitbucket-cli", "SKILL.md"))
+	_, err := os.Stat(filepath.Join(home, ".claude"))
+	assert.True(t, os.IsNotExist(err), "CLAUDE_CONFIG_DIR set should mean ~/.claude is never touched")
 }
 
 func TestInstallSkillDryRunWritesNothing(t *testing.T) {

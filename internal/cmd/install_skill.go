@@ -27,7 +27,8 @@ var installSkillCmd = &cobra.Command{
 	Use:   "install-skill [flags]",
 	Short: "install the bitbucket-cli Claude skill",
 	Long: "Write the embedded bitbucket-cli Claude skill to <to>/skills/bitbucket-cli, defaulting " +
-		"to ~/.claude when --to is unset. Re-running always overwrites the destination directory " +
+		"to $CLAUDE_CONFIG_DIR (or ~/.claude if that's unset) when --to is unset. Re-running always " +
+		"overwrites the destination directory " +
 		"wholesale -- any files added under it since the last install are deleted along with it, " +
 		"not merged -- so re-installs are idempotent and pick up whatever skill content shipped " +
 		"with this build of bb. Supports --dry-run: it reports the destination it would write to " +
@@ -38,14 +39,83 @@ var installSkillCmd = &cobra.Command{
 }
 
 func init() {
-	installSkillCmd.Flags().String("to", "", "path to a .claude folder (default ~/.claude)")
+	installSkillCmd.Flags().String("to", "", "path to a .claude folder (default $CLAUDE_CONFIG_DIR or ~/.claude)")
 	_ = installSkillCmd.MarkFlagDirname("to")
 	installSkillCmd.SetHelpFunc(common.HideUnsupportedFlags(installSkillUnsupportedFlags...))
 }
 
-// installSkillProcess resolves --to (defaulting to os.UserHomeDir()/.claude), then writes the
-// embedded skill tree to <to>/skills/bitbucket-cli, replacing any existing content there so
-// re-installs are idempotent.
+// defaultInstallSkillTo resolves the --to default: $CLAUDE_CONFIG_DIR when set (matching the
+// personal-projects workflow of launching Claude Code with CLAUDE_CONFIG_DIR pointed at a
+// non-default config directory), otherwise os.UserHomeDir()/.claude.
+func defaultInstallSkillTo() (string, error) {
+	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
+		return dir, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home dir: %w", err)
+	}
+	return filepath.Join(home, ".claude"), nil
+}
+
+// dirMode is the permission every directory this command creates ends up with: rwxr-x---.
+const dirMode = 0o750
+
+// chmodDir forces path to dirMode right after it was freshly created: Mkdir/MkdirAll's mode
+// argument is masked by the process umask when the directory doesn't already exist, so a
+// restrictive umask (e.g. 077) would otherwise silently produce narrower directory permissions
+// than intended. Only ever call this on a directory this process just created -- never on one
+// that may have pre-existed with deliberately different permissions.
+func chmodDir(path string) error {
+	if err := os.Chmod(path, dirMode); err != nil {
+		return fmt.Errorf("chmod %s: %w", path, err)
+	}
+	return nil
+}
+
+// ensureSkillsDir creates skillsDir (and any missing parents) if it doesn't already exist. A
+// freshly created directory is chmod'd to dirMode to stay deterministic under a restrictive
+// umask; a pre-existing skillsDir is left exactly as found, so a caller-managed <to>/skills with
+// deliberately different permissions is never overwritten by an install.
+func ensureSkillsDir(skillsDir string) error {
+	existed := true
+	if _, statErr := os.Stat(skillsDir); os.IsNotExist(statErr) {
+		existed = false
+	}
+	if err := os.MkdirAll(skillsDir, dirMode); err != nil {
+		return fmt.Errorf("create skills dir %s: %w", skillsDir, err)
+	}
+	if !existed {
+		if err := chmodDir(skillsDir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// stageSkillTree creates a fresh, empty staging directory under skillsDir and returns its path.
+// The directory os.MkdirTemp hands back is immediately reset and recreated at dirMode (rather
+// than the 0o700 MkdirTemp always uses) so it matches every subdirectory created under it below.
+func stageSkillTree(skillsDir string) (staged string, err error) {
+	staged, err = os.MkdirTemp(skillsDir, ".bitbucket-cli-tmp-*")
+	if err != nil {
+		return "", fmt.Errorf("create staging dir: %w", err)
+	}
+	if err = os.RemoveAll(staged); err != nil {
+		return "", fmt.Errorf("reset staging dir %s: %w", staged, err)
+	}
+	if err = os.Mkdir(staged, dirMode); err != nil {
+		return "", fmt.Errorf("create staging dir %s: %w", staged, err)
+	}
+	if err := chmodDir(staged); err != nil {
+		return "", err
+	}
+	return staged, nil
+}
+
+// installSkillProcess resolves --to (defaulting to $CLAUDE_CONFIG_DIR or os.UserHomeDir()/.claude),
+// then writes the embedded skill tree to <to>/skills/bitbucket-cli, replacing any existing content
+// there so re-installs are idempotent.
 //
 // The embedded tree is staged into a temporary sibling directory first and only swapped into
 // place (via os.RemoveAll of the old dest followed by os.Rename of the staging directory) once
@@ -56,11 +126,11 @@ func init() {
 func installSkillProcess(cmd *cobra.Command, _ []string) error {
 	to := common.StringFlagValue(cmd, "to")
 	if to == "" {
-		home, err := os.UserHomeDir()
+		var err error
+		to, err = defaultInstallSkillTo()
 		if err != nil {
-			return fmt.Errorf("resolve home dir: %w", err)
+			return err
 		}
-		to = filepath.Join(home, ".claude")
 	}
 	skillsDir := filepath.Join(to, "skills")
 	dest := filepath.Join(skillsDir, skillName)
@@ -69,25 +139,15 @@ func installSkillProcess(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	if err := os.MkdirAll(skillsDir, 0o750); err != nil {
-		return fmt.Errorf("create skills dir %s: %w", skillsDir, err)
+	if err := ensureSkillsDir(skillsDir); err != nil {
+		return err
 	}
 
-	// os.MkdirTemp only exists here to hand out a guaranteed-unique name under skillsDir; the
-	// directory it creates (always mode 0o700) is immediately replaced by an os.Mkdir at that
-	// same name so the staged tree's root ends up 0o750, matching every subdirectory MkdirAll
-	// creates under it below.
-	staged, err := os.MkdirTemp(skillsDir, ".bitbucket-cli-tmp-*")
+	staged, err := stageSkillTree(skillsDir)
 	if err != nil {
-		return fmt.Errorf("create staging dir: %w", err)
+		return err
 	}
 	defer func() { _ = os.RemoveAll(staged) }() // no-op once the rename below has moved staged to dest
-	if err = os.RemoveAll(staged); err != nil {
-		return fmt.Errorf("reset staging dir %s: %w", staged, err)
-	}
-	if err = os.Mkdir(staged, 0o750); err != nil {
-		return fmt.Errorf("create staging dir %s: %w", staged, err)
-	}
 
 	err = fs.WalkDir(skill.Files, skillName, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -96,8 +156,11 @@ func installSkillProcess(cmd *cobra.Command, _ []string) error {
 		rel := path[len(skillName):]
 		target := filepath.Join(staged, filepath.FromSlash(rel))
 		if d.IsDir() {
-			if mkErr := os.MkdirAll(target, 0o750); mkErr != nil {
+			if mkErr := os.MkdirAll(target, dirMode); mkErr != nil {
 				return fmt.Errorf("create dir %s: %w", target, mkErr)
+			}
+			if chmodErr := chmodDir(target); chmodErr != nil {
+				return chmodErr
 			}
 			return nil
 		}

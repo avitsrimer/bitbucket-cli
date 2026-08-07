@@ -29,6 +29,10 @@ func init() {
 }
 
 func meProcess(cmd *cobra.Command, args []string) (err error) {
+	if !common.WhatIf(cmd, "Showing current user") {
+		return nil
+	}
+
 	if meOptions.Emails {
 		emails, emailsErr := profile.GetAll[Email](cmd.Context(), cmd, "/user/emails")
 		if emailsErr != nil {
