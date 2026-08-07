@@ -92,8 +92,12 @@ internal/artifact/        # bb artifact list/download
 internal/cmd/install_skill.go # bb install-skill: writes skill.Files to <to>/skills/bitbucket-cli
 skill/                    # embed.go (package skill, //go:embed bitbucket-cli, Files embed.FS)
                            # + bitbucket-cli/SKILL.md, the Claude skill bb install-skill writes.
-                           # Lives at the repo root, not under internal/, so the embed package
-                           # stays importable by internal/cmd without an import cycle. SKILL.md is
+                           # Lives at the repo root, not under internal/ (no import cycle is
+                           # possible either way -- skill has no dependency on internal/cmd to
+                           # cycle back through). The real constraints are go:embed's own-
+                           # package-directory rule (the embedded tree must sit under skill's own
+                           # directory) and internal/'s visibility rule, which would otherwise
+                           # confine the package to importers inside this module. SKILL.md is
                            # documentation shipped inside the binary: update it in the same PR as
                            # any change to a documented command/flag, or it goes stale silently
                            # (a sync-guard test in internal/cmd catches a renamed/removed command

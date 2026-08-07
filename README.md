@@ -375,18 +375,22 @@ When you use a user/password, the password is stored in the vault of the operati
 
 > [!NOTE]
 > `bb profile list`/`bb profile get` mask the access token in table/csv/tsv output (a masked
-> placeholder even under the explicit `--columns accesstoken`). The token is shown in full only
-> when `-o json`/`-o yaml` is passed EXPLICITLY on the command line -- that's the supported way to
-> script retrieval of a stored token. Neither a profile configured with `outputformat: json`/`yaml`
-> in its config file nor the `BB_OUTPUT_FORMAT` environment variable set to `json`/`yaml` triggers
-> this on its own: both only supply a *default* for `-o`, and this gate only fires when `-o`/
-> `--output` was actually passed on the command line -- a bare `bb profile list`/`bb profile get`
-> (no `-o` flag at all) never loads or shows any secret, regardless of what the profile's own
-> output format or `BB_OUTPUT_FORMAT` is set to. `bb profile get --current` is an exception in the
-> other direction: it prints the already-loaded current profile without ever reaching this gate, so
-> it never shows the access token in full even with an explicit `-o json`/`-o yaml`. `client-secret`
-> and `password` have no `--columns` value at all, so they never appear in table/csv/tsv output
-> regardless.
+> placeholder even under the explicit `--columns accesstoken`). For json/yaml output, the
+> EXPLICIT `-o json`/`-o yaml` gate on that command line only controls whether the command
+> *fetches* a vault-provenance secret to show it -- that's the supported way to script retrieval
+> of a token stored in the vault. It does not gate secrets by any other route: a secret that is
+> already sitting in memory for another reason renders in ANY json/yaml output regardless of how
+> that format was chosen (an explicit `-o`, a profile-configured `outputformat`, or
+> `BB_OUTPUT_FORMAT`). That's the case for a profile created with `--no-vault` (its secret lives
+> in plaintext in the config file and loads into memory the moment the profile is read, with no
+> vault fetch involved) and for a profile whose vault store failed at creation/update time and
+> fell back to plaintext -- for those, a bare `bb profile list`/`bb profile get` combined with a
+> profile-configured `outputformat: json`/`yaml` or `BB_OUTPUT_FORMAT=json`/`yaml` renders the
+> secret in full even with no `-o` flag on the command line at all. `bb profile get --current`
+> skips the vault fetch too, so a VAULT-backed profile's secret stays absent from `--current`
+> output -- but the same plaintext-secret profiles above render in full there as well, since
+> their secret is already in memory with no vault fetch needed. `client-secret` and `password`
+> have no `--columns` value at all, so they never appear in table/csv/tsv output regardless.
 
 You can get the list of your profiles with the `bb profile list` command:
 
@@ -669,7 +673,14 @@ bb pullrequest create \
   --reviewer    username1 --reviewer {userUUID2}
 ```
 
-If the first reviewer is `default`, the command will try to get the default reviewers from the project settings.
+Default reviewers are pulled from the repository/project's effective default-reviewers setting
+whenever `--reviewer` is either omitted entirely or given with `default` as its first value; any
+further `--reviewer` values after that first `default` are silently discarded, so never mix
+`default` with real reviewers in one command. A failure to resolve the default reviewers hard-
+fails the command when `--reviewer default` was given explicitly, but when `--reviewer` was
+omitted (the fallback fired implicitly) the same failure instead follows the usual
+`--stop-on-error`/`--warn-on-error`/`--ignore-errors` tolerance -- the pull request is still
+created, just with no reviewers, since the caller never asked for any.
 
 Writing a markdown description on the command line means fighting shell quoting -- backticks and
 `$(...)` inside double quotes are a live command-substitution hazard. `--description-file` reads
@@ -1024,7 +1035,7 @@ bb pipeline trigger --branch master --pattern deploy-to-prod
 bb pipeline trigger --branch master --force
 ```
 
-Declining the confirmation prints `Trigger cancelled` and exits `0` (not an error) — same for `bb pipeline stop`'s equivalent `Stop cancelled`. On success, `trigger` prints the newly created pipeline, honoring `--output` like any other command.
+Declining the confirmation prints `Trigger canceled` and exits `0` (not an error) — same for `bb pipeline stop`'s equivalent `Stop canceled`. On success, `trigger` prints the newly created pipeline, honoring `--output` like any other command.
 
 > [!NOTE]
 > There is no `--tag` target (the upstream `tag` package stays removed) and no

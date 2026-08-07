@@ -72,9 +72,12 @@ format was chosen (an explicit `-o`, a profile-configured `outputFormat`, or `BB
 That's the case for a profile created with `--no-vault` (its secret lives in plaintext in the
 config file and loads into memory the moment the profile is read, with no vault fetch involved)
 and for a profile whose vault store failed at creation/update time and fell back to plaintext.
-The one exception is `bb profile get --current`: it prints the already-resolved current profile
-without ever reaching the json/yaml secret gate, so it never shows the secret in full even with
-an explicit `-o json`/`-o yaml`. `bb profile get <profile-name>` requires either the name
+`bb profile get --current` skips the json/yaml secret gate entirely — it never calls the vault
+fetch, so a VAULT-backed profile's secret stays absent from `--current` output no matter the
+format. That does NOT make `--current` safe in general: a profile whose secret lives in the
+config file (`--no-vault`, or a vault store that failed and fell back to plaintext) already has
+that secret in memory with no vault fetch needed, so it renders in full in any json/yaml
+output, `--current` included. `bb profile get <profile-name>` requires either the name
 positional or `--current`; given neither, it errors `argument profile is missing`.
 
 ## Workspaces, repositories, branches, commits
