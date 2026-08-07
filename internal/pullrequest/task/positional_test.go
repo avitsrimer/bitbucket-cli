@@ -4,27 +4,24 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 )
 
 // failIfCalled returns a handler that fails the test if it is ever invoked, for asserting a
 // rejected argument short-circuits before any HTTP request is issued.
 func failIfCalled(t *testing.T) http.HandlerFunc {
-	t.Helper()
-	return func(http.ResponseWriter, *http.Request) {
-		t.Error("unexpected HTTP request for an invalid pullrequest-id")
-	}
+	return testutil.FailIfCalled(t, "an invalid pullrequest-id")
 }
 
 func describeID(id string) string {
-	if id == "" {
-		return "empty"
-	}
-	return id
+	return testutil.DescribeArg(id)
 }
 
 // TestSubcommandsRejectInvalidPullRequestID proves every task subcommand validates its (now
 // required, positional) pullrequest-id argument via common.ValidatePathIdentifier before it
-// ever reaches a GetPath call, for each of the three values path.Join silently mishandles.
+// ever reaches a GetPath call, for each of the six values path.Join silently mishandles or that
+// could otherwise splice extra path segments into the request.
 func TestSubcommandsRejectInvalidPullRequestID(t *testing.T) {
 	cases := []struct {
 		name string

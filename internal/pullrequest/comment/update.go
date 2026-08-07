@@ -77,7 +77,7 @@ func updateProcess(cmd *cobra.Command, args []string) (err error) {
 	if err != nil {
 		return fmt.Errorf("failed to update comment for pullrequest %s: %w", pullRequestID, err)
 	}
-	if err := profile.Print(cmd.Context(), cmd, comment); err != nil {
+	if err := profile.Print(ctx, cmd, comment); err != nil {
 		return fmt.Errorf("cannot print result: %w", err)
 	}
 	return nil

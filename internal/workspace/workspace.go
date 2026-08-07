@@ -96,18 +96,9 @@ func (workspace Workspace) String() string {
 // which requires the read:workspace scope that a repository-scoped or narrowly-scoped token
 // typically lacks, for a value the caller already has as a string.
 //
-// The third rung reads profile.Current when it is already populated (set by an earlier
-// profile.GetProfileFromCommand/profile.getAll call this invocation), and otherwise resolves it
-// itself via profile.GetProfileFromCommand when cmd carries a "profile" flag: nothing runs before
-// this in a typical invocation (GetWorkspace/GetRepository are usually the first thing a RunE
-// calls), so profile.Current is still nil at this point more often than not. cmd lacking a
-// "profile" flag (a bare *cobra.Command built by a test, never the real command tree) skips this
-// resolution rather than panicking, matching the nil-check the first rung already does for
-// "workspace". A profile-loading error here is logged as a [WARN] rather than surfaced as this
-// function's own error -- it just means the third rung has nothing to offer, and the final
-// "argument workspace is missing" error below still applies -- but the warning line still tells
-// the user the real cause (e.g. an invalid --profile value) instead of leaving them with only the
-// generic missing-argument message.
+// The third rung resolves the profile via profile.CurrentOrFromCommand (see its doc comment for
+// how it handles an unpopulated profile.Current, a cmd with no "profile" flag, and a
+// profile-loading error).
 //
 // The workspace is determined by the following order:
 //  1. The workspace flag in the command
@@ -124,13 +115,7 @@ func GetWorkspaceName(context context.Context, cmd *cobra.Command) (workspaceNam
 		lgr.Printf("[DEBUG] workspace name found in git config: %s, from remote: %s", remote.WorkspaceName(), remote.RedactedURL())
 		return remote.WorkspaceName(), nil
 	}
-	currentProfile := profile.Current
-	if currentProfile == nil && cmd.Flag("profile") != nil {
-		var profileErr error
-		if currentProfile, profileErr = profile.GetProfileFromCommand(context, cmd); profileErr != nil {
-			lgr.Printf("[WARN] cannot load profile to resolve a default workspace: %s", profileErr.Error())
-		}
-	}
+	currentProfile := profile.CurrentOrFromCommand(context, cmd, "workspace")
 	if currentProfile != nil && currentProfile.DefaultWorkspace != "" {
 		lgr.Printf("[DEBUG] workspace name found in profile: %s", currentProfile.DefaultWorkspace)
 		return currentProfile.DefaultWorkspace, nil

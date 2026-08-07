@@ -4,22 +4,18 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 )
 
 // failIfCalled returns a handler that fails the test if it is ever invoked, for asserting a
 // rejected argument short-circuits before any HTTP request is issued.
 func failIfCalled(t *testing.T) http.HandlerFunc {
-	t.Helper()
-	return func(http.ResponseWriter, *http.Request) {
-		t.Error("unexpected HTTP request for an invalid argument")
-	}
+	return testutil.FailIfCalled(t, "an invalid argument")
 }
 
 func describeArg(value string) string {
-	if value == "" {
-		return "empty"
-	}
-	return value
+	return testutil.DescribeArg(value)
 }
 
 // TestSubcommandsRejectInvalidPipelineID proves every step subcommand validates its (now

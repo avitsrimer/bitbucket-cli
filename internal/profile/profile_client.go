@@ -76,7 +76,7 @@ type requestOptions struct {
 
 // PaginatedResources is a single page of a BitBucket paginated list response. Only the fields
 // GetAll actually reads (Values, Next, Previous) are kept; page/pagelen/size are tracked by this
-// package itself via resolvePageLengthAndLimit/NextPageURL instead.
+// package itself via ResolvePageLengthAndLimit/NextPageURL instead.
 type PaginatedResources[T any] struct {
 	Values   []T    `json:"values"`
 	Next     string `json:"next"`
@@ -121,11 +121,13 @@ func (profile *Profile) Delete(ctx context.Context, uripath string, response any
 	return
 }
 
-// resolvePageLengthAndLimit reads the --page-length flag, falling back to defaultPageLength, and
+// ResolvePageLengthAndLimit reads the --page-length flag, falling back to defaultPageLength, and
 // (when honorLimit is true) the --limit flag; honorLimit is false for GetAllUnbounded, so a
 // --limit flag belonging to the command's own, unrelated output query neither truncates nor
-// shrinks the page size of an internal id-resolution query run against the same cmd.
-func resolvePageLengthAndLimit(cmd *cobra.Command, defaultPageLength int, honorLimit bool) (pageLength, limit int) {
+// shrinks the page size of an internal id-resolution query run against the same cmd. Exported so
+// callers that page a resource manually (e.g. internal/pullrequest's fetchActivityPages) resolve
+// pageLength/limit the same way GetAll/GetAllUnbounded do, instead of reimplementing this logic.
+func ResolvePageLengthAndLimit(cmd *cobra.Command, defaultPageLength int, honorLimit bool) (pageLength, limit int) {
 	pageLength = defaultPageLength
 	if cmd != nil && cmd.Flag("page-length") != nil && cmd.Flag("page-length").Changed {
 		if length, err := cmd.Flags().GetInt("page-length"); err == nil && length > 0 {
@@ -143,6 +145,28 @@ func resolvePageLengthAndLimit(cmd *cobra.Command, defaultPageLength int, honorL
 		pageLength = limit
 	}
 	return pageLength, limit
+}
+
+// AppendPageLength parses uripath's existing query and, when pageLength is positive and uripath
+// does not already carry a pagelen parameter, appends one; it returns the (possibly modified)
+// uripath and the query values to use as the pagination invariant's originalQuery, with "pagelen"
+// already reflecting the effective value. The presence check reads the parsed query's actual
+// "pagelen" key rather than substring-testing the whole uripath, so a --query value that happens
+// to contain the word "pagelen" never suppresses the append.
+func AppendPageLength(uripath string, pageLength int) (string, url.Values) {
+	query := url.Values{}
+	if parsed, err := url.Parse(uripath); err == nil {
+		query = parsed.Query()
+	}
+	if pageLength > 0 && !query.Has("pagelen") {
+		separator := "?"
+		if strings.Contains(uripath, "?") {
+			separator = "&"
+		}
+		uripath = fmt.Sprintf("%s%spagelen=%d", uripath, separator, pageLength)
+		query.Set("pagelen", strconv.Itoa(pageLength))
+	}
+	return uripath, query
 }
 
 // NextPageURL builds the URL for the next page of resources, preserving the original query
@@ -203,27 +227,8 @@ func getAll[T any](ctx context.Context, cmd *cobra.Command, uripath string, hono
 	}
 	Current = profile // Make sure the current profile is set
 
-	pageLength, limit := resolvePageLengthAndLimit(cmd, Current.DefaultPageLength, honorLimit)
-
-	// originalQuery is parsed BEFORE any pagelen= is appended below, and the presence check that
-	// guards the append reads originalQuery's actual "pagelen" query KEY, not a substring test over
-	// the whole uripath: a substring test also matches "pagelen" occurring inside the escaped q=
-	// value itself (e.g. a list command's --query containing the word "pagelen"), which silently
-	// dropped --page-length/DefaultPageLength whenever the query TEXT happened to contain that
-	// word, even though no pagelen= parameter was ever actually present.
-	originalQuery := url.Values{}
-	if parsed, parseErr := url.Parse(uripath); parseErr == nil {
-		originalQuery = parsed.Query()
-	}
-
-	if pageLength > 0 && !originalQuery.Has("pagelen") {
-		if strings.Contains(uripath, "?") {
-			uripath = fmt.Sprintf("%s&pagelen=%d", uripath, pageLength)
-		} else {
-			uripath = fmt.Sprintf("%s?pagelen=%d", uripath, pageLength)
-		}
-		originalQuery.Set("pagelen", strconv.Itoa(pageLength))
-	}
+	pageLength, limit := ResolvePageLengthAndLimit(cmd, Current.DefaultPageLength, honorLimit)
+	uripath, originalQuery := AppendPageLength(uripath, pageLength)
 
 	if limit > 0 {
 		lgr.Printf("[DEBUG] getting up to %d resources for profile %s (%d at a time)", limit, profile.Name, pageLength)

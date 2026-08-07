@@ -5,6 +5,7 @@ import (
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
+	prcommon "github.com/avitsrimer/bitbucket-cli/internal/pullrequest/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
@@ -61,10 +62,11 @@ func updateProcess(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot get repository: %w", err)
 	}
 
-	uripath := repository.GetPath("pullrequests", pullRequestID, "tasks", taskID)
-	if err = profile.Get(cmd.Context(), uripath, nil); err != nil {
-		return fmt.Errorf("failed to get task %s of pullrequest %s: %w", taskID, pullRequestID, err)
+	if existsErr := prcommon.ExistsSubResource(cmd.Context(), cmd, repository, "tasks", "task", pullRequestID, taskID); existsErr != nil {
+		return existsErr //nolint:wrapcheck // ExistsSubResource already names the sub-resource kind, id, and parent pull request in its own wrapped error; wrapping again would prefix it with redundant noise
 	}
+
+	uripath := repository.GetPath("pullrequests", pullRequestID, "tasks", taskID)
 
 	taskUpdater := TaskUpdater{}
 	if updateOptions.Content != "" {

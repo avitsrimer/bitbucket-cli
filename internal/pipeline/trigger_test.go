@@ -202,11 +202,10 @@ func TestTriggerProcessRejectsEmptyVariableKey(t *testing.T) {
 	}
 }
 
-// TestTriggerProcessInvalidVariableErrorNeverEchoesTheSecretValue reproduces review-iter-7 finding
-// #3: the error for a malformed --variable used to echo the raw, unsplit entry verbatim
-// (fmt.Errorf("invalid --variable %q: ...", entry)), so a value with no "=" at all -- e.g.
-// `--variable "$DEPLOY_TOKEN"` when the caller forgot the "KEY=" prefix -- leaked the secret
-// straight to stderr/CI logs. The fix reports the --variable's POSITION, never its content.
+// TestTriggerProcessInvalidVariableErrorNeverEchoesTheSecretValue pins that the error for a
+// malformed --variable never echoes the raw, unsplit entry: a value with no "=" at all -- e.g.
+// `--variable "$DEPLOY_TOKEN"` when the caller forgot the "KEY=" prefix -- must not leak the
+// secret to stderr/CI logs. The error reports the --variable's POSITION, never its content.
 func TestTriggerProcessInvalidVariableErrorNeverEchoesTheSecretValue(t *testing.T) {
 	const secretValue = "s3cr3t-token-value"
 	var requestCount int

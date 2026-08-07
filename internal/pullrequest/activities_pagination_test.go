@@ -216,12 +216,11 @@ func TestActivitiesProcessPageLengthShrinksOnFinalPage(t *testing.T) {
 	}
 }
 
-// TestActivitiesProcessPageLengthNotDroppedWhenQueryTextContainsPagelenSubstring reproduces
-// review-iter-7 finding #7: fetchActivityPages' own pagelen= guard used to substring-test the
-// WHOLE request path, including the escaped q= value, so a --query text that happens to contain
-// "pagelen" (e.g. `--query 'title~"pagelen"'`) silently prevented --page-length from ever being
-// appended, even though no pagelen= query parameter was actually present. The fix checks the
-// actual "pagelen" query KEY instead.
+// TestActivitiesProcessPageLengthNotDroppedWhenQueryTextContainsPagelenSubstring pins that
+// fetchActivityPages' pagelen= guard checks the actual "pagelen" query KEY, not a substring test
+// over the WHOLE request path: a --query text that happens to contain "pagelen" (e.g.
+// `--query 'title~"pagelen"'`) must not prevent --page-length from being appended, even though no
+// pagelen= query parameter is actually present.
 func TestActivitiesProcessPageLengthNotDroppedWhenQueryTextContainsPagelenSubstring(t *testing.T) {
 	const wantQuery = `title~"pagelen"`
 	oldQuery := activitiesOptions.Query
@@ -271,7 +270,7 @@ func TestFetchActivityPagesMalformedNextReturnsParseError(t *testing.T) {
 	}
 
 	uripath := "/2.0/repositories/acme/widgets/pullrequests/1650/activity"
-	if _, err := fetchActivityPages(cmd.Context(), currentProfile, uripath, 0, 0); err == nil {
+	if _, err := fetchActivityPages(cmd, currentProfile, uripath); err == nil {
 		t.Fatal("fetchActivityPages() expected an error for a malformed next page url, got nil")
 	} else if !strings.Contains(err.Error(), "cannot parse next page url") {
 		t.Errorf("fetchActivityPages() error = %q, want it to mention %q", err.Error(), "cannot parse next page url")

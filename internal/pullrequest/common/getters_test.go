@@ -82,7 +82,7 @@ func TestGetPullRequestIDsFallsBackToAllWhenNoneOpen(t *testing.T) {
 		}
 	})
 
-	ids, err := GetPullRequestIDs(context.Background(), cmd, nil, "")
+	ids, err := GetPullRequestIDs(context.Background(), cmd)
 	if err != nil {
 		t.Fatalf("GetPullRequestIDs() error = %v", err)
 	}
@@ -108,7 +108,7 @@ func TestGetPullRequestIDsReturnsOpenWithoutFallback(t *testing.T) {
 		}
 	})
 
-	ids, err := GetPullRequestIDs(context.Background(), cmd, nil, "")
+	ids, err := GetPullRequestIDs(context.Background(), cmd)
 	if err != nil {
 		t.Fatalf("GetPullRequestIDs() error = %v", err)
 	}

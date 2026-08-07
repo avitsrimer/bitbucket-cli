@@ -60,15 +60,13 @@ func (suite *ProfileSuite) TestGetAll_OriginalQueryIsPreservedForNextMissingPara
 	suite.Require().Equal("2", items[1].ID)
 }
 
-// TestGetAll_PageLengthNotDroppedWhenQueryTextContainsPagelenSubstring reproduces review-iter-8
-// finding #2: getAll's pagelen-present guard used to substring-test the WHOLE request path,
-// including the escaped q= value, for the literal text "pagelen". Every list command builds
-// user-controlled q= into the uripath passed to GetAll (pullrequest/comment/task/branch/pipeline/
-// artifact/commit list), so a query whose text happens to contain the word "pagelen" (e.g. a
-// branch search for "feature/pagelen-tuning") matched that substring test and silently dropped
-// --page-length/DefaultPageLength even though no pagelen= parameter was ever actually present.
-// After the fix, the guard checks the parsed query's actual "pagelen" KEY, so a q= value merely
-// containing the word must not suppress the append.
+// TestGetAll_PageLengthNotDroppedWhenQueryTextContainsPagelenSubstring pins that getAll's
+// pagelen-present guard checks the parsed query's actual "pagelen" KEY, not a substring test over
+// the whole request path: every list command builds user-controlled q= into the uripath passed to
+// GetAll (pullrequest/comment/task/branch/pipeline/artifact/commit list), so a query whose text
+// happens to contain the word "pagelen" (e.g. a branch search for "feature/pagelen-tuning") must
+// not suppress --page-length/DefaultPageLength being appended, even though no pagelen= parameter
+// was ever actually present in the query itself.
 func (suite *ProfileSuite) TestGetAll_PageLengthNotDroppedWhenQueryTextContainsPagelenSubstring() {
 	oldCurrent := profile.Current
 	defer func() { profile.Current = oldCurrent }()

@@ -40,7 +40,9 @@ func deleteProcess(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot delete comments: %w", err)
 	}
 
-	repo, err := repository.GetRepository(cmd.Context(), cmd)
+	ctx := cmd.Context()
+
+	repo, err := repository.GetRepository(ctx, cmd)
 	if err != nil {
 		return fmt.Errorf("cannot get repository: %w", err)
 	}

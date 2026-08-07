@@ -115,7 +115,6 @@ func TestListProcess(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			withListOptions(t, func() {
 				listOptions.Commit = ""
-				listOptions.Query = ""
 			})
 
 			var requests []*http.Request
@@ -159,11 +158,11 @@ func TestListCmdRegistersLimitFlag(t *testing.T) {
 
 // TestListProcessRespectsLimitFlag drives listProcess with a "limit" flag on its cmd (the same
 // name and int type listCmd itself registers, read exactly the same way by profile.GetAll/
-// resolvePageLengthAndLimit), proving the value actually reaches GetAll and truncates the result.
+// profile.ResolvePageLengthAndLimit), proving the value actually reaches GetAll and truncates the
+// result.
 func TestListProcessRespectsLimitFlag(t *testing.T) {
 	withListOptions(t, func() {
 		listOptions.Commit = ""
-		listOptions.Query = ""
 	})
 
 	fixture, err := os.ReadFile("../../testdata/pullrequests.json")
@@ -207,7 +206,6 @@ func TestListProcessRespectsLimitFlag(t *testing.T) {
 func TestListProcessSucceedsWithWorkspaceFlagWhenWorkspaceListingIsForbidden(t *testing.T) {
 	withListOptions(t, func() {
 		listOptions.Commit = ""
-		listOptions.Query = ""
 	})
 
 	fixture, err := os.ReadFile("../../testdata/pullrequests.json")
@@ -270,7 +268,6 @@ func TestListStatesDefaultsWhenFlagRegisteredButNotChanged(t *testing.T) {
 func TestListProcessRepeatableState(t *testing.T) {
 	withListOptions(t, func() {
 		listOptions.Commit = ""
-		listOptions.Query = ""
 	})
 
 	fixture, err := os.ReadFile("../../testdata/pullrequests.json")
@@ -313,7 +310,6 @@ func TestListProcessRepeatableState(t *testing.T) {
 func TestListProcessStateAllExpandsToEveryState(t *testing.T) {
 	withListOptions(t, func() {
 		listOptions.Commit = ""
-		listOptions.Query = ""
 	})
 
 	fixture, err := os.ReadFile("../../testdata/pullrequests.json")
@@ -361,7 +357,6 @@ func TestStateFlagRejectsInvalidValue(t *testing.T) {
 func TestListProcessSourceDestinationFilters(t *testing.T) {
 	withListOptions(t, func() {
 		listOptions.Commit = ""
-		listOptions.Query = ""
 	})
 
 	fixture, err := os.ReadFile("../../testdata/pullrequests.json")
@@ -404,7 +399,6 @@ func TestListProcessSourceDestinationFilters(t *testing.T) {
 func TestListProcessComposesStateQueryAndBranchFilters(t *testing.T) {
 	withListOptions(t, func() {
 		listOptions.Commit = ""
-		listOptions.Query = "updated_on > 2025-01-01"
 	})
 
 	fixture, err := os.ReadFile("../../testdata/pullrequests.json")
@@ -419,6 +413,7 @@ func TestListProcessComposesStateQueryAndBranchFilters(t *testing.T) {
 		_, _ = w.Write(fixture)
 	}, false)
 	withStateFlag(cmd)
+	cmd.Flags().String("query", "", "")
 	cmd.Flags().String("source", "", "")
 	cmd.Flags().String("destination", "", "")
 	if err := cmd.Flags().Set("state", "merged"); err != nil {
@@ -426,6 +421,9 @@ func TestListProcessComposesStateQueryAndBranchFilters(t *testing.T) {
 	}
 	if err := cmd.Flags().Set("state", "declined"); err != nil {
 		t.Fatalf("cannot set state flag: %v", err)
+	}
+	if err := cmd.Flags().Set("query", "updated_on > 2025-01-01"); err != nil {
+		t.Fatalf("cannot set query flag: %v", err)
 	}
 	if err := cmd.Flags().Set("source", "feature/x"); err != nil {
 		t.Fatalf("cannot set source flag: %v", err)
@@ -459,7 +457,6 @@ func TestListProcessComposesStateQueryAndBranchFilters(t *testing.T) {
 func TestListProcessBranchFilterEscapesQuotes(t *testing.T) {
 	withListOptions(t, func() {
 		listOptions.Commit = ""
-		listOptions.Query = ""
 	})
 
 	fixture, err := os.ReadFile("../../testdata/pullrequests.json")
@@ -500,7 +497,6 @@ func TestListProcessBranchFilterEscapesQuotes(t *testing.T) {
 func TestListProcessRejectsPathTraversalInCommit(t *testing.T) {
 	withListOptions(t, func() {
 		listOptions.Commit = "../../../otherws/otherrepo/pullrequests"
-		listOptions.Query = ""
 	})
 
 	var requests []*http.Request

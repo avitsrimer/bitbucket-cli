@@ -46,17 +46,17 @@ func mergeStatusValidArgs(cmd *cobra.Command, args []string, toComplete string) 
 func mergeStatusProcess(cmd *cobra.Command, args []string) (err error) {
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {
-		return fmt.Errorf("failed to get the profile: %w", err)
+		return fmt.Errorf("cannot get merge status: %w", err)
 	}
 
 	repository, err := repository.GetRepository(cmd.Context(), cmd)
 	if err != nil {
-		return fmt.Errorf("cannot merge pull request: %w", err)
+		return fmt.Errorf("cannot get merge status: %w", err)
 	}
 
 	pullRequestID, err := GetPullRequestIDFromArgs(cmd.Context(), cmd, repository, args)
 	if err != nil {
-		return fmt.Errorf("cannot merge pull request: %w", err)
+		return fmt.Errorf("cannot get merge status: %w", err)
 	}
 	if validateErr := common.ValidatePathIdentifier("task-id", mergeStatusOptions.TaskID); validateErr != nil {
 		return fmt.Errorf("cannot get merge status: %w", validateErr)
@@ -75,7 +75,7 @@ func mergeStatusProcess(cmd *cobra.Command, args []string) (err error) {
 		&status,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to get the merge status for pull request %s: %w", pullRequestID, err)
+		return fmt.Errorf("cannot get merge status for pull request %s: %w", pullRequestID, err)
 	}
 	status.ID = mergeStatusOptions.TaskID
 

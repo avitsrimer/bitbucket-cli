@@ -66,7 +66,10 @@ func getSteps(ctx context.Context, cmd *cobra.Command, repo *repository.Reposito
 // getStepNamesAndIDs returns every step's name followed by every step's UUID, for shell
 // completion of the <pipeline-step-uuid-or-name> positional: names are offered first since that
 // is what a human reads in BitBucket's own UI, but a UUID always resolves too (per
-// resolveStepID), so completion never suggests a value the command would reject. Unlike
+// resolveStepID), so completion never suggests a value the command would reject. Names are
+// trimmed and empty-after-trim ones excluded, matching resolveStepID's own
+// strings.TrimSpace(step.Name) match: a whitespace-only step name offered untrimmed here would
+// otherwise complete to a value resolveStepID's own blank-target guard rejects. Unlike
 // resolveStepID's callers, a completion function has no repo already resolved, so this resolves
 // its own.
 func getStepNamesAndIDs(ctx context.Context, cmd *cobra.Command, pipelineID string) ([]string, error) {
@@ -80,8 +83,8 @@ func getStepNamesAndIDs(ctx context.Context, cmd *cobra.Command, pipelineID stri
 	}
 	names := make([]string, 0, len(steps))
 	for _, step := range steps {
-		if step.Name != "" {
-			names = append(names, step.Name)
+		if name := strings.TrimSpace(step.Name); name != "" {
+			names = append(names, name)
 		}
 	}
 	ids := core.Map(steps, func(step Step) string { return step.ID.String() })
@@ -101,11 +104,12 @@ func getStepNamesAndIDs(ctx context.Context, cmd *cobra.Command, pipelineID stri
 // the available step names (or saying none of the pipeline's steps have a name at all, when every
 // step.Name is empty); two or more matches (BitBucket allows duplicate step names within one
 // pipeline) error listing the ambiguous candidates with their UUIDs and tell the caller to pass a
-// UUID instead. Shared by get/logs/report/cases via rawStepOutput and getProcess, both of which
-// already hold repo and pass it straight through.
+// UUID instead. Both success paths return through guardResolvedStepID, so the resolved UUID is
+// validated once here rather than re-guarded by every call site. Shared by get/logs/report/cases
+// via rawStepOutput and getProcess, both of which already hold repo and pass it straight through.
 func resolveStepID(ctx context.Context, cmd *cobra.Command, repo *repository.Repository, pipelineID, stepArg string) (string, error) {
 	if parsed, err := common.ParseUUID(stepArg); err == nil {
-		return parsed.String(), nil
+		return guardResolvedStepID(parsed.String())
 	}
 
 	target := strings.TrimSpace(stepArg)
@@ -127,7 +131,7 @@ func resolveStepID(ctx context.Context, cmd *cobra.Command, repo *repository.Rep
 
 	switch len(matches) {
 	case 1:
-		return matches[0].ID.String(), nil
+		return guardResolvedStepID(matches[0].ID.String())
 	case 0:
 		var names []string
 		for _, step := range steps {
@@ -143,4 +147,19 @@ func resolveStepID(ctx context.Context, cmd *cobra.Command, repo *repository.Rep
 		candidates := core.Map(matches, func(step Step) string { return fmt.Sprintf("%s (%s)", step.Name, step.ID.String()) })
 		return "", fmt.Errorf("step name %q is ambiguous for pipeline %s (candidates: %s); pass a UUID instead", stepArg, pipelineID, strings.Join(candidates, ", "))
 	}
+}
+
+// guardResolvedStepID applies common.ValidatePathIdentifier to stepID -- a name or a UUID the user
+// typed is deliberately not guarded by ValidatePathIdentifier upstream of resolveStepID, since a
+// legitimate step name may contain "/" (e.g. a bitbucket-pipelines.yml step named "build/test"),
+// and stepArg never reaches GetPath directly, only the resolved stepID does -- before either of
+// resolveStepID's success paths returns it. Both paths (common.ParseUUID passthrough and a
+// resolved step's own .ID) always produce a canonical UUID string this guard can never actually
+// reject, but it still runs here, once, rather than being re-applied to the same already-canonical
+// value again at every call site.
+func guardResolvedStepID(stepID string) (string, error) {
+	if err := common.ValidatePathIdentifier("pipeline-step-uuid-or-name", stepID); err != nil {
+		return "", fmt.Errorf("cannot resolve step: %w", err)
+	}
+	return stepID, nil
 }

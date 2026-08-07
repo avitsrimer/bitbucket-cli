@@ -160,14 +160,7 @@ func validateFileAnchor(ctx context.Context, cmd *cobra.Command, repo *repositor
 // This validates the parent pull request's existence too, so update/reopen/resolve/delete each
 // need only this one check.
 func existsComment(ctx context.Context, cmd *cobra.Command, repo *repository.Repository, pullRequestID, commentID string) error {
-	currentProfile, err := profile.GetProfileFromCommand(ctx, cmd)
-	if err != nil {
-		return fmt.Errorf("cannot get profile: %w", err)
-	}
-	if err := currentProfile.Get(ctx, repo.GetPath("pullrequests", pullRequestID, "comments", commentID), nil); err != nil {
-		return fmt.Errorf("failed to get comment %s of pullrequest %s: %w", commentID, pullRequestID, err)
-	}
-	return nil
+	return prcommon.ExistsSubResource(ctx, cmd, repo, "comments", "comment", pullRequestID, commentID) //nolint:wrapcheck // ExistsSubResource already names the sub-resource kind, id, and parent pull request in its own wrapped error; wrapping again would prefix it with redundant noise
 }
 
 type Comment struct {
@@ -377,16 +370,12 @@ func GetPullRequestCommentIDs(ctx context.Context, cmd *cobra.Command, pullReque
 
 // pullRequestAndCommentIDValidArgs is the ValidArgsFunction shared by every comment subcommand
 // that takes exactly <pullrequest-id> <comment-id> as its two positionals (get, update, reopen,
-// resolve): arg 0 completes open pullrequest ids, arg 1 completes the comment ids of the
-// pullrequest named in arg 0.
+// resolve): arg 0 completes open pullrequest ids (delegated to prcommon.PullRequestIDValidArgs),
+// arg 1 completes the comment ids of the pullrequest named in arg 0.
 func pullRequestAndCommentIDValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	switch len(args) {
 	case 0:
-		ids, err := prcommon.GetPullRequestIDs(cmd.Context(), cmd, args, toComplete)
-		if err != nil {
-			return []string{}, cobra.ShellCompDirectiveNoFileComp
-		}
-		return common.FilterValidArgs(ids, args, toComplete), cobra.ShellCompDirectiveNoFileComp
+		return prcommon.PullRequestIDValidArgs(cmd, args, toComplete)
 	case 1:
 		commentIDs, err := GetPullRequestCommentIDs(cmd.Context(), cmd, args[0])
 		if err != nil {

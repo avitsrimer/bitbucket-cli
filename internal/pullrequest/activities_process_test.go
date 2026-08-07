@@ -147,16 +147,27 @@ func TestActivitiesProcessLimitAppliesAfterFilteringUnknownKinds(t *testing.T) {
 	}
 }
 
-// TestUnrecognizedActivityVariantPrefersObjectValuedKey reproduces review-iter-7 finding #2: when
-// an entry carries multiple unrecognized keys of mixed shapes, an object-valued one is preferred
-// over a scalar-valued one, since a real new activity kind is expected to serialize as an object
-// (like every existing kind) -- so the [WARN] this drives names the actual new kind
-// ("some_future_activity_kind") instead of incidental scalar metadata riding along on the same
-// entry ("id").
-func TestUnrecognizedActivityVariantPrefersObjectValuedKey(t *testing.T) {
-	data := []byte(`{"pull_request":{"id":1650},"id":999,"some_future_activity_kind":{"date":"2026-08-01T00:00:00+00:00"}}`)
+// unmarshalActivityRaw decodes raw into the map[string]json.RawMessage form Activity.UnmarshalJSON
+// itself decodes an entry into, since unrecognizedActivityVariant now takes that decoded map
+// rather than re-parsing the entry's raw bytes.
+func unmarshalActivityRaw(t *testing.T, raw string) map[string]json.RawMessage {
+	t.Helper()
+	var decoded map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		t.Fatalf("cannot unmarshal test fixture %q: %v", raw, err)
+	}
+	return decoded
+}
 
-	variant, found := unrecognizedActivityVariant(data)
+// TestUnrecognizedActivityVariantPrefersObjectValuedKey proves that when an entry carries multiple
+// unrecognized keys of mixed shapes, an object-valued one is preferred over a scalar-valued one,
+// since a real new activity kind is expected to serialize as an object (like every existing kind)
+// -- so the [WARN] this drives names the actual new kind ("some_future_activity_kind") instead of
+// incidental scalar metadata riding along on the same entry ("id").
+func TestUnrecognizedActivityVariantPrefersObjectValuedKey(t *testing.T) {
+	raw := unmarshalActivityRaw(t, `{"pull_request":{"id":1650},"id":999,"some_future_activity_kind":{"date":"2026-08-01T00:00:00+00:00"}}`)
+
+	variant, found := unrecognizedActivityVariant(raw)
 	if !found {
 		t.Fatal("unrecognizedActivityVariant() found = false, want true")
 	}
@@ -169,9 +180,9 @@ func TestUnrecognizedActivityVariantPrefersObjectValuedKey(t *testing.T) {
 // pre-existing lexicographically-first tiebreak still applies when none of the unrecognized keys
 // are object-valued.
 func TestUnrecognizedActivityVariantFallsBackToLexicographicallyFirstWhenNoObjectCandidate(t *testing.T) {
-	data := []byte(`{"pull_request":{"id":1650},"id":999,"links":"not an object"}`)
+	raw := unmarshalActivityRaw(t, `{"pull_request":{"id":1650},"id":999,"links":"not an object"}`)
 
-	variant, found := unrecognizedActivityVariant(data)
+	variant, found := unrecognizedActivityVariant(raw)
 	if !found {
 		t.Fatal("unrecognizedActivityVariant() found = false, want true")
 	}
@@ -184,22 +195,22 @@ func TestUnrecognizedActivityVariantFallsBackToLexicographicallyFirstWhenNoObjec
 // "pull_request" reports not found -- this is the genuinely malformed case that must still error,
 // per the read-paths-tolerate-unrecognized-VALUES-not-missing-content rule.
 func TestUnrecognizedActivityVariantNoKeyBesidesPullRequest(t *testing.T) {
-	data := []byte(`{"pull_request":{"id":1650}}`)
+	raw := unmarshalActivityRaw(t, `{"pull_request":{"id":1650}}`)
 
-	_, found := unrecognizedActivityVariant(data)
+	_, found := unrecognizedActivityVariant(raw)
 	if found {
 		t.Error("unrecognizedActivityVariant() found = true, want false (no key besides pull_request)")
 	}
 }
 
 // TestUnrecognizedActivityVariantAcceptsArrayValuedVariant proves an unrecognized top-level key
-// whose value is a JSON array is tolerated, not just object-shaped ones -- reproduces the
-// review-iter-6 finding that a future activity kind serialized as an array made decoding of the
-// whole entry (and therefore the whole page) fail.
+// whose value is a JSON array is tolerated, not just object-shaped ones: a future activity kind
+// serialized as an array must not fail decoding of the whole entry (and therefore the whole
+// page).
 func TestUnrecognizedActivityVariantAcceptsArrayValuedVariant(t *testing.T) {
-	data := []byte(`{"pull_request":{"id":1650},"reviewers_changed":[]}`)
+	raw := unmarshalActivityRaw(t, `{"pull_request":{"id":1650},"reviewers_changed":[]}`)
 
-	variant, found := unrecognizedActivityVariant(data)
+	variant, found := unrecognizedActivityVariant(raw)
 	if !found {
 		t.Fatal("unrecognizedActivityVariant() found = false, want true (array-valued unknown variant)")
 	}
@@ -211,9 +222,9 @@ func TestUnrecognizedActivityVariantAcceptsArrayValuedVariant(t *testing.T) {
 // TestUnrecognizedActivityVariantAcceptsScalarValuedVariant proves an unrecognized top-level key
 // whose value is a JSON scalar is tolerated, not just object-shaped ones.
 func TestUnrecognizedActivityVariantAcceptsScalarValuedVariant(t *testing.T) {
-	data := []byte(`{"pull_request":{"id":1650},"some_scalar_kind":"just a string"}`)
+	raw := unmarshalActivityRaw(t, `{"pull_request":{"id":1650},"some_scalar_kind":"just a string"}`)
 
-	variant, found := unrecognizedActivityVariant(data)
+	variant, found := unrecognizedActivityVariant(raw)
 	if !found {
 		t.Fatal("unrecognizedActivityVariant() found = false, want true (scalar-valued unknown variant)")
 	}
@@ -222,11 +233,10 @@ func TestUnrecognizedActivityVariantAcceptsScalarValuedVariant(t *testing.T) {
 	}
 }
 
-// TestActivityUnmarshalTreatsArrayValuedKnownVariantAsUnknown reproduces review-iter-7 finding #1:
-// a known variant key ("approval" here) whose value has the wrong SHAPE (an array, not an object)
-// used to error json.Unmarshal(data, &surrogateActivity) out of the whole entry -- before any
-// tolerance logic ever ran -- instead of being tolerated like a genuinely unrecognized kind. After
-// the fix, decoding succeeds and unknownVariant records "approval".
+// TestActivityUnmarshalTreatsArrayValuedKnownVariantAsUnknown proves a known variant key
+// ("approval" here) whose value has the wrong SHAPE (an array, not an object) is tolerated exactly
+// like a genuinely unrecognized kind, instead of erroring the whole entry's decode: decoding
+// succeeds and unknownVariant records "approval".
 func TestActivityUnmarshalTreatsArrayValuedKnownVariantAsUnknown(t *testing.T) {
 	data := []byte(`{"pull_request":{"id":1650},"approval":[]}`)
 
@@ -279,14 +289,13 @@ func TestActivityUnmarshalTreatsUnparsableDateInKnownVariantAsUnknown(t *testing
 	}
 }
 
-// TestActivityUnmarshalNullKnownVariantAloneMatchesNoVariantAtAllError reproduces review-iter-8
-// finding #1: {"pull_request":…,"approval":null} used to decode successfully, unmarshaling the
-// JSON null into a zero-valued *ActivityApproval that was still non-nil (json.Unmarshal is a
-// silent no-op when the destination is a value type, not a pointer) -- so activity.Approval != nil
-// with every field zero, which summarize() rendered as a false "approved" row and -o json emitted
-// as an "approval":{} the real response never sent. After the fix, a null known variant is treated
-// exactly like an absent one: with nothing else on the entry, decoding must produce the SAME hard
-// error as an entry carrying no variant key at all (pre-#54 parity).
+// TestActivityUnmarshalNullKnownVariantAloneMatchesNoVariantAtAllError pins that a null known
+// variant is treated exactly like an absent one, never decoded into a fabricated non-nil,
+// zero-valued struct (json.Unmarshal of JSON null into a value-typed destination behind a pointer
+// field is a silent no-op that would otherwise leave activity.Approval != nil with every field
+// zero, which summarize() would render as a false "approved" row and -o json would emit as an
+// "approval":{} the real response never sent): with nothing else on the entry, decoding must
+// produce the same hard error as an entry carrying no variant key at all.
 func TestActivityUnmarshalNullKnownVariantAloneMatchesNoVariantAtAllError(t *testing.T) {
 	nullApproval := []byte(`{"pull_request":{"id":1650},"approval":null}`)
 	noVariantAtAll := []byte(`{"pull_request":{"id":1650}}`)
@@ -339,9 +348,9 @@ func TestActivityUnmarshalNullKnownVariantLetsSiblingVariantDecode(t *testing.T)
 }
 
 // TestActivitiesProcessTreatsMalformedKnownVariantAsUnknownAcrossThePage is the RunE-level
-// regression test for review-iter-7 finding #1: a page containing malformed known-variant entries
-// (wrong shape, wrong field type, unparsable date) must not abort the whole page's decode; the one
-// well-formed entry must still render, and the malformed ones must be skipped, not printed.
+// regression test proving a page containing malformed known-variant entries (wrong shape, wrong
+// field type, unparsable date) must not abort the whole page's decode; the one well-formed entry
+// must still render, and the malformed ones must be skipped, not printed.
 func TestActivitiesProcessTreatsMalformedKnownVariantAsUnknownAcrossThePage(t *testing.T) {
 	const fixture = `{"values":[
 		{"pull_request":{"id":1650},"approval":{"date":"2026-08-01T00:00:00+00:00","user":{"display_name":"A"}}},
@@ -377,11 +386,11 @@ func TestActivitiesProcessTreatsMalformedKnownVariantAsUnknownAcrossThePage(t *t
 }
 
 // TestActivitiesProcessToleratesArrayAndScalarUnknownVariants is the RunE-level regression test
-// for review-iter-6 finding #1: before the fix, an activity feed containing an unknown variant
-// serialized as an array or a scalar still made json.Unmarshal fail on that entry (and therefore
-// the whole page, decoded in a single json.Unmarshal call by profile.GetAll), defeating FR-5's
-// "never blind the feed" guarantee. After the fix, the page must still decode, the known entry
-// must render, and the array/scalar-valued unknown entries must be skipped, not printed.
+// proving an activity feed containing an unknown variant serialized as an array or a scalar must
+// not fail json.Unmarshal on that entry (and therefore the whole page, decoded in a single
+// json.Unmarshal call by profile.GetAll), per FR-5's "never blind the feed" guarantee: the page
+// must still decode, the known entry must render, and the array/scalar-valued unknown entries
+// must be skipped, not printed.
 func TestActivitiesProcessToleratesArrayAndScalarUnknownVariants(t *testing.T) {
 	const fixture = `{"values":[
 		{"pull_request":{"id":1650},"approval":{"date":"2026-08-01T00:00:00+00:00","user":{"display_name":"A"}}},

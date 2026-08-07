@@ -62,7 +62,6 @@ func assertNoWorkspaceGetRequests(t *testing.T, requests []*http.Request) {
 func TestListProcessResolvesRepositoryWithoutWorkspaceRequest(t *testing.T) {
 	withListOptions(t, func() {
 		listOptions.Commit = ""
-		listOptions.Query = ""
 	})
 
 	const workspaceSlug = "fr3-list-ws"

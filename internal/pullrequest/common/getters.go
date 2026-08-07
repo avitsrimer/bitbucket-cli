@@ -56,7 +56,7 @@ func GetPullRequestIDsFromRepositoryWithState(context context.Context, cmd *cobr
 // GetPullRequestIDs gets the IDs of the pullrequests
 //
 // First only the open pullrequests are fetched, if none are found, all pullrequests are fetched
-func GetPullRequestIDs(context context.Context, cmd *cobra.Command, args []string, toComplete string) (ids []string, err error) {
+func GetPullRequestIDs(context context.Context, cmd *cobra.Command) (ids []string, err error) {
 	ids, err = GetPullRequestIDsWithState(context, cmd, "OPEN")
 	if err != nil {
 		return []string{}, err
@@ -76,7 +76,7 @@ func PullRequestIDValidArgs(cmd *cobra.Command, args []string, toComplete string
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	ids, err := GetPullRequestIDs(cmd.Context(), cmd, args, toComplete)
+	ids, err := GetPullRequestIDs(cmd.Context(), cmd)
 	if err != nil {
 		return []string{}, cobra.ShellCompDirectiveNoFileComp
 	}
@@ -98,6 +98,24 @@ func ExistsPullRequest(ctx context.Context, cmd *cobra.Command, repo *repository
 	}
 	if err := currentProfile.Get(ctx, repo.GetPath("pullrequests", pullRequestID), nil); err != nil {
 		return fmt.Errorf("failed to get pullrequest %s: %w", pullRequestID, err)
+	}
+	return nil
+}
+
+// ExistsSubResource validates via a GET that subResourceID names an existing sub-resource of the
+// pull request identified by pullRequestID in repo, reached at
+// repo.GetPath("pullrequests", pullRequestID, pathSegment, subResourceID) (e.g. pathSegment
+// "comments" or "tasks"), returning the same error a write against that sub-resource would
+// produce -- this also validates the parent pull request's existence too. noun names the
+// sub-resource kind (e.g. "comment", "task") in the wrapped error. A command whose target does
+// NOT yet exist (a new comment or task) calls ExistsPullRequest instead.
+func ExistsSubResource(ctx context.Context, cmd *cobra.Command, repo *repository.Repository, pathSegment, noun, pullRequestID, subResourceID string) error {
+	currentProfile, err := profile.GetProfileFromCommand(ctx, cmd)
+	if err != nil {
+		return fmt.Errorf("cannot get profile: %w", err)
+	}
+	if err := currentProfile.Get(ctx, repo.GetPath("pullrequests", pullRequestID, pathSegment, subResourceID), nil); err != nil {
+		return fmt.Errorf("failed to get %s %s of pullrequest %s: %w", noun, subResourceID, pullRequestID, err)
 	}
 	return nil
 }

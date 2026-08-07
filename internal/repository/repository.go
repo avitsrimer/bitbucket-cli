@@ -239,18 +239,9 @@ func (repository Repository) String() string {
 // checkout with no remote configured at all -- there is no separate Bitbucket-detection step to
 // add on top of it.
 //
-// The third rung reads profile.Current when it is already populated (set by an earlier
-// profile.GetProfileFromCommand/profile.getAll call this invocation), and otherwise resolves it
-// itself via profile.GetProfileFromCommand when cmd carries a "profile" flag: nothing runs before
-// this in a typical invocation (GetRepository is usually the first thing a RunE calls), so
-// profile.Current is still nil at this point more often than not. cmd lacking a "profile" flag
-// (a bare *cobra.Command built by a test, never the real command tree) skips this resolution
-// rather than panicking, matching the nil-check the first rung already does for "repository". A
-// profile-loading error here is logged as a [WARN] rather than surfaced as this function's own
-// error -- it just means the third rung has nothing to offer, and the final "every rung failed"
-// error below still applies -- but the warning line still tells the user the real cause (e.g. an
-// invalid --profile value) instead of leaving them with only the generic missing-argument
-// message.
+// The third rung resolves the profile via profile.CurrentOrFromCommand (see its doc comment for
+// how it handles an unpopulated profile.Current, a cmd with no "profile" flag, and a
+// profile-loading error).
 //
 // The repository is determined by the following order:
 //  1. The repository flag in the command
@@ -266,13 +257,7 @@ func GetRepositoryName(context context.Context, cmd *cobra.Command) (repositoryN
 		lgr.Printf("[DEBUG] repository name found in git config: %s, from remote: %s", remote.RepositoryName(), remote.RedactedURL())
 		return remote.RepositoryName(), nil
 	}
-	currentProfile := profile.Current
-	if currentProfile == nil && cmd.Flag("profile") != nil {
-		var profileErr error
-		if currentProfile, profileErr = profile.GetProfileFromCommand(context, cmd); profileErr != nil {
-			lgr.Printf("[WARN] cannot load profile to resolve a default repository: %s", profileErr.Error())
-		}
-	}
+	currentProfile := profile.CurrentOrFromCommand(context, cmd, "repository")
 	if currentProfile != nil && currentProfile.DefaultRepository != "" {
 		lgr.Printf("[DEBUG] repository name found in profile: %s", currentProfile.DefaultRepository)
 		return currentProfile.DefaultRepository, nil

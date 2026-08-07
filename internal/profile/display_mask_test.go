@@ -153,8 +153,8 @@ func (suite *ProfileSuite) TestProfileGetYAMLShowsRealAccessToken() {
 }
 
 // vaultBackedProfileName/vaultBackedVaultKey name the fixture profile the tests below use to
-// reproduce review-iter-7 finding #4 against the REALISTIC shape of the leak: an access token
-// created via `bb profile create --access-token` is stored in the OS vault, not the config file
+// exercise the REALISTIC shape of a vault-backed secret: an access token created via
+// `bb profile create --access-token` is stored in the OS vault, not the config file
 // (see resolveVaultSecret) -- the persisted profile carries no accesstoken of its own at all, and
 // LoadSecrets/loadAccessToken is what populates Profile.AccessToken from the vault at runtime, on
 // demand. Both names are distinct from every other fixture in this package's tests, so
@@ -162,8 +162,8 @@ func (suite *ProfileSuite) TestProfileGetYAMLShowsRealAccessToken() {
 // name is guaranteed to miss -- no test, in this run or any prior one, has ever written a token
 // cache file under this name's hash -- and the mock vault seeded below is reached deterministically
 // instead.
-const vaultBackedProfileName = "iter7-vault-backed-profile"
-const vaultBackedVaultKey = "iter7-vault-backed-vault-key"
+const vaultBackedProfileName = "fr7-vault-backed-profile"
+const vaultBackedVaultKey = "fr7-vault-backed-vault-key"
 
 // writeVaultBackedConfigWithOutputFormat writes a config carrying one profile with NO accesstoken
 // of its own and outputformat set as given; see vaultBackedProfileName's doc comment for why this
@@ -179,13 +179,12 @@ func writeVaultBackedConfigWithOutputFormat(t *testing.T, outputFormat string) s
 	return path
 }
 
-// TestProfileListBareCommandWithProfileOutputFormatJSONDoesNotLoadSecretsFromVault reproduces
-// review-iter-7 finding #4: a profile configured with `outputformat: json` used to make a bare
-// `bb profile list` (no explicit -o/--output flag at all) unconditionally LoadSecrets -- fetching
-// the real token from the vault -- and then render it in cleartext, purely because Profile.Print
-// picks the profile's OWN OutputFormat ahead of -o with no flag and no signal to the caller. The
-// fix loads secrets ONLY when json/yaml output was explicitly requested via -o/--output on the
-// command line.
+// TestProfileListBareCommandWithProfileOutputFormatJSONDoesNotLoadSecretsFromVault pins that a
+// profile configured with `outputformat: json` must NOT make a bare `bb profile list` (no
+// explicit -o/--output flag at all) fetch the real token from the vault and render it in
+// cleartext, even though Profile.Print picks the profile's OWN OutputFormat ahead of -o with no
+// flag and no signal to the caller: LoadSecrets runs ONLY when json/yaml output was explicitly
+// requested via -o/--output on the command line.
 func (suite *ProfileSuite) TestProfileListBareCommandWithProfileOutputFormatJSONDoesNotLoadSecretsFromVault() {
 	defer resetProfilesState()()
 	keyring.MockInit()
