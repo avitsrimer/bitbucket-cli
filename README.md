@@ -15,8 +15,10 @@
 > subgroup: `get`, `list`, `logs`, `report`, `cases`), `bb repo`/`bb repository` (`get`, `list`,
 > `clone` — read-only, no create/delete/fork/update), `bb workspace` (`get`, `list`, `members` —
 > no permission administration), `bb commit`/`bb branch` (read-only: `commit get/list/diff/patch`,
-> `branch list`), and `bb artifact` (`list`, `download` — no upload/delete). Every other command
-> group inherited from upstream — `issue`, `tag`, `project`, `gpg-key`, `ssh-key`, `cache`,
+> `branch list`), `bb artifact` (`list`, `download` — no upload/delete), and `bb install-skill`
+> (writes an embedded Claude Code skill teaching an agent this whole surface — see [Agent
+> skill](#agent-skill)). Every other command group inherited from upstream — `issue`, `tag`,
+> `project`, `gpg-key`, `ssh-key`, `cache`,
 > `remote`, `component` — remains **removed** from this fork, as does every admin/destructive verb
 > of the groups above (repository create/delete/fork/update, `repo get --forks`, workspace
 > permission management, pipeline `--tag` targets) and the deprecated `pullrequest activity` alias
@@ -41,6 +43,7 @@ The supported surface is:
 - **Artifacts** — `bb artifact` → `list`, `download`
 - **Users** — `bb user` → `get`, `me`
 - **Authentication** — `bb profile` (including API tokens stored in the macOS Keychain, see [Profiles](#profiles)) and `bb completion`
+- **Agent skill** — `bb install-skill` (see [Agent skill](#agent-skill))
 
 ## Installation
 
@@ -1093,6 +1096,23 @@ On macOS, you can add the completion to the brew functions:
 
 ```bash
 bb completion zsh > "$(brew --prefix)/share/zsh/site-functions/_bb"
+```
+
+### Agent skill
+
+`bb install-skill [--to <dir>]` writes an embedded [Claude Code](https://claude.com/claude-code)
+skill to `<to>/skills/bitbucket-cli`, defaulting `--to` to `~/.claude`. The skill teaches an agent
+the full command surface documented in this README — profile setup, pull request/comment/task
+management, pipeline triggering and log inspection, repository/workspace/commit/branch reads, and
+artifact download — including the fork-specific behaviors an agent needs to get right (positional
+pull request/pipeline ids, the `pipeline trigger`/`stop` confirmation prompt and `--force`,
+`--comment-file`/`--description-file` for shell-quoting-hazard-free bodies, `--dry-run`'s
+full-preflight semantics, and output-format/masking rules). Re-running the command always
+overwrites the destination, so it stays in sync with whatever skill content shipped in the `bb`
+binary you ran it with.
+
+```bash
+bb install-skill
 ```
 
 ### Obtaining logs for debugging
