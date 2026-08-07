@@ -282,24 +282,39 @@ func GetReviewerNicknames(ctx context.Context, cmd *cobra.Command, args []string
 }
 
 // reviewerCompletionFunc adapts GetReviewerNicknames to cobra's shell-completion function
-// signature for the --reviewer/--add-reviewer/--remove-reviewer flags.
+// signature for the --add-reviewer/--remove-reviewer flags (pr update). pr create's --reviewer
+// flag registers createReviewerCompletionFunc instead, which lists the none/default/all
+// sentinels ahead of these same nicknames.
 //
 // These flags are plain string slices, not common.EnumSliceFlag: the reviewer identifier a user
 // may pass is not limited to a workspace member's nickname -- it can be an Account ID, a UUID, a
-// display name, the `all` sentinel (every workspace member, see expandAllReviewers), or the
-// documented `default` sentinel. resolveExplicitReviewers, resolveCreateDefaultReviewers,
-// resolveDefaultReviewers, and addRequestedReviewers validate and resolve the value at request
-// time instead: a value that cannot be resolved to a workspace member or a real user is a hard
-// error (subject to the profile's ShouldStopOnError/ShouldWarnOnError/ShouldIgnoreErrors
-// tolerance), aborting before any POST/PUT is sent. GetReviewerNicknames' member list is used
-// here purely as a shell-completion aid, never to reject an otherwise valid value at flag-parse
-// time.
+// display name, the `all` sentinel (every workspace member, see expandAllReviewers), or (for
+// --add-reviewer) the documented `default` sentinel. resolveExplicitReviewers,
+// resolveCreateDefaultReviewers, resolveDefaultReviewers, and addRequestedReviewers validate and
+// resolve the value at request time instead: a value that cannot be resolved to a workspace
+// member or a real user is a hard error (subject to the profile's
+// ShouldStopOnError/ShouldWarnOnError/ShouldIgnoreErrors tolerance), aborting before any POST/PUT
+// is sent. GetReviewerNicknames' member list is used here purely as a shell-completion aid, never
+// to reject an otherwise valid value at flag-parse time.
 func reviewerCompletionFunc(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	nicknames, err := GetReviewerNicknames(cmd.Context(), cmd, args, toComplete)
 	if err != nil {
 		return []string{}, cobra.ShellCompDirectiveError
 	}
 	return nicknames, cobra.ShellCompDirectiveNoFileComp
+}
+
+// createReviewerCompletionFunc adapts reviewerCompletionFunc for pr create's --reviewer flag:
+// unlike --add-reviewer/--remove-reviewer, pr create additionally accepts the `none`, `default`,
+// and `all` sentinels (see create.go's reviewer resolution and expandAllReviewers), so those are
+// offered ahead of the workspace member nicknames reviewerCompletionFunc already lists.
+func createReviewerCompletionFunc(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	nicknames, directive := reviewerCompletionFunc(cmd, args, toComplete)
+	if directive == cobra.ShellCompDirectiveError {
+		return nicknames, directive
+	}
+	sentinels := common.FilterValidArgs([]string{"none", "default", "all"}, args, toComplete)
+	return append(sentinels, nicknames...), directive
 }
 
 // expandAllReviewers implements the "all" sentinel for --reviewer/--add-reviewer: when the caller

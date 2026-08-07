@@ -735,6 +735,32 @@ omitted (the fallback fired implicitly) the same failure instead follows the usu
 `--stop-on-error`/`--warn-on-error`/`--ignore-errors` tolerance -- the pull request is still
 created, just with no reviewers, since the caller never asked for any.
 
+Pass `--reviewer none` (exactly, and alone) to create the pull request with no reviewers and skip
+the default-reviewers lookup entirely -- useful when you explicitly want no reviewers rather than
+falling back to the repository's defaults:
+
+```bash
+bb pullrequest create \
+  --title "My pull request" \
+  --source "my-branch" \
+  --destination "master" \
+  --reviewer none
+```
+
+Combining `none` with any other `--reviewer` value is an error, regardless of whether the values
+arrive as repeated flags (`--reviewer none --reviewer username1`) or a single comma-separated list
+(`--reviewer none,username1`).
+
+You can create the pull request as a draft with the `--draft` flag:
+
+```bash
+bb pullrequest create \
+  --title "My pull request" \
+  --source "my-branch" \
+  --destination "master" \
+  --draft
+```
+
 Writing a markdown description on the command line means fighting shell quoting -- backticks and
 `$(...)` inside double quotes are a live command-substitution hazard. `--description-file` reads
 the description from a file instead, or from stdin with `-`, and is mutually exclusive with
