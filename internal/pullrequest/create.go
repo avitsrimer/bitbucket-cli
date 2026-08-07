@@ -13,7 +13,6 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
 	"github.com/avitsrimer/bitbucket-cli/internal/workspace"
-	"github.com/gildas/go-core"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -163,7 +162,7 @@ func resolveCreateDefaultReviewers(ctx context.Context, cmd *cobra.Command, curr
 		}
 		return nil, nil
 	}
-	return core.Map(reviewers, func(reviewer project.Reviewer) user.User { return reviewer.User }), nil
+	return common.Map(reviewers, func(reviewer project.Reviewer) user.User { return reviewer.User }), nil
 }
 
 // resolveExplicitReviewers resolves the --reviewer values (already known not to be "default")
@@ -185,7 +184,7 @@ func resolveExplicitReviewers(ctx context.Context, cmd *cobra.Command, currentPr
 	reviewers := make([]user.User, 0, len(values))
 	var errs []error
 	for _, reviewerNameOrID := range values {
-		matches := core.Filter(members, func(member workspace.Member) bool { return matchesMember(member, reviewerNameOrID) })
+		matches := common.Filter(members, func(member workspace.Member) bool { return matchesMember(member, reviewerNameOrID) })
 		if len(matches) > 0 && !slices.ContainsFunc(reviewers, func(u user.User) bool { return u.ID == matches[0].User.ID }) {
 			lgr.Printf("[DEBUG] adding reviewer: %s", matches[0].User.ID)
 			reviewers = append(reviewers, matches[0].User)

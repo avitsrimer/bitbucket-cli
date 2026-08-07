@@ -8,7 +8,6 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	prcommon "github.com/avitsrimer/bitbucket-cli/internal/pullrequest/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
-	"github.com/gildas/go-core"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -65,7 +64,7 @@ func commitsProcess(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("failed to get the commits of pull request %s: %w", pullRequestID, err)
 	}
 	if sortValue := common.SortFlagValue(cmd); sortValue != "" {
-		core.Sort(commits, commit.Columns().SortBy(sortValue))
+		common.Sort(commits, commit.Columns().SortBy(sortValue))
 	}
 	if err := profile.Current.Print(cmd.Context(), cmd, commit.Commits(commits)); err != nil {
 		return fmt.Errorf("cannot print result: %w", err)

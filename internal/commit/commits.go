@@ -9,7 +9,6 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
-	"github.com/gildas/go-core"
 	"github.com/spf13/cobra"
 )
 
@@ -85,8 +84,8 @@ func GetCommitHashes(ctx context.Context, cmd *cobra.Command, args []string, toC
 		cobra.CompErrorln(err.Error())
 		return []string{}, err
 	}
-	hashes = core.Map(commits, func(commit Commit) string { return commit.Hash })
-	core.Sort(hashes, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
+	hashes = common.Map(commits, func(commit Commit) string { return commit.Hash })
+	common.Sort(hashes, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
 	return common.FilterValidArgs(hashes, args, toComplete), nil
 }
 

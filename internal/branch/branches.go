@@ -9,7 +9,6 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
-	"github.com/gildas/go-core"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -87,7 +86,7 @@ func GetBranchNames(context context.Context, cmd *cobra.Command, args []string, 
 		cobra.CompErrorln(err.Error())
 		return []string{}, err
 	}
-	names = core.Map(branches, func(branch Branch) string { return branch.Name })
-	core.Sort(names, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
+	names = common.Map(branches, func(branch Branch) string { return branch.Name })
+	common.Sort(names, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
 	return common.FilterValidArgs(names, args, toComplete), nil
 }

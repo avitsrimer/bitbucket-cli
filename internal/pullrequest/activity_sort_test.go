@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/pullrequest/comment"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
-	"github.com/gildas/go-core"
 )
 
 // TestActivityColumnsSortByDateOrdersMixedVariantsChronologically proves the "date" comparator
@@ -28,7 +28,7 @@ func TestActivityColumnsSortByDateOrdersMixedVariantsChronologically(t *testing.
 		{Approval: &ActivityApproval{Date: middle}},
 	}
 
-	core.Sort(activities, activityColumns.SortBy("date"))
+	common.Sort(activities, activityColumns.SortBy("date"))
 
 	if activities[0].Comment == nil || !activities[0].Comment.CreatedOn.Equal(early) {
 		t.Fatalf("expected the comment activity (earliest) first, got %+v", activities)
@@ -52,7 +52,7 @@ func TestActivityColumnsSortByUserOrdersMixedVariantsAlphabetically(t *testing.T
 		{Comment: &comment.Comment{User: user.User{Name: "Mallory"}}},
 	}
 
-	core.Sort(activities, activityColumns.SortBy("user"))
+	common.Sort(activities, activityColumns.SortBy("user"))
 
 	if activities[0].ChangesRequested == nil || activities[0].ChangesRequested.User.Name != "Alice" {
 		t.Fatalf("expected Alice (changes_requested) first, got %+v", activities)
@@ -77,7 +77,7 @@ func TestActivityColumnsSortByApprovedOrdersMixedVariantsByBoolean(t *testing.T)
 		{Update: &ActivityUpdate{Author: user.User{Name: "Bob"}}},
 	}
 
-	core.Sort(activities, activityColumns.SortBy("approved"))
+	common.Sort(activities, activityColumns.SortBy("approved"))
 
 	if activities[2].Approval == nil {
 		t.Fatalf("expected the approval activity last (approved=true sorts after approved=false), got %+v", activities)
@@ -117,7 +117,7 @@ func TestActivityColumnsSortByStateOrdersMixedVariantsAlphabetically(t *testing.
 		{ChangesRequested: &ActivityApproval{}},
 	}
 
-	core.Sort(activities, activityColumns.SortBy("state"))
+	common.Sort(activities, activityColumns.SortBy("state"))
 
 	if activities[0].ChangesRequested == nil {
 		t.Fatalf("expected the changes_requested activity (state CHANGES_REQUESTED) first, got %+v", activities)
@@ -213,7 +213,7 @@ func TestActivityColumnsAllSortersOrderMixedVariantsCorrectly(t *testing.T) {
 			}
 
 			mixed := []Activity{fixture.high, fixture.low}
-			core.Sort(mixed, activityColumns.SortBy(name))
+			common.Sort(mixed, activityColumns.SortBy(name))
 
 			if mixed[0].PullRequest.ID != 1 || mixed[1].PullRequest.ID != 2 {
 				t.Errorf("SortBy(%q) left [high, low] unordered (got PullRequest.ID %d, %d, want 1, 2): comparator likely still gates on a specific variant instead of resolving through summarize()", name, mixed[0].PullRequest.ID, mixed[1].PullRequest.ID)

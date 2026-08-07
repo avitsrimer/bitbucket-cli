@@ -8,7 +8,6 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
-	"github.com/gildas/go-core"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -86,7 +85,7 @@ func listProcess(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 	if sortValue := common.SortFlagValue(cmd); sortValue != "" {
-		core.Sort(pullrequests, columns.SortBy(sortValue))
+		common.Sort(pullrequests, columns.SortBy(sortValue))
 	}
 	if err := profile.Current.Print(cmd.Context(), cmd, PullRequests(pullrequests)); err != nil {
 		return fmt.Errorf("cannot print result: %w", err)

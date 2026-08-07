@@ -4,7 +4,6 @@ import (
 	"errors"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
-	"github.com/gildas/go-core"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -49,7 +48,7 @@ func listProcess(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 	if sortValue := common.SortFlagValue(cmd); sortValue != "" {
-		core.Sort(Profiles, columns.SortBy(sortValue))
+		common.Sort(Profiles, columns.SortBy(sortValue))
 	}
 	// LoadSecrets is only called when -o/--output json or yaml was given EXPLICITLY on the command
 	// line (see explicitJSONOrYAMLOutput): a profile merely CONFIGURED with outputFormat: json/yaml
@@ -57,7 +56,7 @@ func listProcess(cmd *cobra.Command, args []string) (err error) {
 	// vault and then render it in cleartext (Print picks the profile's own OutputFormat ahead of
 	// -o, with no flag and no signal that a secret is about to be shown).
 	loadSecrets := explicitJSONOrYAMLOutput(cmd)
-	Profiles = core.Map(Profiles, func(profile *Profile) *Profile {
+	Profiles = common.Map(Profiles, func(profile *Profile) *Profile {
 		_ = profile.Validate()
 		if loadSecrets {
 			_ = profile.LoadSecrets(ctx)

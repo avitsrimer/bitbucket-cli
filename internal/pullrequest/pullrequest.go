@@ -20,7 +20,6 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
 	"github.com/avitsrimer/bitbucket-cli/internal/workspace"
-	"github.com/gildas/go-core"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -277,8 +276,8 @@ func GetReviewerNicknames(ctx context.Context, cmd *cobra.Command, args []string
 	}
 	lgr.Printf("[DEBUG] getting members of workspace %s", workspaceSlug)
 	members, _ := workspace.GetMembers(ctx, cmd, workspaceSlug)
-	nicknames = core.Map(members, func(member workspace.Member) string { return member.User.Nickname })
-	core.Sort(nicknames, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
+	nicknames = common.Map(members, func(member workspace.Member) string { return member.User.Nickname })
+	common.Sort(nicknames, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
 	return common.FilterValidArgs(nicknames, args, toComplete), nil
 }
 
@@ -324,7 +323,7 @@ func expandAllReviewers(values []string, members []workspace.Member, membersErr 
 	if membersErr != nil {
 		return nil, fmt.Errorf("cannot expand reviewer \"all\": failed to list workspace members: %w", membersErr)
 	}
-	return core.Map(members, func(member workspace.Member) string { return member.User.ID.String() }), nil
+	return common.Map(members, func(member workspace.Member) string { return member.User.ID.String() }), nil
 }
 
 // matchesMember reports whether member is identified by id: a value that parses as a UUID is
@@ -358,7 +357,7 @@ func effectiveDefaultReviewers(ctx context.Context, cmd *cobra.Command, repo *re
 
 	if me != nil {
 		// removing the current user from the reviewers, since they cannot review their own pullrequest
-		reviewers = core.Filter(reviewers, func(reviewer project.Reviewer) bool { return reviewer.User.ID != me.ID })
+		reviewers = common.Filter(reviewers, func(reviewer project.Reviewer) bool { return reviewer.User.ID != me.ID })
 		lgr.Printf("[DEBUG] filtered reviewers to remove current user: %d reviewers remaining", len(reviewers))
 	}
 	return reviewers, nil

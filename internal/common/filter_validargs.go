@@ -1,9 +1,8 @@
 package common
 
 import (
+	"slices"
 	"strings"
-
-	"github.com/gildas/go-core"
 )
 
 // FilterValidArgs filters the valid arguments and keeps only the ones
@@ -12,13 +11,13 @@ import (
 // Note: the result is a new slice, the original is not modified
 func FilterValidArgs(valid, args []string, toComplete string) []string {
 	if toComplete != "" {
-		valid = core.Filter(valid, func(value string) bool {
+		valid = Filter(valid, func(value string) bool {
 			return strings.HasPrefix(value, toComplete)
 		})
 	}
 	if len(args) > 0 {
-		valid = core.Filter(valid, func(value string) bool {
-			return !core.Contains(args, value)
+		valid = Filter(valid, func(value string) bool {
+			return !slices.Contains(args, value)
 		})
 	}
 	return valid

@@ -166,7 +166,7 @@ func GetPullRequestTaskIDs(ctx context.Context, cmd *cobra.Command, pullRequestI
 		lgr.Printf("[ERROR] failed to get pullrequests: %v", err)
 		return nil, err
 	}
-	return core.Map(tasks, func(task Task) string {
+	return common.Map(tasks, func(task Task) string {
 		return strconv.Itoa(task.ID)
 	}), nil
 }

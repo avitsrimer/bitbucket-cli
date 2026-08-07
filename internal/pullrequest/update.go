@@ -14,7 +14,6 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
 	"github.com/avitsrimer/bitbucket-cli/internal/workspace"
-	"github.com/gildas/go-core"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -267,7 +266,7 @@ func resolveDefaultReviewers(ctx context.Context, cmd *cobra.Command, pullreques
 
 	// Replace the first reviewer with the list of default reviewers and append the rest
 	return append(
-		core.Map(reviewers, func(reviewer project.Reviewer) string { return reviewer.User.ID.String() }),
+		common.Map(reviewers, func(reviewer project.Reviewer) string { return reviewer.User.ID.String() }),
 		updateOptions.AddReviewers[1:]...,
 	), nil
 }
@@ -303,7 +302,7 @@ func addRequestedReviewers(ctx context.Context, cmd *cobra.Command, currentProfi
 	var errs []error
 	for _, reviewerNameOrID := range reviewerValues {
 		lgr.Printf("[DEBUG] processing reviewer to add: %s", reviewerNameOrID)
-		matches := core.Filter(members, func(member workspace.Member) bool { return matchesMember(member, reviewerNameOrID) })
+		matches := common.Filter(members, func(member workspace.Member) bool { return matchesMember(member, reviewerNameOrID) })
 		if len(matches) > 0 {
 			if !slices.ContainsFunc(pullrequest.Reviewers, func(u user.User) bool { return u.ID == matches[0].User.ID }) {
 				lgr.Printf("[DEBUG] adding reviewer: %s (%s)", matches[0].User.ID, matches[0].User.Nickname)

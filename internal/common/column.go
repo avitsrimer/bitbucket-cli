@@ -4,7 +4,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gildas/go-core"
 	"github.com/spf13/cobra"
 )
 
@@ -46,7 +45,7 @@ func FormatOptionalTime(when time.Time) *string {
 func HeadersFromFlag(cmd *cobra.Command, defaults ...string) []string {
 	if cmd != nil && cmd.Flag("columns") != nil && cmd.Flag("columns").Changed {
 		if values, err := cmd.Flags().GetStringSlice("columns"); err == nil {
-			return core.Map(values, func(value string) string { return strings.ReplaceAll(value, "_", " ") })
+			return Map(values, func(value string) string { return strings.ReplaceAll(value, "_", " ") })
 		}
 	}
 	return defaults
@@ -73,11 +72,11 @@ type Column[T any] struct {
 type Columns[T any] []Column[T]
 
 func (columns Columns[T]) Columns() []string {
-	return core.Map(columns, func(column Column[T]) string { return column.Name })
+	return Map(columns, func(column Column[T]) string { return column.Name })
 }
 
 func (columns Columns[T]) Sorters() []string {
-	return core.Map(columns, func(column Column[T]) string {
+	return Map(columns, func(column Column[T]) string {
 		if column.DefaultSorter {
 			return "+" + column.Name
 		}
