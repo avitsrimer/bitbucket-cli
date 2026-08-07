@@ -285,6 +285,52 @@ The cache is stored under `os.UserCacheDir()/bitbucket` (`~/Library/Caches/bitbu
 `~/.cache/bitbucket` on Linux). There is no `bb cache clear` command; delete that directory
 directly if you need to invalidate a stale entry.
 
+### Token permissions
+
+`bb` is designed to work with **narrowly scoped tokens** — grant only what the commands you use
+need. Scope names below use Bitbucket's API-token form (`read:repository:bitbucket`);
+app-password equivalents in parentheses.
+
+**Required — the core every command relies on**
+
+- `read:repository` *(Repositories: Read)* — repository/branch/commit reads, artifact
+  `list`/`download`, and resolving the target repository for every other command
+- `read:pullrequest` *(Pull requests: Read)* — `pullrequest list/get/activities/diff/patch/commits`,
+  comment and task reads[^readpr]
+- `read:user` *(Account: Read)* — `bb user get`/`me` (including `--emails`) — nothing else uses it
+
+**[Optional] — grant per workflow**
+
+- `write:pullrequest` *(Pull requests: Write)* — `pullrequest
+  create/update/approve/unapprove/request-changes/remove-request-changes/decline/merge`, comment
+  and task create/update/delete. Skip it for a read-only setup
+- `read:pipeline` *(Pipelines: Read)* — `pipeline get/list` and all of `pipeline step`, including
+  `logs`, `report`, and `cases` (Bitbucket's pipeline read scope covers logs, tests, and
+  artifacts)
+- `write:pipeline` *(Pipelines: Write)* — `pipeline trigger` and `pipeline stop`
+- `read:workspace` *(Workspaces: Read)* — **only** `workspace get/list/members` and the
+  workspace-name validation in `profile update --default-workspace`. Everything else deliberately
+  works without it: explicitly supplied `--workspace` values, `--default-workspace` on
+  `profile create`, and all repository/pull-request/pipeline operations never call a workspace
+  endpoint
+
+**Not needed**
+
+- `read:test`, `read:runner` — reading test reports is covered by `read:pipeline`; no `bb`
+  command touches runner endpoints
+- admin, webhook, project, and snippet scopes — no `bb` command calls them
+
+**No token needed at all** — `completion`, `help`, `install-skill`, and every `profile` command
+(local config + Keychain) except the `read:workspace` case above; `profile authorize`
+authenticates through its own OAuth client credentials rather than token scopes.
+
+[^readpr]: Bitbucket documents `read:pullrequest` as also permitting PR comments; `bb` has not
+verified comment writes on a read-only token, so grant `write:pullrequest` if you comment.
+
+> [!NOTE]
+> `repo clone` authenticates through git itself (an SSH key or an app password over HTTPS), not
+> through the API token above.
+
 ### Profiles
 
 #### Setting up OAUTH 2.0
