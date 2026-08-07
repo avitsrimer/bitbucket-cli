@@ -1057,6 +1057,8 @@ bb pipeline trigger --branch master --force
 
 Declining the confirmation prints `Trigger canceled` and exits `0` (not an error) — same for `bb pipeline stop`'s equivalent `Stop canceled`. On success, `trigger` prints the newly created pipeline, honoring `--output` like any other command.
 
+With stdin on `/dev/null` and no `--force` (cron, `nohup`, most agent harnesses), `trigger`/`stop` still print the prompt, read EOF, and treat that as a silent decline — `Trigger canceled`/`Stop canceled`, exit `0` — one more reason scripts driving these commands should pass `--force`.
+
 > [!NOTE]
 > There is no `--tag` target (the upstream `tag` package stays removed) and no
 > `--show-logs-command`/`logs-command` output.
