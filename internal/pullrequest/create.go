@@ -56,7 +56,7 @@ func init() {
 	registerDescriptionFileFlag(createCmd, &createOptions.DescriptionFile)
 	createCmd.Flags().Var(createOptions.Source, "source", "Source branch of the pullrequest")
 	createCmd.Flags().Var(createOptions.Destination, "destination", "Destination branch of the pullrequest")
-	createCmd.Flags().StringSlice("reviewer", nil, "Reviewer(s) of the pullrequest. Can be specified multiple times, or as a comma-separated list. Can be the user Account ID, UUID, name, or nickname. If the first reviewer is `default`, the command will try to find the default reviewers from the repository or project settings. If it is exactly `all`, every workspace member is added as a reviewer. If it is exactly `none`, the pullrequest is created with no reviewers and the default-reviewers lookup is skipped entirely.")
+	createCmd.Flags().StringSlice("reviewer", nil, "Reviewer(s) of the pullrequest. Can be specified multiple times, or as a comma-separated list. Can be the user Account ID, UUID, name, or nickname. If the first reviewer is `default`, the command will try to find the default reviewers from the repository or project settings. If it is exactly `all`, every workspace member is added as a reviewer, excluding the current user. If it is exactly `none`, the pullrequest is created with no reviewers and the default-reviewers lookup is skipped entirely.")
 	createCmd.Flags().BoolVar(&createOptions.CloseSourceBranch, "close-source-branch", false, "Close the source branch of the pullrequest")
 	createCmd.Flags().BoolVar(&createOptions.Draft, "draft", false, "Create the pullrequest as a draft")
 	_ = createCmd.MarkFlagRequired("title")
@@ -187,7 +187,7 @@ func resolveExplicitReviewers(ctx context.Context, cmd *cobra.Command, currentPr
 		return nil, fmt.Errorf("cannot get workspace: %w", wsErr)
 	}
 	members, membersErr := workspace.GetMembers(ctx, cmd, workspaceSlug)
-	values, err := expandAllReviewers(values, members, membersErr)
+	values, err := expandAllReviewers(ctx, cmd, values, members, membersErr)
 	if err != nil {
 		return nil, err
 	}

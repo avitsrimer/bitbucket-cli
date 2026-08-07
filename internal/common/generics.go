@@ -6,8 +6,8 @@ import "slices"
 //
 // less(a, b) reporting true means a sorts before b. slices.SortFunc is not a stable sort, so the
 // relative order of two items comparing equal (less(a,b) and less(b,a) both false) is
-// unspecified -- matching go-core's own Sort, which was equally unstable; do not rely on
-// equal-element order, and have less break ties explicitly if a comparator needs one.
+// unspecified; do not rely on equal-element order -- have less break ties explicitly if a
+// comparator needs one.
 func Sort[S ~[]T, T any](items S, less func(a, b T) bool) {
 	slices.SortFunc(items, func(a, b T) int {
 		if less(a, b) {

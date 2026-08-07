@@ -182,8 +182,11 @@ func writeHeaderLine(w io.Writer, cells []string, colWidths []int) {
 // with displayWidth (ANSI-stripped runewidth), the same measure upstream used.
 //
 // A header row is only drawn -- and only then does the header-separator rule line follow -- when
-// headers is non-empty; an empty headers renders as just the top and bottom rule lines, matching
-// upstream's printHeading() returning immediately for zero headers.
+// headers is non-empty, matching upstream's printHeading() returning immediately for zero
+// headers; rows still render regardless of whether headers is empty. "just the top and bottom
+// rule lines" (no header block AND no rows) is not a shape writeTable produces on its own from a
+// non-empty rows argument -- printTable achieves it by calling writeTable(w, nil, nil), passing
+// nil for both.
 func writeTable(w io.Writer, headers []string, rows [][]string) {
 	numCols := len(headers)
 	for _, row := range rows {

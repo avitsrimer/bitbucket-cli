@@ -288,14 +288,16 @@ func GetReviewerNicknames(ctx context.Context, cmd *cobra.Command, args []string
 //
 // These flags are plain string slices, not common.EnumSliceFlag: the reviewer identifier a user
 // may pass is not limited to a workspace member's nickname -- it can be an Account ID, a UUID, a
-// display name, the `all` sentinel (every workspace member, see expandAllReviewers), or (for
-// --add-reviewer) the documented `default` sentinel. resolveExplicitReviewers,
-// resolveCreateDefaultReviewers, resolveDefaultReviewers, and addRequestedReviewers validate and
-// resolve the value at request time instead: a value that cannot be resolved to a workspace
-// member or a real user is a hard error (subject to the profile's
-// ShouldStopOnError/ShouldWarnOnError/ShouldIgnoreErrors tolerance), aborting before any POST/PUT
-// is sent. GetReviewerNicknames' member list is used here purely as a shell-completion aid, never
-// to reject an otherwise valid value at flag-parse time.
+// display name, or (for --add-reviewer only) the documented `default` (see resolveDefaultReviewers)
+// or `all` (every workspace member, see expandAllReviewers) sentinels. --remove-reviewer resolves
+// neither: removeRequestedReviewers matches its values against the pullrequest's current
+// reviewers literally, so "default" or "all" there just match nothing unless a reviewer happens
+// to be named exactly that. resolveExplicitReviewers, resolveCreateDefaultReviewers,
+// resolveDefaultReviewers, and addRequestedReviewers validate and resolve the value at request
+// time instead: a value that cannot be resolved to a workspace member or a real user is a hard
+// error (subject to the profile's ShouldStopOnError/ShouldWarnOnError/ShouldIgnoreErrors
+// tolerance), aborting before any POST/PUT is sent. GetReviewerNicknames' member list is used here
+// purely as a shell-completion aid, never to reject an otherwise valid value at flag-parse time.
 func reviewerCompletionFunc(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	nicknames, err := GetReviewerNicknames(cmd.Context(), cmd, args, toComplete)
 	if err != nil {
@@ -321,11 +323,13 @@ func createReviewerCompletionFunc(cmd *cobra.Command, args []string, toComplete 
 
 // expandAllReviewers implements the "all" sentinel for --reviewer/--add-reviewer: when the caller
 // passed exactly "all" and nothing else, every workspace member's Account UUID is substituted in
-// its place, then matched against the workspace like any other reviewer value (matchesMember
-// parses a UUID-shaped value and compares it against the member's ID directly, so this always
-// matches regardless of whether the member has a nickname). Any other combination of values (e.g.
-// "all,bob", or "all" alongside other flags) is left untouched, so a workspace with no member
-// literally named "all" failing to resolve it is expected, not a bug.
+// its place (excluding the current user when known, matching effectiveDefaultReviewers' "default"
+// path: an author cannot review their own pullrequest), then matched against the workspace like
+// any other reviewer value (matchesMember parses a UUID-shaped value and compares it against the
+// member's ID directly, so this always matches regardless of whether the member has a nickname).
+// Any other combination of values (e.g. "all,bob", or "all" alongside other flags) is left
+// untouched, so a workspace with no member literally named "all" failing to resolve it is
+// expected, not a bug.
 //
 // membersErr is the error (if any) GetMembers returned resolving members: when "all" was
 // requested and the member list could not be resolved, there is nothing to expand it to, so that
@@ -333,14 +337,21 @@ func createReviewerCompletionFunc(cmd *cobra.Command, args []string, toComplete 
 // which would otherwise create/update a pullrequest with zero reviewers at exit 0, a silent no-op
 // that every other reviewer resolution failure avoids via the
 // ShouldStopOnError/ShouldWarnOnError/ShouldIgnoreErrors tolerance.
-func expandAllReviewers(values []string, members []workspace.Member, membersErr error) ([]string, error) {
+func expandAllReviewers(ctx context.Context, cmd *cobra.Command, values []string, members []workspace.Member, membersErr error) ([]string, error) {
 	if len(values) != 1 || values[0] != "all" {
 		return values, nil
 	}
 	if membersErr != nil {
 		return nil, fmt.Errorf("cannot expand reviewer \"all\": failed to list workspace members: %w", membersErr)
 	}
-	return common.Map(members, func(member workspace.Member) string { return member.User.ID.String() }), nil
+	lgr.Printf("[DEBUG] finding current user to exclude from reviewer \"all\"")
+	me, errMe := user.GetMe(ctx, cmd)
+	if errMe != nil {
+		// RAT (repo scoped tokens) do not have access to that API endpoint usually
+		lgr.Printf("[WARN] failed to get current user, this may be a RAT client. Error: %s", errMe.Error())
+	}
+	eligible := common.Filter(members, func(member workspace.Member) bool { return me == nil || member.User.ID != me.ID })
+	return common.Map(eligible, func(member workspace.Member) string { return member.User.ID.String() }), nil
 }
 
 // matchesMember reports whether member is identified by id: a value that parses as a UUID is

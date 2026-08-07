@@ -859,6 +859,58 @@ func TestUpdateProcessAddReviewerAllExpandsToEveryMember(t *testing.T) {
 	}
 }
 
+// TestUpdateProcessAddReviewerAllExcludesAuthor is the --add-reviewer counterpart of
+// TestCreateProcessReviewerAllExcludesAuthor: "all" must exclude the current user (the caller
+// updating the pullrequest, standing in for the author here) just like the "default" sentinel.
+func TestUpdateProcessAddReviewerAllExcludesAuthor(t *testing.T) {
+	withUpdateOptions(t, func() {
+		updateOptions.AddReviewers = []string{"all"}
+	})
+
+	var putBody PullRequest
+	var putCount int
+	cmd := setupTestNamed(t, "update-add-reviewer-all-excludes-author", func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/members"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"values":[` +
+				`{"user":{"uuid":"{33333333-3333-3333-3333-333333333333}","nickname":"alice"}},` +
+				`{"user":{"uuid":"{44444444-4444-4444-4444-444444444444}","nickname":"bob"}}` +
+				`]}`))
+		case r.URL.Path == "/2.0/user":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"uuid":"{33333333-3333-3333-3333-333333333333}","nickname":"alice"}`))
+		case r.Method == http.MethodPut:
+			putCount++
+			if err := json.NewDecoder(r.Body).Decode(&putBody); err != nil {
+				t.Errorf("cannot decode PUT body: %v", err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":42,"title":"Old title"}`))
+		default:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":42,"title":"Old title"}`))
+		}
+	}, false)
+	registerUpdateFlags(cmd)
+	if err := cmd.Flags().Set("add-reviewer", "all"); err != nil {
+		t.Fatalf("cannot set add-reviewer flag: %v", err)
+	}
+
+	if err := updateProcess(cmd, []string{"42"}); err != nil {
+		t.Fatalf("updateProcess() error = %v", err)
+	}
+	if putCount != 1 {
+		t.Fatalf("expected exactly one PUT request, got %d", putCount)
+	}
+	if len(putBody.Reviewers) != 1 {
+		t.Fatalf("PUT body reviewers = %+v, want exactly bob (author alice excluded)", putBody.Reviewers)
+	}
+	if putBody.Reviewers[0].Nickname != "bob" {
+		t.Errorf("PUT body reviewer = %+v, want bob, not the author alice", putBody.Reviewers[0])
+	}
+}
+
 func TestUpdateProcessDryRun(t *testing.T) {
 	withUpdateOptions(t, func() {
 		updateOptions.Title = "Updated title"
