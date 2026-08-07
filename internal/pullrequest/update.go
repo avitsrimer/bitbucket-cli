@@ -46,7 +46,7 @@ func init() {
 	updateCmd.Flags().StringVar(&updateOptions.Description, "description", "", "Description of the pullrequest")
 	registerDescriptionFileFlag(updateCmd, &updateOptions.DescriptionFile)
 	updateCmd.Flags().Var(updateOptions.Destination, "destination", "Destination branch of the pullrequest")
-	updateCmd.Flags().StringSliceVar(&updateOptions.AddReviewers, "add-reviewer", nil, "Reviewer(s) to add to the pullrequest. Can be specified multiple times, or as a comma-separated list. Can be the user Account ID, UUID, name, or nickname. If the first reviewer is `default`, the command will try to find the default reviewers from the repository or project settings.")
+	updateCmd.Flags().StringSliceVar(&updateOptions.AddReviewers, "add-reviewer", nil, "Reviewer(s) to add to the pullrequest. Can be specified multiple times, or as a comma-separated list. Can be the user Account ID, UUID, name, or nickname. If the first reviewer is `default`, the command will try to find the default reviewers from the repository or project settings. If it is exactly `all`, every workspace member is added as a reviewer. Both exclude the current user.")
 	updateCmd.Flags().StringSliceVar(&updateOptions.RemoveReviewers, "remove-reviewer", nil, "Reviewer(s) to remove from the pullrequest. Can be specified multiple times, or as a comma-separated list. Can be the user Account ID, UUID, name, or nickname.")
 	updateCmd.Flags().BoolVar(&updateOptions.CloseSourceBranch, "close-source-branch", false, "Close the source branch after merging")
 
@@ -295,7 +295,7 @@ func addRequestedReviewers(ctx context.Context, cmd *cobra.Command, currentProfi
 	lgr.Printf("[DEBUG] getting all members from workspace %s", workspaceSlug)
 	members, membersErr := workspace.GetMembers(ctx, cmd, workspaceSlug)
 	lgr.Printf("[DEBUG] found %d members in workspace %s", len(members), workspaceSlug)
-	reviewerValues, err := expandAllReviewers(reviewerValues, members, membersErr)
+	reviewerValues, err := expandAllReviewers(ctx, cmd, reviewerValues, members, membersErr)
 	if err != nil {
 		return false, err
 	}

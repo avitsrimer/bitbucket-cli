@@ -468,6 +468,53 @@ func TestCreateProcessReviewerAllExpandsToEveryMember(t *testing.T) {
 	}
 }
 
+// TestCreateProcessReviewerAllExcludesAuthor verifies that --reviewer all, like the "default"
+// path (effectiveDefaultReviewers), excludes the pullrequest author from the expanded reviewer
+// list: an author cannot review their own pullrequest, and "all" previously ignored that rule.
+func TestCreateProcessReviewerAllExcludesAuthor(t *testing.T) {
+	withCreateOptions(t, func() {
+		createOptions.Title = "Add feature"
+		createOptions.Source.Value = "feature"
+		createOptions.Destination.Value = ""
+	})
+
+	var postBody PullRequestCreator
+	mux := http.NewServeMux()
+	mux.HandleFunc("/2.0/user", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"uuid":"{33333333-3333-3333-3333-333333333333}","nickname":"alice"}`))
+	})
+	mux.HandleFunc("/2.0/workspaces/"+testutil.FixtureWorkspaceSlug+"/members", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[` +
+			`{"user":{"uuid":"{33333333-3333-3333-3333-333333333333}","nickname":"alice"}},` +
+			`{"user":{"uuid":"{44444444-4444-4444-4444-444444444444}","nickname":"bob"}}` +
+			`]}`))
+	})
+	mux.HandleFunc("/2.0/repositories/"+testutil.FixtureRepositoryFlag+"/pullrequests", func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&postBody); err != nil {
+			t.Errorf("cannot decode POST body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":99,"title":"Add feature"}`))
+	})
+
+	const profileName = "create-reviewer-all-excludes-author"
+	cmd := setupTestNamed(t, profileName, mux.ServeHTTP, false)
+	setReviewerFlag(t, cmd, "all")
+
+	if err := createProcess(cmd, nil); err != nil {
+		t.Fatalf("createProcess() error = %v", err)
+	}
+
+	if len(postBody.Reviewers) != 1 {
+		t.Fatalf("payload reviewers = %+v, want exactly bob (author alice excluded)", postBody.Reviewers)
+	}
+	if postBody.Reviewers[0].Nickname != "bob" {
+		t.Errorf("payload reviewer = %+v, want bob, not the author alice", postBody.Reviewers[0])
+	}
+}
+
 // TestCreateProcessReviewerAllErrorsWhenMembersCannotBeListed reproduces major finding #1's first
 // defect: both create.go and update.go used to discard the member-listing error
 // (`members, _ := ...GetMembers(...)`), so a --reviewer all whose workspace/repo-scoped token

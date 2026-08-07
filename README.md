@@ -751,7 +751,8 @@ Combining `none` with any other `--reviewer` value is an error, regardless of wh
 arrive as repeated flags (`--reviewer none --reviewer username1`) or a single comma-separated list
 (`--reviewer none,username1`).
 
-Pass `--reviewer all` (exactly, and alone) to add every workspace member as a reviewer:
+Pass `--reviewer all` (exactly, and alone) to add every workspace member as a reviewer, excluding
+the current user (you cannot review your own pull request):
 
 ```bash
 bb pullrequest create \
@@ -817,6 +818,13 @@ bb pullrequest update 1 \
   --add-reviewer    username1 --add-reviewer {userUUID2} \
   --remove-reviewer username3 --remove-reviewer {userUUID4}
 ```
+
+`--add-reviewer` accepts the same `default` and `all` sentinels `--reviewer` on `create` does, with
+the same meaning: `--add-reviewer default` (exactly, and alone) resolves the repository/project's
+effective default reviewers, and `--add-reviewer all` (exactly, and alone) adds every workspace
+member, both excluding the current user (you cannot be your own reviewer). `--remove-reviewer` does
+not resolve either word specially -- `--remove-reviewer default` or `--remove-reviewer all` only
+match a current reviewer literally named `default` or `all`.
 
 You can `approve`or `unapprove` a pull request with the `bb pullrequest approve` or `bb pullrequest unapprove` command:
 

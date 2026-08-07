@@ -118,12 +118,13 @@ skill/                    # embed.go (package skill, //go:embed bitbucket-cli, F
                            # (a sync-guard test in internal/cmd catches a renamed/removed command
                            # path, but not a changed flag or behavior description).
 internal/testutil/        # shared test harness (profile/fixture setup); imports
-                           # repository, user, and workspace, so any test file declared
-                           # "package repository"/"package workspace"/"package user" (as
-                           # opposed to "package foo_test") would cycle importing it and
-                           # must instead duplicate the specific helpers it needs in a
-                           # local helpers_test.go. An external test file in one of those
-                           # three packages (package foo_test) sits outside the cycle and
+                           # common, profile, repository, user, and workspace, so an internal
+                           # test file (one declared "package common"/"package profile"/
+                           # "package repository"/"package workspace"/"package user", as opposed
+                           # to "package foo_test") in any of those five packages would cycle
+                           # importing it and must instead duplicate the specific helpers it
+                           # needs in a local helpers_test.go. An external test file in one of
+                           # those five packages (package foo_test) sits outside the cycle and
                            # can still import testutil normally -- see
                            # internal/workspace/allowed_slugs_test.go.
 internal/project/, /remote/
@@ -154,8 +155,10 @@ golang.org/x/tools/cmd/goimports@latest`; `golangci-lint` pinned to **v2.12.2** 
 `golangci-lint-action` version — a different local version can report findings that don't match
 what CI reports).
 
-The Makefile is plain POSIX recipes (no GNU-only `!=`/`?=` assignment tricks), so it
-runs under both modern GNU make and macOS's stock BSD/GNU make 3.81. If `make` on your
+The Makefile is plain POSIX recipes (no GNU-only `!=` shell-assignment tricks; the four
+`?=` conditional-assignments it does use are supported by both GNU make and BSD/macOS
+make, so they don't break portability), so it runs under both modern GNU make and
+macOS's stock BSD/GNU make 3.81. If `make` on your
 machine still resolves to that ancient 3.81 (`brew install make` installs a current one
 as `gmake`), prefer `/opt/homebrew/bin/gmake` — this repo's Makefile itself doesn't need
 it, but `goreleaser` and other tooling referenced below may only be on `PATH` at
