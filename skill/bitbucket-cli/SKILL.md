@@ -5,18 +5,40 @@ description: Drive Bitbucket Cloud from the terminal via the bb CLI. Use when th
 
 # bitbucket-cli
 
-Drive Bitbucket Cloud from the terminal with `bb`. Requires `bb` installed (`brew install
---cask bb` or `make install`) and a profile (`bb profile create` / `bb profile authorize`)
-before anything else works.
+Drive Bitbucket Cloud from the terminal with `bb`. Requires `bb` installed (`brew tap
+avitsrimer/apps && brew install --cask bb`, or `make install`) and a profile (`bb profile create` /
+`bb profile authorize`) before anything else works.
 
 `bb` resolves the workspace and repository itself from the current git checkout or the
 profile's defaults; you rarely need to pass either explicitly. Look an id up with the
 resource's own `list` command before acting on it if you don't already have it (e.g. `bb
 pipeline list` before `bb pipeline get <id>`) — never guess one.
 
+## CRITICAL: the omitted-<pullrequest-id> fallback is NOT branch-aware
+
+`approve`, `unapprove`, `request-changes`, `remove-request-changes`, `decline`, `merge`,
+`merge-status`, `diff`, `patch`, `commits`, and `activities` (i.e. `bb pullrequest <verb>
+[<pullrequest-id>]` for each of these) all accept `<pullrequest-id>` as an OPTIONAL positional.
+When it is omitted, `bb` fetches **every OPEN pull request of the current repository** (`GET
+pullrequests?state=OPEN`, no relation to the current git branch whatsoever): if there is
+exactly one, it silently acts on that one; if there is more than one, it errors `too many open
+pullrequests, specify one: <id>, <id>, ...`; if there are none, it errors `no open pullrequest
+found for repository <repo>`. There is no "the PR for my current branch" resolution anywhere in
+this path.
+
+**For merge/decline/approve/request-changes/remove-request-changes/unapprove — every
+state-changing pullrequest command — always pass the explicit `<pullrequest-id>` yourself
+(look it up first with `bb pullrequest list` if you don't have it) instead of relying on this
+fallback.** Relying on it risks silently merging/declining/approving the wrong pull request the
+moment a second open PR exists in the repository, and that action is not reversible.
+
 ## Profile / authentication
 
-`bb profile create -n <name>` accepts exactly one credential shape at a time:
+`bb profile create -n <name>` accepts one credential shape at a time — `--user`/`--client-id`/
+`--access-token`/`--access-token-stdin` are mutually exclusive with each other (as are each
+secret flag with its own `-stdin` twin), so mixing sources across an unrelated pair (e.g.
+`--client-id` with `--password-stdin`) is not guaranteed to be caught by flag validation the way
+same-shape conflicts are — stick to exactly one of the three shapes below:
 
 - API token (current Atlassian standard; app passwords are deprecated): `--user
   <email> --password <token>`, or `--password-stdin` to pipe it in instead of putting it on
@@ -25,8 +47,11 @@ pipeline list` before `bb pipeline get <id>`) — never guess one.
 - Access token (Repository/Project/Workspace Access Token): `--access-token <token>`, or
   `--access-token-stdin`.
 - OAuth2 client (Authorization Code Grant or Client Credentials): `--client-id
-  <id> --client-secret <secret>` (or `--client-secret-stdin`), then, for the Authorization
-  Code Grant only, `bb profile authorize <name>` to complete the browser-based flow.
+  <id> --client-secret <secret>` (or `--client-secret-stdin`). For the Authorization Code Grant
+  only, also pass `--callback-port <port>` at create time (a profile created without it cannot
+  authorize: `bb profile authorize` errors "profile <name> does not support Authorization Code
+  Grant" if `--callback-port` was never set), then run `bb profile authorize <profile-name>` to
+  complete the browser-based flow.
 
 `--password`/`--access-token`/`--client-secret` each has a `-stdin` twin; the three `-stdin`
 flags are mutually exclusive with each other and with their own non-stdin flag. Prefer the
@@ -34,10 +59,15 @@ flags are mutually exclusive with each other and with their own non-stdin flag. 
 history. Credentials are stored in the macOS Keychain by default; `--no-vault` stores them
 in plaintext in the config file instead (only for testing, never recommend it otherwise).
 
-Set `--default-workspace`/`--default-repository` on `create`/`update` so commands don't need
-`--workspace`/`--repository` every time. `bb profile list`/`bb profile get` mask stored
-secrets in table/csv/tsv output unconditionally; the value is shown in full only with an
-EXPLICIT `-o json` or `-o yaml` on that command line.
+Set `--default-repository` on `create`/`update` so commands don't need `--repository` every
+time. `--default-workspace` is also available on both, but only `profile update
+--default-workspace` validates the value against the workspace list (which needs
+`read:workspace`); `profile create --default-workspace` stores whatever string you give it
+unvalidated, so a scoped-down token that lacks `read:workspace` can still set it at create time.
+`bb profile list`/`bb profile get` mask stored secrets in table/csv/tsv output unconditionally;
+the value is shown in full only with an EXPLICIT `-o json` or `-o yaml` on that command line.
+`bb profile get <profile-name>` requires either the name positional or `--current`; given
+neither, it errors `argument profile is missing`.
 
 ## Workspaces, repositories, branches, commits
 
@@ -46,15 +76,19 @@ EXPLICIT `-o json` or `-o yaml` on that command line.
 - `bb repo list [--role member|contributor|admin|owner|all]` / `bb repo get
   [<slug-or-uuid>]` / `bb repo clone <slug-or-uuid> [destination]` (aliases `repository`).
   `repo get/list/clone` never take `--repository` — the repository is always their own
-  positional (or, for `list`, every repository of the resolved workspace).
-- `bb branch list` — branches of the current repository, no filter.
+  positional (or, for `list`, every repository of the resolved workspace). `list` defaults to
+  `--role member`, not `all` — a repository the caller can see but isn't a member of (rare in a
+  team workspace, where every repo is workspace-owned) is left out unless you pass `--role all`.
+- `bb branch list [--query ...]` — branches of the current repository.
 - `bb commit list [--query ...] [--include ref] [--exclude ref]`, `bb commit get
-  [<hash>]` (no hash: the newest commit Bitbucket's API returns, NOT local git HEAD), `bb
+  [<hash-or-single-segment-ref>]` (no argument: the newest commit Bitbucket's API returns, NOT
+  local git HEAD; a ref like `main` works exactly like a hash, but a multi-segment ref such as
+  `release/1.0` is rejected — that one only works on `diff`/`patch` below), `bb
   commit diff <ref> [<ref>]` (one ref: diff against its parent; `--stat` prints diffstat JSON
   instead), `bb commit patch <ref> <ref>` (patch needs BOTH refs — unlike `diff`, it has no
-  single-ref/parent form). `diff`/`patch` accept a hash or a branch/tag ref (e.g.
-  `release/1.0`); `get` only accepts a hash, not a ref. `diff`/`patch`/`--stat` always print
-  raw text/JSON, ignoring `--output`.
+  single-ref/parent form). `diff`/`patch` accept a hash or a branch/tag ref of any number of
+  segments (e.g. `release/1.0`). `diff`/`patch`/`--stat` always print raw text/JSON, ignoring
+  `--output`.
 
 ## Pull requests
 
@@ -64,7 +98,8 @@ EXPLICIT `-o json` or `-o yaml` on that command line.
   [--destination <branch>] [--query '<bitbucket query>'] [--commit <full-hash>]` — `--state`
   is repeatable and defaults to `open` alone when omitted; `all` fetches every state. `--commit`
   is mutually exclusive with `--state`/`--query`/`--source`/`--destination`.
-- `bb pullrequest get <id>` (aliases `show`, `info`, `display`) — participants (per-reviewer approval
+- `bb pullrequest get <id>` (aliases `show`, `info`, `display`) — the id is REQUIRED here (no
+  fallback — unlike every command in the next two bullets). Participants (per-reviewer approval
   state) are NOT in the default columns on `get` OR `list`. Always add `--columns
   participants` (or `-o json`/`-o yaml`, which include the full participant objects
   regardless of `--columns`) when the user's request is about who has/hasn't approved.
@@ -72,20 +107,24 @@ EXPLICIT `-o json` or `-o yaml` on that command line.
   <user>]... [--description <text> | --description-file <path-or-->] [--draft]
   [--close-source-branch]` — `--title` and `--source` are required; `--destination` is
   optional (Bitbucket defaults it to the repository's main branch server-side when omitted).
-  At most one of `--description`/`--description-file`. A reviewer value of `default` (as the
-  first `--reviewer`) pulls the repository/project's default reviewers.
+  At most one of `--description`/`--description-file`. A `--reviewer` list whose FIRST value is
+  `default` pulls the repository/project's default reviewers instead — and any further
+  `--reviewer` values after that first `default` are silently discarded (they are ONLY read when
+  the first value is not `default`), so never mix `default` with real reviewers in one command.
 - `bb pullrequest update <id> [--title ...] [--description ... | --description-file ...]
   [--add-reviewer <user>]... [--remove-reviewer <user>]...`
 - `bb pullrequest approve <id>` / `bb pullrequest unapprove <id>` / `bb pullrequest request-changes <id>` / `bb pullrequest
-  remove-request-changes <id>` / `bb pullrequest decline <id>` — the pull request id is optional on
-  each: omitted, `bb` tries the one open PR whose source is the current git branch.
+  remove-request-changes <id>` / `bb pullrequest decline <id>` / `bb pullrequest merge <id>` —
+  the pull request id is optional on each (see the CRITICAL section above for what "omitted"
+  actually does — always pass it explicitly for these).
 - `bb pullrequest merge <id> [--message <text>] [--close-source-branch] [--merge-strategy
   merge_commit|squash|fast_forward] [--async]`. `--async` returns a task id; poll it with `bb
-  pullrequest merge-status <id> --task-id <task-id>`.
+  pullrequest merge-status <id> --task-id <task-id>` (`<id>` optional here too, same fallback).
 - `bb pullrequest diff <id> [--stat]`, `bb pullrequest patch <id>`, `bb pullrequest commits <id>`, `bb pullrequest activities
-  <id>` — id optional on all four (same current-branch fallback as approve/decline above).
-  An activity kind newer than this build of `bb` recognizes is dropped from the list and
-  warned about once on stderr, not fatal.
+  <id>` — id optional on all four (same fallback as above; these are all read-only so the risk
+  of the fallback here is "wrong PR shown", not an unrecoverable write). An activity kind newer
+  than this build of `bb` recognizes is dropped from the list; `bb` warns once per DISTINCT
+  unrecognized kind on stderr (not once overall, and not fatal).
 
 ### Comments — `bb pullrequest comment <verb> <pullrequest-id> ...`
 
@@ -95,8 +134,11 @@ flag anywhere in this subtree.
 - `bb pullrequest comment list <pr-id>`
 - `bb pullrequest comment get <pr-id> <comment-id>`
 - `bb pullrequest comment create <pr-id> (--comment <text> | --comment-file <path-or-->) [--file
-  <path-in-diff> --line <n>] [--parent <comment-id>]` (aliases `add`, `new`). `--comment` and
-  `--comment-file` are mutually exclusive and exactly one is required.
+  <path-in-diff> (--line <n> | --from <n>) [--to <n>]] [--pending] [--parent <comment-id>]`
+  (aliases `add`, `new`). `--comment` and `--comment-file` are mutually exclusive and exactly one
+  is required. `--line` is a plain alias for `--from` (same underlying value, mutually exclusive
+  with `--from` itself); `--to` pairs with `--from`/`--line` for a multi-line range comment.
+  `--pending` marks it a pending (draft) comment.
   **Shell-quoting hazard: a markdown comment body with backticks or `$(...)` is a live
   command-substitution risk on the command line. ALWAYS write it to a file (or heredoc into
   `--comment-file -`) instead of passing it inline with `--comment` whenever the body
@@ -139,16 +181,20 @@ Same shape as comments: pull request id is the required first positional, no `--
 - `bb pipeline stop <pipeline-uuid-or-build-number>` (aliases `cancel`, `abort`).
 
 **MANDATORY: always pass `--force` to `pipeline trigger` and `pipeline stop` when running as
-an agent.** Both ask an interactive `y/N` confirmation before doing anything; with no TTY to
-answer it (which is every agent invocation) the command fails immediately with:
+an agent.** Both ask an interactive `y/N` confirmation before doing anything. The behavior
+without `--force` depends on what stdin actually is:
 
-```
-input is not a terminal, use --force to skip confirmation
-```
+- Piped/redirected/non-interactive stdin (every normal agent invocation) fails immediately with
+  an error ending `: input is not a terminal, use --force to skip confirmation` (prefixed with
+  `cannot confirm pipeline trigger:`/`cannot confirm pipeline stop:` and the specific `y/N`
+  prompt text, e.g. `Trigger a new pipeline on <target>?` / `Stop pipeline <id>?`).
+- A real or pty-backed terminal on stdin is treated as interactive: the command prints the
+  prompt and BLOCKS waiting for a line of input — it does not detect "no human is actually
+  there" in that case. Don't assume it always fails fast; only `--force` reliably avoids both
+  the error and the block.
 
-It does NOT hang waiting for input and does NOT proceed on its own — `--force` is the only
-way to get past this. `--dry-run` also skips the prompt (and performs no write), which is
-the right choice when the goal is only to preview the request, not send it.
+`--dry-run` also skips the prompt (and performs no write), which is the right choice when the
+goal is only to preview the request, not send it.
 
 ### Pipeline steps — `bb pipeline step <verb> <pipeline> [<step>]`
 
@@ -165,7 +211,9 @@ duplicates) errors listing the ambiguous UUIDs and asks for a UUID instead.
 - `bb pipeline step report <pipeline> <step-uuid-or-name>` — the test report (JSON).
 - `bb pipeline step cases <pipeline> <step-uuid-or-name>` — individual test case results.
 
-`logs`/`report`/`cases` print raw text/JSON straight through, ignoring `--output`/`--columns`.
+`logs`/`report`/`cases` print raw text/JSON straight through: `--output` is accepted (inherited
+from the root command) but has no effect on them, while `--columns` is not registered on these
+three at all and is a hard `unknown flag: --columns` error — don't pass it.
 
 ## Artifacts
 
@@ -187,13 +235,24 @@ build-time output).
 ## Output formats, dry-run, and defaults
 
 - **Output**: default is a table. `-o json`/`-o yaml`/`-o csv`/`-o tsv` (or `BB_OUTPUT_FORMAT`)
-  give full, untruncated data for scripting; table output truncates any cell over 80
-  characters (display-only — never affects json/yaml/csv/tsv). `--columns <a>,<b>` (or
-  `--columns all`) picks which columns render; repeatable or comma-separated.
-- **`--dry-run`** (also `--noop`/`--whatif`) runs the FULL preflight of a real invocation —
-  every resolution GET, id/target validation — and prints the resolved API path and payload
-  to stderr, but skips only the final write. A `--dry-run` against a nonexistent id fails
-  exactly like the real command would; it never fabricates a success line.
+  give full, untruncated data for scripting; table output caps exactly six free-text-ish
+  columns (`title`, `description`, `message`, `content`, `reason`, `participants` — never an
+  identifier such as a UUID or an artifact name, which always render at full length) at 80
+  display columns, collapsing internal whitespace/newlines to single spaces first — display-only,
+  never affects json/yaml/csv/tsv. `--columns <a>,<b>` (or `--columns all`) picks which columns
+  render; repeatable or comma-separated. Every `list` subcommand also takes `--limit <n>`
+  (maximum total items fetched) and `--page-length <n>` (Bitbucket page size per request); most
+  also take `--sort <column>` to sort client-side.
+- **`--dry-run`** (also `--noop`/`--whatif`) behaves differently for write vs. read commands:
+  - Write commands (create/update/delete/merge/approve/decline/trigger/stop/comment/task/...)
+    run their FULL preflight first — every resolution GET, id/target validation the real write
+    would also need — then print the resolved API path and, when there is a request body, its
+    JSON payload to stderr, and skip only the final write. A `--dry-run` against a nonexistent
+    id still fails exactly like the real command would; it never fabricates a success line.
+  - Read commands (`get`/`list`/`diff`/`patch`/`commits`/`logs`/`report`/`cases`/...)
+    short-circuit at the dry-run check BEFORE making any request at all — there is no
+    "preflight" to preview for these, just a "Dry run: <description>" line on stderr and nothing
+    else. Don't expect a resolved path/payload out of a read command's `--dry-run`.
 - **Workspace/repository resolution** for every command follows the same order: the
   `--workspace`/`--repository` flag, then a Bitbucket git remote in the current directory,
   then the profile's `--default-workspace`/`--default-repository`. `--repository` (or
@@ -204,7 +263,8 @@ build-time output).
   repository/pull-request/pipeline workflows — a token scoped to only the specific
   permissions a given command needs (e.g. `read:repository`, `read:pullrequest`,
   `write:pullrequest`, `read:pipeline`) is sufficient. Don't ask a user to grant broader
-  scopes than the commands you're about to run actually need.
+  scopes than the commands you're about to run actually need. (`profile update
+  --default-workspace` is one narrow exception — see the Profile section above.)
 - **Multi-argument commands** (`comment delete`, `task delete`, `artifact download`, ...)
   accept several ids/names on one line and honor `--stop-on-error`/`--warn-on-error`/
   `--ignore-errors` for how failures among them are handled.

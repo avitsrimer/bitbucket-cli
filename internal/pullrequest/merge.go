@@ -12,7 +12,7 @@ import (
 )
 
 var mergeCmd = &cobra.Command{
-	Use:               "merge [flags] <pullrequest-id>",
+	Use:               "merge [flags] [<pullrequest-id>]",
 	Short:             "merge a pullrequest by its <pullrequest-id>. If not provided, it will try to merge the only open pullrequest.",
 	Args:              cobra.MaximumNArgs(1),
 	ValidArgsFunction: mergeValidArgs,

@@ -14,7 +14,7 @@ import (
 )
 
 var patchCmd = &cobra.Command{
-	Use:               "patch [flags] <pullrequest-id>",
+	Use:               "patch [flags] [<pullrequest-id>]",
 	Short:             "show the patch of a pull request by its <pullrequest-id>. If not provided, it will try to show the patch of the only open pullrequest.",
 	Args:              cobra.MaximumNArgs(1),
 	ValidArgsFunction: validPatchArgs,

@@ -11,9 +11,10 @@ import (
 )
 
 var getCmd = &cobra.Command{
-	Use:               "get [flags] <profile-name>",
+	Use:               "get [flags] [<profile-name>]",
 	Aliases:           []string{"show", "info", "display"},
-	Short:             "get a profile by its <profile-name>.",
+	Short:             "get a profile by its <profile-name>, or the current profile with --current.",
+	Args:              cobra.MaximumNArgs(1),
 	ValidArgsFunction: ValidProfileNames,
 	PreRunE:           disableUnsupportedFlags,
 	RunE:              getProcess,

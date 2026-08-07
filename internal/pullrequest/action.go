@@ -31,7 +31,7 @@ type actionSpec struct {
 // newActionCommand builds a cobra.Command for one of the simple pullrequest actions described by spec.
 func newActionCommand(spec actionSpec) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     spec.name + " [flags] <pullrequest-id>",
+		Use:     spec.name + " [flags] [<pullrequest-id>]",
 		Aliases: spec.aliases,
 		Short:   spec.short,
 		Args:    cobra.MaximumNArgs(1),

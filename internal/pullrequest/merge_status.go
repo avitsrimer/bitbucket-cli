@@ -12,7 +12,7 @@ import (
 )
 
 var mergeStatusCmd = &cobra.Command{
-	Use:               "merge-status <pull-request-id>",
+	Use:               "merge-status [flags] [<pullrequest-id>]",
 	Short:             "Get the status of a pull request merge task",
 	Args:              cobra.MaximumNArgs(1),
 	ValidArgsFunction: mergeStatusValidArgs,
