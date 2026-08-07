@@ -63,16 +63,14 @@ var columns = common.Columns[User]{
 	}},
 }
 
-// GetID gets the ID of the user
-//
-// implements core.Identifiable
+// GetID returns the user's ID as a plain uuid.UUID, for callers that need the identifier
+// without common.UUID's JSON-marshaling wrapper
 func (user User) GetID() uuid.UUID {
 	return uuid.UUID(user.ID)
 }
 
-// GetName gets the name of the user
-//
-// implements core.Named
+// GetName returns the user's Bitbucket username, for callers that need a single canonical
+// identifying name
 func (user User) GetName() string {
 	return user.Username
 }

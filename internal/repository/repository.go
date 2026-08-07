@@ -119,9 +119,8 @@ var columns = common.Columns[Repository]{
 
 var RepositoryCache = common.NewCache[Repository]()
 
-// GetType gets the type of this repository
-//
-// implements core.TypeCarrier
+// GetType reports this record's kind as a fixed string, for callers that discriminate between
+// record kinds by string rather than by Go type
 func (repository Repository) GetType() string {
 	return "repository"
 }

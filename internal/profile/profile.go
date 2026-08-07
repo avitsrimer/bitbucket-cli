@@ -15,7 +15,6 @@ import (
 	"strings"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
-	"github.com/gildas/go-core"
 	"github.com/go-pkgz/lgr"
 	"github.com/mattn/go-runewidth"
 	"github.com/spf13/cobra"
@@ -792,11 +791,11 @@ func (profile Profile) MarshalJSON() ([]byte, error) {
 	}
 	data, err := json.Marshal(struct {
 		surrogate
-		APIRoot         *core.URL `json:"apiRoot,omitempty"`
-		ErrorProcessing string    `json:"errorProcessing,omitempty"`
+		APIRoot         *common.URL `json:"apiRoot,omitempty"`
+		ErrorProcessing string      `json:"errorProcessing,omitempty"`
 	}{
 		surrogate:       surrogate(profile),
-		APIRoot:         (*core.URL)(profile.APIRoot),
+		APIRoot:         (*common.URL)(profile.APIRoot),
 		ErrorProcessing: errorProcessing,
 	})
 	if err != nil {
@@ -812,7 +811,7 @@ func (profile *Profile) UnmarshalJSON(data []byte) error {
 	type surrogate Profile
 	var inner struct {
 		surrogate
-		APIRoot *core.URL `json:"apiRoot,omitempty"`
+		APIRoot *common.URL `json:"apiRoot,omitempty"`
 	}
 	if err := json.Unmarshal(data, &inner); err != nil {
 		return fmt.Errorf("cannot unmarshal profile: %w", err)

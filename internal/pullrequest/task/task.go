@@ -14,7 +14,6 @@ import (
 	prcommon "github.com/avitsrimer/bitbucket-cli/internal/pullrequest/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
-	"github.com/gildas/go-core"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
 )
@@ -139,14 +138,14 @@ func (task Task) MarshalJSON() ([]byte, error) {
 
 	data, err := json.Marshal(struct {
 		surrogate
-		CreatedOn  core.Time  `json:"created_on"`
-		UpdatedOn  core.Time  `json:"updated_on"`
-		ResolvedOn *core.Time `json:"resolved_on,omitempty"`
+		CreatedOn  common.Time  `json:"created_on"`
+		UpdatedOn  common.Time  `json:"updated_on"`
+		ResolvedOn *common.Time `json:"resolved_on,omitempty"`
 	}{
 		surrogate:  surrogate(task),
-		CreatedOn:  core.Time(task.CreatedOn),
-		UpdatedOn:  core.Time(task.UpdatedOn),
-		ResolvedOn: (*core.Time)(task.ResolvedOn),
+		CreatedOn:  common.Time(task.CreatedOn),
+		UpdatedOn:  common.Time(task.UpdatedOn),
+		ResolvedOn: (*common.Time)(task.ResolvedOn),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("cannot marshal json: %w", err)

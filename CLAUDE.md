@@ -245,14 +245,17 @@ their error checked in a CLI). `_test.go` files are exempt from `gosec`, `dupl`,
   invocation with a different `cmd` value could never see. Where earlier code still binds a flag
   to a package-level struct field (e.g. `internal/repository/list.go`'s `listOptions.Role`),
   treat it as legacy, not a second sanctioned pattern — write new flag-reading code the direct-off-`cmd` way.
-- Five `gildas/*` dependencies were replaced by stdlib or small local code during the
+- All `gildas/*` dependencies were replaced by stdlib or small local code during the
   modernization (`go-logger` → `go-pkgz/lgr`, `go-errors` → stdlib `errors`/`fmt`,
   `go-request` → `net/http`, `go-cache`/`go-flags` → local code in
-  `internal/common/{cache,flags}.go`). `gildas/go-core` is the one dependency kept —
-  its `core.Map`/`core.Sort`/`core.Filter` generics and `core.URL`/`core.Time`/
-  `core.Timestamp` JSON-marshaling types are embedded directly in domain struct
-  fields across `profile`, `pullrequest/task`, and `common/link.go`, not just called
-  as env-var helpers, so it isn't a trivial drop-in replacement candidate.
+  `internal/common/{cache,flags}.go`; `go-core`'s generics (`core.Map`/`core.Sort`/`core.Filter`)
+  and env helpers (`GetEnvAsString`/`GetEnvAsDuration`) → `internal/common/{generics,env}.go`;
+  its `core.URL`/`core.Time`/`core.Timestamp` JSON-marshaling types → `internal/common/coretypes.go`,
+  ported to cover only the surface their four consumers — `common/link.go`, `profile/profile.go`,
+  `profile/token.go`, `pullrequest/task/task.go` — actually use). `gildas/go-core` is no longer a
+  dependency; each ported type's byte-for-byte compatibility with the dropped dependency is pinned
+  by golden-fixture tests in `internal/common/coretypes_test.go` and alongside each of those four
+  consumers.
 - Every user-supplied positional (or flag value) that reaches a `repository.Repository.GetPath`
   call — a pull request/comment/task id, a pipeline id, a pipeline step UUID-or-name, a commit
   hash, an artifact name — is validated via `common.ValidatePathIdentifier` before it does:

@@ -16,9 +16,8 @@ type PullRequestReference struct {
 	Links    common.Links `json:"links"`
 }
 
-// GetType returns the type of the PullRequestReference.
-//
-// implements core.TypeCarrier
+// GetType reports this record's kind as a fixed string, for callers that discriminate between
+// record kinds by string rather than by Go type.
 func (reference PullRequestReference) GetType() string {
 	return "pullrequest"
 }

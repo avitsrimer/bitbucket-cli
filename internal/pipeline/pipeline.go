@@ -99,9 +99,8 @@ var columns = common.Columns[Pipeline]{
 	}},
 }
 
-// GetType gets the type of this pipeline
-//
-// implements core.TypeCarrier
+// GetType reports this record's kind as a fixed string, for callers that discriminate between
+// record kinds by string rather than by Go type
 func (pipeline Pipeline) GetType() string {
 	return "pipeline"
 }
