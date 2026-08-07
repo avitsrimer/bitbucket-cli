@@ -279,6 +279,65 @@ func TestActivityUnmarshalTreatsUnparsableDateInKnownVariantAsUnknown(t *testing
 	}
 }
 
+// TestActivityUnmarshalNullKnownVariantAloneMatchesNoVariantAtAllError reproduces review-iter-8
+// finding #1: {"pull_request":…,"approval":null} used to decode successfully, unmarshaling the
+// JSON null into a zero-valued *ActivityApproval that was still non-nil (json.Unmarshal is a
+// silent no-op when the destination is a value type, not a pointer) -- so activity.Approval != nil
+// with every field zero, which summarize() rendered as a false "approved" row and -o json emitted
+// as an "approval":{} the real response never sent. After the fix, a null known variant is treated
+// exactly like an absent one: with nothing else on the entry, decoding must produce the SAME hard
+// error as an entry carrying no variant key at all (pre-#54 parity).
+func TestActivityUnmarshalNullKnownVariantAloneMatchesNoVariantAtAllError(t *testing.T) {
+	nullApproval := []byte(`{"pull_request":{"id":1650},"approval":null}`)
+	noVariantAtAll := []byte(`{"pull_request":{"id":1650}}`)
+
+	var withNullApproval Activity
+	errNullApproval := json.Unmarshal(nullApproval, &withNullApproval)
+	if errNullApproval == nil {
+		t.Fatalf("json.Unmarshal(%s) error = nil, want an error (null approval leaves the entry with no decodable variant)", nullApproval)
+	}
+	if withNullApproval.Approval != nil {
+		t.Errorf("activity.Approval = %+v, want nil (a null approval must not fabricate a zero-valued struct)", withNullApproval.Approval)
+	}
+
+	var withNoVariantAtAll Activity
+	errNoVariantAtAll := json.Unmarshal(noVariantAtAll, &withNoVariantAtAll)
+	if errNoVariantAtAll == nil {
+		t.Fatalf("json.Unmarshal(%s) error = nil, want an error", noVariantAtAll)
+	}
+
+	if errNullApproval.Error() != errNoVariantAtAll.Error() {
+		t.Errorf("null-approval error = %q, no-variant-at-all error = %q, want identical (a null known variant must be treated exactly like an absent one)", errNullApproval, errNoVariantAtAll)
+	}
+}
+
+// TestActivityUnmarshalNullKnownVariantLetsSiblingVariantDecode is
+// TestActivityUnmarshalNullKnownVariantAloneMatchesNoVariantAtAllError's positive counterpart:
+// before the fix, {"approval":null,"comment":{…}} lost the real comment entirely, because the
+// switch in UnmarshalJSON matched the "approval" case first (raw["approval"] is present, even
+// though its value is null) and never even reached the "comment" case. After the fix, a null
+// known variant is treated as absent, so the switch falls through to the comment that IS present.
+func TestActivityUnmarshalNullKnownVariantLetsSiblingVariantDecode(t *testing.T) {
+	data := []byte(`{"pull_request":{"id":1650},"approval":null,"comment":{"id":42,"content":{"raw":"hi"}}}`)
+
+	var activity Activity
+	if err := json.Unmarshal(data, &activity); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v, want nil (a valid sibling variant must still decode)", err)
+	}
+	if activity.Approval != nil {
+		t.Errorf("activity.Approval = %+v, want nil", activity.Approval)
+	}
+	if activity.Comment == nil {
+		t.Fatal("activity.Comment = nil, want the comment to decode despite the null sibling \"approval\" key")
+	}
+	if activity.Comment.ID != 42 {
+		t.Errorf("activity.Comment.ID = %d, want 42", activity.Comment.ID)
+	}
+	if activity.unknownVariant != "" {
+		t.Errorf("activity.unknownVariant = %q, want empty (a decoded comment is a known variant, not an unknown one)", activity.unknownVariant)
+	}
+}
+
 // TestActivitiesProcessTreatsMalformedKnownVariantAsUnknownAcrossThePage is the RunE-level
 // regression test for review-iter-7 finding #1: a page containing malformed known-variant entries
 // (wrong shape, wrong field type, unparsable date) must not abort the whole page's decode; the one

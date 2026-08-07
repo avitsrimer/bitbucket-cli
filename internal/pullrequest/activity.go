@@ -307,19 +307,25 @@ func (activity Activity) MarshalJSON() (data []byte, err error) {
 
 // UnmarshalJSON implements the json.Unmarshaler interface.
 //
-// A malformed JSON payload still errors. Each known variant key (approval, changes_requested,
-// comment, update) present on the entry is decoded on its OWN, independently of the others: a
-// variant key that IS present but carries the wrong shape or an unparsable field (e.g.
-// {"approval":[]}, an array where an object is expected, or {"update":{"id":"abc"}}, a string
-// where ActivityUpdate.ID expects a number) is tolerated exactly like an unrecognized kind --
-// unknownVariant records that key and decoding succeeds -- instead of erroring out of the whole
-// entry the way decoding straight into a single surrogate struct would. An entry that decodes
-// cleanly but carries none of the known variants is likewise tolerated as long as it carries some
-// other, unrecognized variant key (see unrecognizedActivityVariant): unknownVariant records that
-// key and decoding succeeds, so a new activity kind BitBucket adds later cannot blind the whole
-// feed. An entry with no variant key at all (recognized or not) is a genuinely malformed activity
-// and still errors: read paths tolerate unrecognized variant VALUES, malformed shapes among them,
-// not missing required content.
+// A malformed JSON payload still errors. The switch below tries the known variant keys (approval,
+// changes_requested, comment, update) in that fixed order and decodes only the FIRST one present
+// on the entry -- real feed entries only ever carry one variant, so this is not a practical
+// limitation, but it does mean a hypothetical entry carrying two known variant keys would only
+// ever decode the earlier one in that order. A key whose raw value is the JSON literal null is
+// treated as though it were absent (see decodeActivityVariant), so {"approval":null,"comment":{...}}
+// still decodes the comment instead of fabricating a zero-valued Approval from the null and never
+// reaching comment. Among the keys actually tried, one that IS present but carries the wrong shape
+// or an unparsable field (e.g. {"approval":[]}, an array where an object is expected, or
+// {"update":{"id":"abc"}}, a string where ActivityUpdate.ID expects a number) is tolerated exactly
+// like an unrecognized kind -- unknownVariant records that key and decoding succeeds -- instead of
+// erroring out of the whole entry the way decoding straight into a single surrogate struct would.
+// An entry that decodes cleanly but carries none of the known variants (including one whose only
+// known-variant key was null) is likewise tolerated as long as it carries some other, unrecognized
+// variant key (see unrecognizedActivityVariant): unknownVariant records that key and decoding
+// succeeds, so a new activity kind BitBucket adds later cannot blind the whole feed. An entry with
+// no variant key at all (recognized or not, or present only as null) is a genuinely malformed
+// activity and still errors: read paths tolerate unrecognized variant VALUES, malformed shapes and
+// null among them, not missing required content.
 //
 // implements json.Unmarshaler
 func (activity *Activity) UnmarshalJSON(data []byte) (err error) {
@@ -349,16 +355,20 @@ func (activity *Activity) UnmarshalJSON(data []byte) (err error) {
 	return nil
 }
 
-// decodeActivityVariant handles raw's key entry, if present: on success it unmarshals it into a
-// fresh *T, points *target at it, and returns true. On failure (key present but the wrong shape or
-// an unparsable field) it records key as activity's unknownVariant instead of returning an error,
-// and still returns true -- a malformed KNOWN variant is tolerated exactly like a genuinely
-// unrecognized one, per UnmarshalJSON's own doc comment. An absent key returns false, letting the
-// caller's switch fall through to the next known variant (or, if none matched at all, to
-// unrecognizedActivityVariant).
+// decodeActivityVariant handles raw's key entry, if present and non-null: on success it unmarshals
+// it into a fresh *T, points *target at it, and returns true. On failure (key present but the
+// wrong shape or an unparsable field) it records key as activity's unknownVariant instead of
+// returning an error, and still returns true -- a malformed KNOWN variant is tolerated exactly
+// like a genuinely unrecognized one, per UnmarshalJSON's own doc comment. An absent key, or one
+// whose raw value is the JSON literal null, returns false without touching unknownVariant, letting
+// the caller's switch fall through to the next known variant (or, if none matched at all, to
+// unrecognizedActivityVariant): unmarshaling JSON null into T (a value type, not a pointer) is a
+// silent no-op that leaves decoded at its zero value and reports no error, so treating a present
+// null the same as an absent key avoids *target ending up pointed at a fabricated zero-valued T
+// the source payload never actually sent.
 func decodeActivityVariant[T any](activity *Activity, raw map[string]json.RawMessage, key string, target **T) bool {
 	value, ok := raw[key]
-	if !ok {
+	if !ok || isJSONNullValue(value) {
 		return false
 	}
 	var decoded T
@@ -417,4 +427,10 @@ func unrecognizedActivityVariant(data []byte) (variant string, found bool) {
 func isJSONObjectValue(value json.RawMessage) bool {
 	trimmed := bytes.TrimLeft(value, " \t\r\n")
 	return len(trimmed) > 0 && trimmed[0] == '{'
+}
+
+// isJSONNullValue reports whether value is, ignoring surrounding whitespace, the JSON literal
+// null. value is assumed already-valid JSON (see decodeActivityVariant, its only caller).
+func isJSONNullValue(value json.RawMessage) bool {
+	return string(bytes.TrimSpace(value)) == "null"
 }
