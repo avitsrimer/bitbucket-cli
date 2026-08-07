@@ -474,11 +474,16 @@ accumulated diff (master since c8349fb) → fixer PR(s) → critical re-check, L
 the critical re-check is clean. That loop caught defects in every prior round, including
 defects introduced by fixes — do not skip or single-pass it.
 
-- [ ] comprehensive review (correctness/security, tests, simplification, docs) over the
-      full cycle-A diff; findings recorded to the progress log
-- [ ] fixer PR(s) for all confirmed findings, full gate each
-- [ ] critical re-check over the post-fix diff; loop fixer→re-check until clean
-- [ ] final gate green on master; progress log records the loop outcome
+- [x] comprehensive review (correctness/security, tests, simplification, docs) over the
+      full cycle-A diff; findings recorded to the progress log — comprehensive + smells
+      review, findings recorded to the progress log
+- [x] fixer PR(s) for all confirmed findings, full gate each — fixer PRs #47, #49-#55
+      (comprehensive review) and #56 (smells review), full gate each
+- [x] critical re-check over the post-fix diff; loop fixer→re-check until clean —
+      comprehensive + 8 critical re-check iterations, loop clean
+- [x] final gate green on master; progress log records the loop outcome — final gate
+      clean, zero critical/major findings; external codex review skipped (tool not
+      installed)
 
 ## Post-Completion
 
