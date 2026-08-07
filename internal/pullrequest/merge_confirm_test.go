@@ -1,6 +1,7 @@
 package pullrequest
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -35,6 +36,17 @@ func (p poisonStdin) Read([]byte) (int, error) {
 	p.t.Helper()
 	p.t.Fatal("read from stdin despite --dry-run")
 	return 0, io.EOF
+}
+
+// errPoisonStdinRead simulates a non-EOF read failure, e.g. EIO after the process loses its
+// controlling terminal mid-prompt.
+var errPoisonStdinRead = errors.New("simulated read failure")
+
+// poisonErrStdin always fails with errPoisonStdinRead instead of returning any input or io.EOF.
+type poisonErrStdin struct{}
+
+func (poisonErrStdin) Read([]byte) (int, error) {
+	return 0, errPoisonStdinRead
 }
 
 // mergeConfirmHandler answers both requests mergeProcess issues when no positional pullrequest-id
@@ -182,8 +194,8 @@ func TestMergeProcessConfirmPromptContainsResolvedID(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(stderr, "42") {
-		t.Errorf("stderr = %q, want the prompt to contain the resolved pullrequest id %q", stderr, "42")
+	if !strings.Contains(stderr, "Merge pullrequest 42?") {
+		t.Errorf("stderr = %q, want the prompt to contain %q", stderr, "Merge pullrequest 42?")
 	}
 }
 
@@ -223,6 +235,31 @@ func TestMergeProcessConfirmEOFErrors(t *testing.T) {
 		var requests []*http.Request
 		cmd := setupTest(t, mergeConfirmHandler(&requests), false)
 		swapStdinToNonInteractivePipe(t)
+
+		err := mergeProcess(cmd, []string{"42"})
+		if err == nil {
+			t.Fatal("mergeProcess() expected an error, got nil")
+		}
+		if !strings.Contains(err.Error(), "cannot confirm merge:") {
+			t.Errorf("error = %q, want it to wrap as %q", err.Error(), "cannot confirm merge:")
+		}
+		for _, r := range requests {
+			if r.Method != http.MethodGet {
+				t.Errorf("unexpected non-GET request %s %s, want zero write requests", r.Method, r.URL.Path)
+			}
+		}
+	})
+
+	t.Run("non-EOF read error (poisoned reader)", func(t *testing.T) {
+		withMergeOptions(t, func() {
+			mergeOptions.Async = false
+			mergeOptions.Message = ""
+			mergeOptions.CloseSourceBranch = false
+		})
+
+		var requests []*http.Request
+		cmd := setupTest(t, mergeConfirmHandler(&requests), false)
+		cmd.SetIn(poisonErrStdin{})
 
 		err := mergeProcess(cmd, []string{"42"})
 		if err == nil {
