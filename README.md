@@ -751,8 +751,9 @@ Combining `none` with any other `--reviewer` value is an error, regardless of wh
 arrive as repeated flags (`--reviewer none --reviewer username1`) or a single comma-separated list
 (`--reviewer none,username1`).
 
-Pass `--reviewer all` (exactly, and alone) to add every workspace member as a reviewer, excluding
-the current user (you cannot review your own pull request):
+Pass `--reviewer all` (exactly, and alone) to add every workspace member as a reviewer. The
+current user is excluded when identifiable; with a token that cannot read the user identity,
+Bitbucket rejects the self-review server-side instead:
 
 ```bash
 bb pullrequest create \
@@ -819,12 +820,16 @@ bb pullrequest update 1 \
   --remove-reviewer username3 --remove-reviewer {userUUID4}
 ```
 
-`--add-reviewer` accepts the same `default` and `all` sentinels `--reviewer` on `create` does, with
-the same meaning: `--add-reviewer default` (exactly, and alone) resolves the repository/project's
-effective default reviewers, and `--add-reviewer all` (exactly, and alone) adds every workspace
-member, both excluding the current user (you cannot be your own reviewer). `--remove-reviewer` does
-not resolve either word specially -- `--remove-reviewer default` or `--remove-reviewer all` only
-match a current reviewer literally named `default` or `all`.
+`--add-reviewer` accepts the same `default` and `all` sentinels `--reviewer` on `create` does, but
+`default`'s semantics differ slightly between the two commands: on `update`, `default` only needs
+to be the *first* value -- `--add-reviewer default,bob` resolves the repository/project's
+effective default reviewers and still adds `bob` on top, whereas the equivalent on `create`
+(`--reviewer default,bob`) discards `bob` entirely. `--add-reviewer all` (exactly, and alone --
+`all` must be the only value, same as on `create`) adds every workspace member as a reviewer. Both
+sentinels exclude the current user when identifiable; with a token that cannot read the user
+identity, Bitbucket rejects the self-review server-side instead. `--remove-reviewer` does not
+resolve either word specially -- `--remove-reviewer default` or `--remove-reviewer all` only match
+a current reviewer literally named `default` or `all`.
 
 You can `approve`or `unapprove` a pull request with the `bb pullrequest approve` or `bb pullrequest unapprove` command:
 
