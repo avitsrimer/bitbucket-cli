@@ -7,6 +7,12 @@
 
 `bb` is the missing command line interface for Bitbucket. It brings the power of the Bitbucket platform to your command line. Creating and merging Pull Requests and more are now just a few keystrokes away.
 
+**Who this is for.** Working engineers who don't administer Bitbucket and track their work mostly
+in Jira. The feature surface is opinionatedly reduced to make everyday use easier and to make it
+hard to break anything by accident. And it is deliberately **not AI-native**: merging a pull
+request always requires a human pressing the button — `bb pullrequest merge` prompts
+interactively and has no automation bypass.
+
 > [!IMPORTANT]
 > **This is an opinionated fork, deliberately narrower than upstream.**
 >
