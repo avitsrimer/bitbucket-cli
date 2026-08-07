@@ -773,8 +773,10 @@ and that action is not reversible.
 
 `merge` always asks `Merge pullrequest <id>? [y/N]` before sending the request, and — unlike
 every other confirmation-gated command in this fork — there is **no `--force`** to skip it, in
-any form: merging is deliberately not automatable via `bb`. Declining prints `Merge canceled` and
-exits `0`. What counts as "asking" depends on what stdin actually is:
+any form: merging is deliberately not automatable via `bb`. `--dry-run` skips the prompt
+entirely (and sends no write), including on non-interactive stdin — it is the one way to preview
+a merge without answering the prompt. Declining prints `Merge canceled` and exits `0`. What
+counts as "asking" depends on what stdin actually is:
 
 - Piped, redirected, or otherwise non-interactive stdin (`echo y | bb pullrequest merge 1`, `<
   file`) errors immediately, before any prompt is shown: `cannot confirm merge: Merge pullrequest
@@ -1246,7 +1248,7 @@ ways that break existing scripts and installs:
   only — no upload/delete, no `--progress`). `pipeline trigger`/`stop` ask for a `y`/`N`
   confirmation prompt with `--force` to skip it; `pullrequest merge` also asks for one, but
   **breaks scripts**: it has no `--force` at all, and a piped or `/dev/null` stdin now errors
-  (`... : merging requires an interactive terminal`) instead of merging unattended.
+  (`...: merging requires an interactive terminal`) instead of merging unattended.
 - **Eight command groups remain removed**: `project`, `issue`, `tag`, `gpg-key`, `ssh-key`,
   `cache`, `remote`, `component`, and the deprecated `pullrequest activity` alias (use
   `pullrequest activities`).

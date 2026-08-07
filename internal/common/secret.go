@@ -29,8 +29,9 @@ var openControllingTTY = func() (io.ReadCloser, error) {
 // StdinIsInteractive reports whether cmd's input stream is the process's own, unmodified os.Stdin
 // and that stdin is a real character-device terminal, as opposed to a pipe, a redirect, or (in
 // tests) a stand-in reader installed via cmd.SetIn: only then is it safe to block on an interactive
-// prompt instead of hanging forever or reading something nobody meant as an answer. common.Confirm
-// and the `profile create`/`profile update` secret prompt both gate their prompting on this.
+// prompt instead of hanging forever or reading something nobody meant as an answer.
+// common.Confirm, common.ConfirmInteractive, and the `profile create`/`profile update` secret
+// prompt all gate their prompting on this.
 func StdinIsInteractive(cmd *cobra.Command) bool {
 	if cmd.InOrStdin() != os.Stdin {
 		return false

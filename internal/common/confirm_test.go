@@ -1,6 +1,7 @@
 package common_test
 
 import (
+	"errors"
 	"io"
 	"os"
 	"strings"
@@ -233,6 +234,36 @@ func TestConfirmInteractiveEOFWithoutInputErrors(t *testing.T) {
 	proceed, err := common.ConfirmInteractive(cmd, "proceed?")
 	if err == nil {
 		t.Fatal("ConfirmInteractive() error = nil, want an error for EOF with no input")
+	}
+	if proceed {
+		t.Error("ConfirmInteractive() proceed = true, want false alongside the error")
+	}
+	if got, want := err.Error(), "proceed?: merging requires an interactive terminal"; got != want {
+		t.Errorf("error = %q, want %q", got, want)
+	}
+}
+
+// errPoisonRead simulates a non-EOF read failure, e.g. EIO after the process loses its
+// controlling terminal mid-prompt.
+var errPoisonRead = errors.New("simulated read failure")
+
+// poisonErrReader always fails with errPoisonRead instead of returning any input or io.EOF.
+type poisonErrReader struct{}
+
+func (poisonErrReader) Read([]byte) (int, error) {
+	return 0, errPoisonRead
+}
+
+// TestConfirmInteractiveNonEOFReadErrorErrors pins the fix for the non-EOF read-error case: a read
+// failure that isn't io.EOF must still be treated as nobody having answered, not fall through to a
+// silent decline the way a "" answer normally would.
+func TestConfirmInteractiveNonEOFReadErrorErrors(t *testing.T) {
+	cmd := newConfirmCmd(t)
+	cmd.SetIn(poisonErrReader{})
+
+	proceed, err := common.ConfirmInteractive(cmd, "proceed?")
+	if err == nil {
+		t.Fatal("ConfirmInteractive() error = nil, want an error for a non-EOF read error")
 	}
 	if proceed {
 		t.Error("ConfirmInteractive() proceed = true, want false alongside the error")

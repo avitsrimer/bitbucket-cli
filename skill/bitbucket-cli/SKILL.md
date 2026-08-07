@@ -142,10 +142,13 @@ positional or `--current`; given neither, it errors `argument profile is missing
   merge_commit|squash|fast_forward] [--async]`. `--async` returns a task id; poll it with `bb
   pullrequest merge-status <id> --task-id <task-id>` (`<id>` optional here too, same fallback).
   `merge` always asks an interactive `Merge pullrequest <id>? [y/N]` confirmation and has **no
-  `--force`** of any kind: piped/redirected/`/dev/null` stdin errors immediately with `cannot
-  confirm merge: ...: merging requires an interactive terminal` instead of prompting, and a real
-  or pty-backed terminal blocks waiting for a human's answer. See the MANDATORY note under
-  Pipelines below for why this means you must never run this command yourself.
+  `--force`** of any kind: piped/redirected stdin errors immediately, before any prompt is
+  shown, with `cannot confirm merge: ...: merging requires an interactive terminal`;
+  `/dev/null` stdin prompts to stderr first and only then hits the same error, since the empty
+  read still counts as nobody answering; and a real or pty-backed terminal blocks waiting for a
+  human's answer. `--dry-run` is the one exception: it skips the prompt entirely (and sends no
+  write), including on non-interactive stdin. See the MANDATORY note under Pipelines below for
+  why this means you must never run this command yourself.
 - `bb pullrequest diff <id> [--stat]`, `bb pullrequest patch <id>`, `bb pullrequest commits <id>`, `bb pullrequest activities
   <id>` — id optional on all four (same fallback as above; these are all read-only so the risk
   of the fallback here is "wrong PR shown", not an unrecoverable write). An activity kind newer
@@ -213,14 +216,18 @@ Same shape as comments: pull request id is the required first positional, no `--
 an agent.** Both ask an interactive `y/N` confirmation before doing anything. The behavior
 without `--force` depends on what stdin actually is:
 
-- Piped/redirected/non-interactive stdin (every normal agent invocation) fails immediately with
-  an error ending `: input is not a terminal, use --force to skip confirmation` (prefixed with
-  `cannot confirm pipeline trigger:`/`cannot confirm pipeline stop:` and the specific `y/N`
-  prompt text, e.g. `Trigger a new pipeline on <target>?` / `Stop pipeline <id>?`).
+- Piped/redirected stdin (every normal agent invocation) fails immediately with an error ending
+  `: input is not a terminal, use --force to skip confirmation` (prefixed with `cannot confirm
+  pipeline trigger:`/`cannot confirm pipeline stop:` and the specific `y/N` prompt text, e.g.
+  `Trigger a new pipeline on <target>?` / `Stop pipeline <id>?`).
+- `/dev/null` on stdin (cron, `nohup`, most agent harnesses) is a character device, so it passes
+  the same check that piped/redirected stdin fails: the command prompts to stderr as normal,
+  then reads EOF with nothing typed and silently DECLINES — `Trigger canceled`/`Stop canceled`,
+  exit `0`, nothing run. This is not the error case above; it looks like a normal decline.
 - A real or pty-backed terminal on stdin is treated as interactive: the command prints the
   prompt and BLOCKS waiting for a line of input — it does not detect "no human is actually
-  there" in that case. Don't assume it always fails fast; only `--force` reliably avoids both
-  the error and the block.
+  there" in that case. Don't assume it always fails fast; only `--force` reliably avoids the
+  error, the silent decline, and the block.
 
 `--dry-run` also skips the prompt (and performs no write), which is the right choice when the
 goal is only to preview the request, not send it.
@@ -229,8 +236,11 @@ goal is only to preview the request, not send it.
 interactive confirmation as `pipeline trigger`/`stop` above, but has **no `--force`** — piped or
 `/dev/null` stdin does not fall back to unattended success, it errors; a real or pty-backed
 terminal on stdin blocks your whole session waiting for a line of input nobody may ever type.
-Surface the pull request as ready to merge (its id, title, and current state) and ask the user
-to run `bb pullrequest merge` themselves instead.
+`--dry-run` still skips the prompt entirely (and sends no write), same as `pipeline
+trigger`/`stop` above, but that only previews the merge — it never substitutes for actually
+running it, so this never-invoke rule still applies. Surface the pull request as ready to merge
+(its id, title, and current state) and ask the user to run `bb pullrequest merge` themselves
+instead.
 
 ### Pipeline steps — `bb pipeline step list <pipeline>` / `bb pipeline step <get|logs|report|cases> <pipeline> <step>`
 
