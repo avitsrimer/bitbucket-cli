@@ -13,7 +13,7 @@ import (
 )
 
 var diffCmd = &cobra.Command{
-	Use:               "diff [flags] <commit-hash> [<commit-hash>]",
+	Use:               "diff [flags] <commit-hash-or-ref> [<commit-hash-or-ref>]",
 	Short:             "show the diff of a commit, or the diff between two commits",
 	Args:              cobra.RangeArgs(1, 2),
 	ValidArgsFunction: diffValidArgs,
@@ -44,13 +44,15 @@ func diffValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]stri
 }
 
 func diffProcess(cmd *cobra.Command, args []string) error {
-	// Each hash is validated on its own, before being joined with the literal ".." separator
+	// Each hash/ref is validated on its own, before being joined with the literal ".." separator
 	// below: repo.GetPath("diff", spec) is a bare path.Join with no escaping, so an unvalidated
-	// hash could splice extra path segments into the request. The joined spec itself legitimately
-	// contains ".." (BitBucket's own two-commit diff syntax), so ValidatePathIdentifier is never
-	// called on spec, only on each hash that goes into it.
+	// hash/ref could splice extra path segments into the request. ValidatePathRef accepts a
+	// multi-segment branch/tag ref (e.g. "release/1.0") in addition to a bare hash, validating each
+	// '/'-delimited segment so no segment can be ".." for path.Join to collapse. The joined spec
+	// itself legitimately contains ".." (BitBucket's own two-commit diff syntax), so ValidatePathRef
+	// is never called on spec, only on each hash/ref that goes into it.
 	for _, hash := range args {
-		if err := common.ValidatePathIdentifier("commit-hash", hash); err != nil {
+		if err := common.ValidatePathRef("commit-hash", hash); err != nil {
 			return fmt.Errorf("cannot get diff: %w", err)
 		}
 	}

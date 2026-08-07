@@ -584,18 +584,20 @@ bb commit get 123456
 bb commit get
 ```
 
-You can get the diff between two commits with the `bb commit diff` command (or between one commit and its parent, if only one hash is given). `--stat` switches to the diffstat endpoint instead of the diff itself, which returns a JSON summary rather than a text diff (both are printed raw, ignoring `--output`; see [Output](#output)):
+You can get the diff between two commits with the `bb commit diff` command (or between one commit and its parent, if only one hash is given). Each argument may be a commit hash or a branch/tag ref (e.g. `release/1.0`); `--stat` switches to the diffstat endpoint instead of the diff itself, which returns a JSON summary rather than a text diff (both are printed raw, ignoring `--output`; see [Output](#output)):
 
 ```bash
 bb commit diff 123456 654321
 bb commit diff 123456
 bb commit diff --stat 123456
+bb commit diff release/1.0 main
 ```
 
-You can get the patch between two commits with the `bb commit patch` command:
+You can get the patch between two commits with the `bb commit patch` command; each argument may likewise be a commit hash or a branch/tag ref:
 
 ```bash
 bb commit patch 123456 654321
+bb commit patch release/1.0 main
 ```
 
 > [!NOTE]

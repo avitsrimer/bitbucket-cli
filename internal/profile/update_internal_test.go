@@ -115,24 +115,36 @@ func withIsolatedProfilesConfig(t *testing.T) {
 // over an inherited one), breaking -o on these two commands and making Profile.Print read the
 // wrong flag to decide how to render the command's own confirmation output. The flag must be
 // named something else (here "default-output") so -o/--output stay the root's alone.
+//
+// This asserts against LocalFlags() rather than Flags(): Flags() lazily merges every inherited
+// persistent flag (via cobra's mergePersistentFlags) into the command's own FlagSet the first time
+// ANY test attaches these singleton commands to a root carrying a persistent -o/--output flag
+// (e.g. TestProfileCreateAndDeletePersistAcrossReloads does exactly that) -- and that merge is
+// permanent for the lifetime of the test binary, since createCmd/updateCmd are process-wide
+// singletons. A run order where that test executes first makes createCmd.Flags().Lookup("output")
+// find the just-merged, inherited flag and this test fail, even though createCmd never actually
+// declared one; the failure is a false positive that depends on `go test`'s (shuffled) execution
+// order rather than on anything this command actually declares. LocalFlags() correctly excludes an
+// inherited persistent flag even after such a merge (cobra tracks and skips it), so the assertion
+// is order-independent.
 func TestUpdateCommandDoesNotShadowRootOutputFlag(t *testing.T) {
-	if updateCmd.Flags().Lookup("output") != nil {
+	if updateCmd.LocalFlags().Lookup("output") != nil {
 		t.Error(`updateCmd has a local "output" flag, which would shadow the root persistent -o/--output flag`)
 	}
-	if updateCmd.Flags().ShorthandLookup("o") != nil {
+	if updateCmd.LocalFlags().ShorthandLookup("o") != nil {
 		t.Error(`updateCmd has a local "-o" shorthand flag, which would conflict with the root persistent -o/--output flag`)
 	}
-	if updateCmd.Flags().Lookup("default-output") == nil {
+	if updateCmd.LocalFlags().Lookup("default-output") == nil {
 		t.Error(`updateCmd is missing the "default-output" flag that replaces the shadowing "output" one`)
 	}
 
-	if createCmd.Flags().Lookup("output") != nil {
+	if createCmd.LocalFlags().Lookup("output") != nil {
 		t.Error(`createCmd has a local "output" flag, which would shadow the root persistent -o/--output flag`)
 	}
-	if createCmd.Flags().ShorthandLookup("o") != nil {
+	if createCmd.LocalFlags().ShorthandLookup("o") != nil {
 		t.Error(`createCmd has a local "-o" shorthand flag, which would conflict with the root persistent -o/--output flag`)
 	}
-	if createCmd.Flags().Lookup("default-output") == nil {
+	if createCmd.LocalFlags().Lookup("default-output") == nil {
 		t.Error(`createCmd is missing the "default-output" flag that replaces the shadowing "output" one`)
 	}
 }
