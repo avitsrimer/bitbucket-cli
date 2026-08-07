@@ -81,13 +81,13 @@ func TestGetProcessRendersTableOutput(t *testing.T) {
 		t.Errorf("table output = %q, want it to contain the user's name and username", stdout)
 	}
 	// "Jane Doe"/"jdoe" alone are also substrings of the default JSON rendering, so also assert
-	// on table-specific shape: the uppercase header row and the box-drawing border tablewriter
-	// emits, and that the output does not parse as JSON.
+	// on table-specific shape: the uppercase header row and the box-drawing border the table
+	// renderer emits, and that the output does not parse as JSON.
 	if !strings.Contains(stdout, "USERNAME") || !strings.Contains(stdout, "NAME") {
 		t.Errorf("table output = %q, want it to contain the uppercase ID/USERNAME/NAME header row", stdout)
 	}
 	if !strings.Contains(stdout, "+--") {
-		t.Errorf("table output = %q, want it to contain tablewriter's box-drawing border", stdout)
+		t.Errorf("table output = %q, want it to contain the table renderer's box-drawing border", stdout)
 	}
 	var probe any
 	if err := json.Unmarshal([]byte(stdout), &probe); err == nil {

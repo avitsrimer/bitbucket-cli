@@ -133,7 +133,9 @@ positional or `--current`; given neither, it errors `argument profile is missing
   reviewer resolution entirely — no default-reviewers lookup, no reviewers on the created
   pullrequest; use it when the caller explicitly wants no reviewers rather than falling back to
   the repository's defaults. Combining `none` with any other `--reviewer` value (in any position,
-  whether repeated flags or one comma-separated list) is a hard error before any request is sent.
+  whether repeated flags or one comma-separated list) is a hard error before any write is sent
+  (profile and repository resolution run first, and a repository lookup on a cache miss can still
+  issue a GET). `--reviewer all` (exactly, and alone) adds every workspace member as a reviewer.
 - `bb pullrequest update <id> [--title ...] [--description ... | --description-file ...]
   [--destination <branch>] [--close-source-branch] [--add-reviewer <user>]...
   [--remove-reviewer <user>]...` (aliases `edit`)

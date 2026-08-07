@@ -9,8 +9,8 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
 )
 
-// golden byte fixtures captured from the go-core-based code (master, pre-port, see
-// docs/plans/20260807-dep-slimming-and-create-flags.md Task 3), pinned here so Task.MarshalJSON's
+// golden byte fixtures captured from gildas/go-core v0.6.4's JSON marshaling (via a throwaway
+// worktree and temporary capture tests, never committed), pinned here so Task.MarshalJSON's
 // surrogate CreatedOn/UpdatedOn/ResolvedOn fields keep producing byte-identical output on the
 // locally-ported common.Time, with and without resolved_on.
 const (

@@ -11,7 +11,6 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/go-pkgz/lgr"
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
 
@@ -61,18 +60,6 @@ var columns = common.Columns[User]{
 	{Name: "account_status", DefaultSorter: false, Compare: func(a, b User) bool {
 		return strings.ToLower(a.AccountStatus) < strings.ToLower(b.AccountStatus)
 	}},
-}
-
-// GetID returns the user's ID as a plain uuid.UUID, for callers that need the identifier
-// without common.UUID's JSON-marshaling wrapper
-func (user User) GetID() uuid.UUID {
-	return uuid.UUID(user.ID)
-}
-
-// GetName returns the user's Bitbucket username, for callers that need a single canonical
-// identifying name
-func (user User) GetName() string {
-	return user.Username
 }
 
 // GetHeaders gets the header for a table

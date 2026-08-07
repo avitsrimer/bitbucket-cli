@@ -305,9 +305,11 @@ func reviewerCompletionFunc(cmd *cobra.Command, args []string, toComplete string
 }
 
 // createReviewerCompletionFunc adapts reviewerCompletionFunc for pr create's --reviewer flag:
-// unlike --add-reviewer/--remove-reviewer, pr create additionally accepts the `none`, `default`,
-// and `all` sentinels (see create.go's reviewer resolution and expandAllReviewers), so those are
-// offered ahead of the workspace member nicknames reviewerCompletionFunc already lists.
+// --add-reviewer already resolves the `default` (see resolveDefaultReviewers) and `all` (see
+// expandAllReviewers) sentinels itself, and --remove-reviewer accepts neither; only pr create's
+// --reviewer additionally understands `none` (skip reviewer resolution entirely, see create.go).
+// All three sentinels are offered here ahead of the workspace member nicknames
+// reviewerCompletionFunc already lists, so completion shows exactly what --reviewer accepts.
 func createReviewerCompletionFunc(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	nicknames, directive := reviewerCompletionFunc(cmd, args, toComplete)
 	if directive == cobra.ShellCompDirectiveError {

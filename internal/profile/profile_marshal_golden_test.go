@@ -9,8 +9,8 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 )
 
-// golden byte fixtures captured from the go-core-based code (master, pre-port, see
-// docs/plans/20260807-dep-slimming-and-create-flags.md Task 3), pinned here so swapping
+// golden byte fixtures captured from gildas/go-core v0.6.4's JSON marshaling (via a throwaway
+// worktree and temporary capture tests, never committed), pinned here so swapping
 // Profile.APIRoot/Token.ExpiresOn onto the locally-ported common.URL/common.Timestamp cannot
 // silently change the wire format.
 const (

@@ -751,6 +751,16 @@ Combining `none` with any other `--reviewer` value is an error, regardless of wh
 arrive as repeated flags (`--reviewer none --reviewer username1`) or a single comma-separated list
 (`--reviewer none,username1`).
 
+Pass `--reviewer all` (exactly, and alone) to add every workspace member as a reviewer:
+
+```bash
+bb pullrequest create \
+  --title "My pull request" \
+  --source "my-branch" \
+  --destination "master" \
+  --reviewer all
+```
+
 You can create the pull request as a draft with the `--draft` flag:
 
 ```bash

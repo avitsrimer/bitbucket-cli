@@ -246,7 +246,7 @@ func writeTable(w io.Writer, headers []string, rows [][]string) {
 				if x < len(lines) {
 					line[c] = lines[x]
 				} else {
-					line[c] = ""
+					line[c] = "  " // upstream's literal two-space filler for a row cell shorter than the tallest cell in its row
 				}
 			}
 			writeCellLine(w, line, colWidths[:len(row)])

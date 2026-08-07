@@ -597,12 +597,13 @@ func TestCreateProcessReviewerNoneSkipsAllResolution(t *testing.T) {
 	}
 }
 
-// TestCreateProcessReviewerNoneCombinedWithOthersErrorsBeforeAnyRequest verifies that "none"
+// TestCreateProcessReviewerNoneCombinedWithOthersErrorsBeforeAnyWrite verifies that "none"
 // appearing anywhere alongside another --reviewer value is rejected with the pinned error message
-// before any HTTP request, regardless of whether the values arrived as repeated flags or a single
-// comma-separated list, and regardless of what the other value is (a plain nickname or the "all"
-// sentinel).
-func TestCreateProcessReviewerNoneCombinedWithOthersErrorsBeforeAnyRequest(t *testing.T) {
+// before any write -- and, in this fixture, before any HTTP request at all, per
+// testutil.FailIfCalled below -- regardless of whether the values arrived as repeated flags or a
+// single comma-separated list, and regardless of what the other value is (a plain nickname or the
+// "all" sentinel).
+func TestCreateProcessReviewerNoneCombinedWithOthersErrorsBeforeAnyWrite(t *testing.T) {
 	tests := []struct {
 		name        string
 		profileName string
