@@ -120,6 +120,36 @@ func TestMeProcessEmailsAPIError(t *testing.T) {
 	}
 }
 
+func TestMeProcessDryRun(t *testing.T) {
+	withMeOptions(t, func() { meOptions.Emails = false })
+	const profileName = "user-me-dry-run"
+
+	var requestCount int
+	cmd := setupTest(t, profileName, func(http.ResponseWriter, *http.Request) { requestCount++ }, true)
+
+	if err := meProcess(cmd, nil); err != nil {
+		t.Fatalf("meProcess() error = %v", err)
+	}
+	if requestCount != 0 {
+		t.Errorf("expected no HTTP request in dry-run mode, got %d", requestCount)
+	}
+}
+
+func TestMeProcessEmailsDryRun(t *testing.T) {
+	withMeOptions(t, func() { meOptions.Emails = true })
+	const profileName = "user-me-emails-dry-run"
+
+	var requestCount int
+	cmd := setupTest(t, profileName, func(http.ResponseWriter, *http.Request) { requestCount++ }, true)
+
+	if err := meProcess(cmd, nil); err != nil {
+		t.Fatalf("meProcess() error = %v", err)
+	}
+	if requestCount != 0 {
+		t.Errorf("expected no HTTP request in dry-run mode, got %d", requestCount)
+	}
+}
+
 func TestMeProcessRendersTableOutput(t *testing.T) {
 	withMeOptions(t, func() { meOptions.Emails = false })
 	const profileName = "user-me-table"
