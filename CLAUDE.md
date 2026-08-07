@@ -14,8 +14,11 @@ no permission administration), `bb commit`/`bb branch` (read-only: `commit
 get/list/diff/patch`, `branch list`), `bb artifact` (`list`, `download` — no
 upload/delete, no `--progress`), and `bb install-skill` (writes the embedded
 `skill/bitbucket-cli/` Claude skill to `<to>/skills/bitbucket-cli`). `pipeline
-trigger`/`stop` are deliberately the only commands with a `y`/`N` confirmation prompt
-(`--force` skips it); every other state-changing command runs immediately.
+trigger`/`stop` ask for a `y`/`N` confirmation prompt with `--force` to skip it.
+`pullrequest merge` also asks for a `y`/`N` confirmation but deliberately has no
+`--force` of any kind — merging is not automatable via `bb` (see
+`internal/common/confirm.go`'s `ConfirmInteractive`). Every other state-changing
+command runs immediately.
 
 Every other command group inherited from upstream (`project`, `issue`, `tag`, `gpg-key`,
 `ssh-key`, `cache`, `remote`, `component`) has been removed from the CLI surface, along
@@ -60,8 +63,10 @@ history intent) — do not try to keep it merge-compatible.
 cmd/bb/main.go            # entry point: load .env, set up lgr, cmd.Execute
 internal/cmd/             # cobra RootCmd, global flags, version
 internal/common/          # config load/save, EnumFlag, local TTL cache, error helpers,
-                           # Confirm (y/N prompt), exported flag-hiding helpers, WhatIf/
-                           # WhatIfPayload (dry-run gate + resolved-request echo),
+                           # Confirm/ConfirmInteractive (y/N prompt; the latter has no
+                           # --force and errors on EOF-without-input, for merge only),
+                           # exported flag-hiding helpers, WhatIf/WhatIfPayload
+                           # (dry-run gate + resolved-request echo),
                            # ValidatePathIdentifier (GetPath positional guard),
                            # ReadBodyFromFileOrStdin
 internal/profile/         # profile CRUD, OAuth2 authorize flow, HTTP client (net/http).
@@ -256,14 +261,16 @@ their error checked in a CLI). `_test.go` files are exempt from `gosec`, `dupl`,
   segments in the `workspace/repository` form (`repository.GetRepositoryBySlugOrID`, reached via
   `--repository`/`--default-repository`), which validates that shape on its own terms instead.
 - Every mutating `RunE` gates its write on `common.WhatIfPayload` (or, for `pipeline
-  trigger`/`stop`, `common.Confirm`), called only AFTER every resolution GET a real invocation
-  would make (looking up the target resource, validating a `--file` diff anchor, resolving
-  reviewers, ...) — a `--dry-run` must fail identically to a real invocation for a nonexistent
-  target or an invalid input, never report a fabricated success for something that would actually
-  fail. `WhatIfPayload` echoes the resolved target path and payload to stderr; a payload carrying
-  a secret (e.g. a pipeline trigger's `--variable` values) must be redacted by the caller before
-  it ever reaches that call. Read-only commands (`get`/`list`/`diff`/...) keep the plain
-  `common.WhatIf` short-circuit, checked before any resolution, since there is no write to gate.
+  trigger`/`stop`, `common.Confirm`; for `pullrequest merge`, `common.ConfirmInteractive`, gated
+  after `WhatIfPayload` so `--dry-run` still short-circuits first), called only AFTER every
+  resolution GET a real invocation would make (looking up the target resource, validating a
+  `--file` diff anchor, resolving reviewers, ...) — a `--dry-run` must fail identically to a real
+  invocation for a nonexistent target or an invalid input, never report a fabricated success for
+  something that would actually fail. `WhatIfPayload` echoes the resolved target path and payload
+  to stderr; a payload carrying a secret (e.g. a pipeline trigger's `--variable` values) must be
+  redacted by the caller before it ever reaches that call. Read-only commands
+  (`get`/`list`/`diff`/...) keep the plain `common.WhatIf` short-circuit, checked before any
+  resolution, since there is no write to gate.
 - Read paths tolerate an unrecognized variant/type VALUE (a new activity kind, comment shape,
   ...) rather than failing the whole decode: the offending entries are skipped with one `[WARN]`
   per distinct unrecognized kind (deduped locally to the call, never via package-level state) and

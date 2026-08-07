@@ -24,10 +24,11 @@
 > permission management, pipeline `--tag` targets) and the deprecated `pullrequest activity` alias
 > (use `pullrequest activities`).
 >
-> `bb pipeline trigger` and `bb pipeline stop` are, deliberately, the only commands in this fork
-> that ask for a `y`/`N` confirmation before running (or accept `--force` to skip it) — every
-> other state-changing command, including `pullrequest merge`/`decline`, runs immediately. Use
-> `--dry-run` to preview any of them first.
+> `bb pipeline trigger` and `bb pipeline stop` ask for a `y`/`N` confirmation before running, and
+> accept `--force` to skip it. `pullrequest merge` also asks for a `y`/`N` confirmation, but
+> deliberately has no `--force` of any kind — merging is not automatable via `bb`, on purpose (see
+> [Pull Requests](#pull-requests)). Every other state-changing command, including `pullrequest
+> decline`, runs immediately. Use `--dry-run` to preview any of them first.
 
 The supported surface is:
 
@@ -770,6 +771,23 @@ specify one: <id>, <id>, ...`; with none it errors `no open pullrequest found fo
 fallback — relying on it risks merging the wrong pull request the moment a second one is open,
 and that action is not reversible.
 
+`merge` always asks `Merge pullrequest <id>? [y/N]` before sending the request, and — unlike
+every other confirmation-gated command in this fork — there is **no `--force`** to skip it, in
+any form: merging is deliberately not automatable via `bb`. Declining prints `Merge canceled` and
+exits `0`. What counts as "asking" depends on what stdin actually is:
+
+- Piped, redirected, or otherwise non-interactive stdin (`echo y | bb pullrequest merge 1`, `<
+  file`) errors immediately, before any prompt is shown: `cannot confirm merge: Merge pullrequest
+  <id>?: merging requires an interactive terminal`.
+- `/dev/null` on stdin (cron, `nohup`, most agent harnesses) passes the character-device check —
+  `/dev/null` IS a character device — but the read immediately returns EOF with nothing typed.
+  That EOF-without-input case is also an error, with the same message: nobody answered, so nothing
+  is allowed to look like a handled decline. (An interactive session pressing Ctrl-D at the prompt
+  hits this same rule, so it now exits non-zero with that error instead of printing `Merge
+  canceled`.)
+- A real terminal or pty prompts and blocks waiting for a line of input — including a pty an
+  automated process is puppeting, which `bb` cannot distinguish from a human.
+
 You can also merge the pull request asynchronously with the `--async` flag:
 
 ```bash
@@ -1176,6 +1194,8 @@ the full command surface documented in this README — profile setup, pull reque
 management, pipeline triggering and log inspection, repository/workspace/commit/branch reads, and
 artifact download — including the fork-specific behaviors an agent needs to get right (positional
 pull request/pipeline ids, the `pipeline trigger`/`stop` confirmation prompt and `--force`,
+`pullrequest merge`'s interactive-only confirmation with no `--force` (an agent should hand the
+merge off to the user rather than invoke it directly),
 `--comment-file`/`--description-file` for shell-quoting-hazard-free bodies, `--dry-run`'s
 guarantee against sending writes without guaranteeing zero network traffic on reads, and
 output-format/masking rules).
@@ -1223,8 +1243,10 @@ ways that break existing scripts and installs:
   `members` only — no permission administration), `branch` (`list` only), `commit` (`get`,
   `list`, `diff`, `patch`), `pipeline` (`get`, `list`, `trigger`, `stop`, plus the `step`
   subgroup — no `--tag` target, no `--show-logs-command`), and `artifact` (`list`, `download`
-  only — no upload/delete, no `--progress`). `pipeline trigger`/`stop` are the only commands in
-  this fork with a `y`/`N` confirmation prompt (`--force` to skip it).
+  only — no upload/delete, no `--progress`). `pipeline trigger`/`stop` ask for a `y`/`N`
+  confirmation prompt with `--force` to skip it; `pullrequest merge` also asks for one, but
+  **breaks scripts**: it has no `--force` at all, and a piped or `/dev/null` stdin now errors
+  (`... : merging requires an interactive terminal`) instead of merging unattended.
 - **Eight command groups remain removed**: `project`, `issue`, `tag`, `gpg-key`, `ssh-key`,
   `cache`, `remote`, `component`, and the deprecated `pullrequest activity` alias (use
   `pullrequest activities`).

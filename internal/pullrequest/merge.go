@@ -13,7 +13,7 @@ import (
 
 var mergeCmd = &cobra.Command{
 	Use:               "merge [flags] [<pullrequest-id>]",
-	Short:             "merge a pullrequest by its <pullrequest-id>. If not provided, it will try to merge the only open pullrequest.",
+	Short:             "merge a pullrequest by its <pullrequest-id> (asks for an interactive y/N confirmation; there is no --force). If not provided, it will try to merge the only open pullrequest.",
 	Args:              cobra.MaximumNArgs(1),
 	ValidArgsFunction: mergeValidArgs,
 	RunE:              mergeProcess,
@@ -79,6 +79,15 @@ func mergeProcess(cmd *cobra.Command, args []string) (err error) {
 
 	lgr.Printf("[DEBUG] merging pullrequest %s", pullRequestID)
 	if !common.WhatIfPayload(cmd, uripath, payload, "Merging pullrequest %s", pullRequestID) {
+		return nil
+	}
+
+	proceed, err := common.ConfirmInteractive(cmd, fmt.Sprintf("Merge pullrequest %s?", pullRequestID))
+	if err != nil {
+		return fmt.Errorf("cannot confirm merge: %w", err)
+	}
+	if !proceed {
+		fmt.Fprintln(cmd.OutOrStdout(), "Merge canceled")
 		return nil
 	}
 
