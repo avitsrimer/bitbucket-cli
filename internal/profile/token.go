@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/gildas/go-core"
+	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/go-pkgz/lgr"
 )
 
@@ -43,11 +43,11 @@ func accessTokenCacheFilename(profileName string) string {
 }
 
 type Token struct {
-	TokenType    string         `json:"token_type"`
-	AccessToken  string         `json:"access_token"`
-	RefreshToken string         `json:"refresh_token"`
-	ExpiresOn    core.Timestamp `json:"expires_on"`
-	Scope        string         `json:"scope"`
+	TokenType    string           `json:"token_type"`
+	AccessToken  string           `json:"access_token"`
+	RefreshToken string           `json:"refresh_token"`
+	ExpiresOn    common.Timestamp `json:"expires_on"`
+	Scope        string           `json:"scope"`
 }
 
 // loadAccessToken loads the access token from the cache.
@@ -67,7 +67,7 @@ func (profile *Profile) loadAccessToken(_ context.Context) (err error) {
 		lgr.Printf("[DEBUG] repository/project/workspace access token for profile %s", profile.Name)
 		profile.token = &Token{
 			AccessToken: profile.AccessToken,
-			ExpiresOn:   core.Timestamp(time.Now().Add(nonExpiringTokenLifetime)),
+			ExpiresOn:   common.Timestamp(time.Now().Add(nonExpiringTokenLifetime)),
 		}
 		return nil
 	}
@@ -102,7 +102,7 @@ func (profile *Profile) loadAccessToken(_ context.Context) (err error) {
 	lgr.Printf("[DEBUG] loaded repository/project/workspace access token for profile %s from the vault", profile.Name)
 	profile.token = &Token{
 		AccessToken: profile.AccessToken,
-		ExpiresOn:   core.Timestamp(time.Now().Add(nonExpiringTokenLifetime)),
+		ExpiresOn:   common.Timestamp(time.Now().Add(nonExpiringTokenLifetime)),
 	}
 	return nil
 }
@@ -185,7 +185,7 @@ func UnmarshalTokenFromBitbucketData(data []byte) (token *Token, err error) {
 		TokenType:    result.TokenType,
 		AccessToken:  result.AccessToken,
 		RefreshToken: result.RefreshToken,
-		ExpiresOn:    core.Timestamp(time.Now().Add(time.Duration(result.ExpiresIn) * time.Second)),
+		ExpiresOn:    common.Timestamp(time.Now().Add(time.Duration(result.ExpiresIn) * time.Second)),
 		Scope:        result.Scopes,
 	}
 	return token, nil

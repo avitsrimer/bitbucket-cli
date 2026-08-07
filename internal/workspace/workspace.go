@@ -44,9 +44,8 @@ var columns = common.Columns[Workspace]{
 	}},
 }
 
-// GetType gets the type of the workspace
-//
-// implements core.TypeCarrier
+// GetType reports this record's kind as a fixed string, for callers that discriminate between
+// record kinds by string rather than by Go type
 func (workspace Workspace) GetType() string {
 	return "workspace"
 }

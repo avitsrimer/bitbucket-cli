@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
-
-	"github.com/gildas/go-core"
 )
 
 type Link struct {
@@ -29,10 +27,10 @@ func (link Link) MarshalJSON() (data []byte, err error) {
 	} else {
 		data, err = json.Marshal(struct {
 			surrogate
-			HREF core.URL `json:"href"`
+			HREF URL `json:"href"`
 		}{
 			surrogate: surrogate(link),
-			HREF:      core.URL(link.HREF),
+			HREF:      URL(link.HREF),
 		})
 	}
 	if err != nil {
@@ -65,7 +63,7 @@ func (link *Link) UnmarshalJSON(data []byte) (err error) {
 	default:
 		var inner struct {
 			surrogate
-			HREF core.URL `json:"href"`
+			HREF URL `json:"href"`
 		}
 
 		if err = json.Unmarshal(data, &inner); err != nil {

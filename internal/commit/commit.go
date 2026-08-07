@@ -100,9 +100,8 @@ var columns = common.Columns[Commit]{
 	}},
 }
 
-// GetType gets the type of this commit
-//
-// implements core.TypeCarrier
+// GetType reports this record's kind as a fixed string, for callers that discriminate between
+// record kinds by string rather than by Go type
 func (commit Commit) GetType() string {
 	return "commit"
 }
