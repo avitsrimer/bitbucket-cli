@@ -17,7 +17,6 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/gildas/go-core"
 	"github.com/go-pkgz/lgr"
-	"github.com/kataras/tablewriter"
 	"github.com/mattn/go-runewidth"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -645,15 +644,11 @@ func (profile Profile) printTable(cmd *cobra.Command, payload any) error {
 		return err
 	}
 
-	table := tablewriter.NewWriter(os.Stdout)
-	if headers != nil {
-		table.SetHeader(headers)
-		table.SetAutoWrapText(false)
-		for _, row := range rows {
-			table.Append(truncateTableRow(headers, row))
-		}
+	truncated := make([][]string, len(rows))
+	for i, row := range rows {
+		truncated[i] = truncateTableRow(headers, row)
 	}
-	table.Render()
+	writeTable(os.Stdout, headers, truncated)
 	return nil
 }
 
