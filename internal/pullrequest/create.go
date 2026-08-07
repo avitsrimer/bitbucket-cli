@@ -109,7 +109,8 @@ func createProcess(cmd *cobra.Command, args []string) (err error) {
 			return err
 		}
 	} else {
-		payload.Reviewers, err = resolveCreateDefaultReviewers(ctx, cmd, repository)
+		explicitDefault := len(createOptions.Reviewers) > 0
+		payload.Reviewers, err = resolveCreateDefaultReviewers(ctx, cmd, profile, repository, explicitDefault)
 		if err != nil {
 			return err
 		}
@@ -139,11 +140,28 @@ func createProcess(cmd *cobra.Command, args []string) (err error) {
 }
 
 // resolveCreateDefaultReviewers resolves the effective default reviewers of repository, excluding
-// the current user when known
-func resolveCreateDefaultReviewers(ctx context.Context, cmd *cobra.Command, repository *repository.Repository) ([]user.User, error) {
+// the current user when known.
+//
+// explicitlyRequested distinguishes why this is being called: true when the caller passed
+// `--reviewer default` (they explicitly asked for the default reviewers), false when --reviewer
+// was omitted entirely (this lookup is only an implicit convenience, not something the caller
+// asked for). A resolution failure while explicitlyRequested always aborts pullrequest creation
+// naming the error, matching how an explicit `--reviewer <name>` that fails to resolve behaves in
+// resolveExplicitReviewers. A resolution failure while !explicitlyRequested instead goes through
+// currentProfile's ShouldWarnOnError/ShouldIgnoreErrors tolerance (common.TolerateErrors): by
+// default (or with --stop-on-error) it still aborts, but with --warn-on-error/--ignore-errors it
+// is warned or silently logged and the pullrequest is created with no reviewers instead of
+// aborting on a lookup the caller never asked for.
+func resolveCreateDefaultReviewers(ctx context.Context, cmd *cobra.Command, currentProfile *profile.Profile, repository *repository.Repository, explicitlyRequested bool) ([]user.User, error) {
 	reviewers, err := effectiveDefaultReviewers(ctx, cmd, repository)
 	if err != nil {
-		return nil, err
+		if explicitlyRequested {
+			return nil, err
+		}
+		if tolerateErr := common.TolerateErrors(cmd, currentProfile, []error{err}, "resolve default reviewers"); tolerateErr != nil {
+			return nil, tolerateErr //nolint:wrapcheck // TolerateErrors returns the same joined error verbatim (or nil); wrapping would prefix it with redundant noise
+		}
+		return nil, nil
 	}
 	return core.Map(reviewers, func(reviewer project.Reviewer) user.User { return reviewer.User }), nil
 }

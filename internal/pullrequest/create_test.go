@@ -147,6 +147,111 @@ func TestCreateProcessDefaultReviewersAPIError(t *testing.T) {
 	}
 }
 
+// TestCreateProcessDefaultReviewersAPIErrorWarnOnErrorProceedsWithoutReviewers proves the
+// error-tolerance matrix now applies to the *implicit* default-reviewers lookup (no --reviewer
+// flag at all): before the fix, resolveCreateDefaultReviewers always returned the lookup failure
+// as a hard error regardless of --warn-on-error/--ignore-errors, aborting pullrequest creation the
+// caller never asked reviewers for in the first place. With the fix, --warn-on-error must let the
+// pullrequest be created anyway, warning on stderr and simply omitting the reviewers.
+func TestCreateProcessDefaultReviewersAPIErrorWarnOnErrorProceedsWithoutReviewers(t *testing.T) {
+	withCreateOptions(t, func() {
+		createOptions.Title = "Add feature"
+		createOptions.Source.Value = "feature"
+		createOptions.Destination.Value = ""
+		createOptions.Reviewers = nil
+	})
+
+	var postBody PullRequestCreator
+	var pullrequestRequests int
+	mux := http.NewServeMux()
+	mux.HandleFunc("/2.0/user", func(w http.ResponseWriter, r *http.Request) {
+		// simulate a repo-scoped token without access to /user; createProcess only warns on this
+		w.WriteHeader(http.StatusForbidden)
+	})
+	mux.HandleFunc("/2.0/repositories/"+testutil.FixtureRepositoryFlag+"/effective-default-reviewers", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"message":"internal error"}}`))
+	})
+	mux.HandleFunc("/2.0/repositories/"+testutil.FixtureRepositoryFlag+"/pullrequests", func(w http.ResponseWriter, r *http.Request) {
+		pullrequestRequests++
+		if err := json.NewDecoder(r.Body).Decode(&postBody); err != nil {
+			t.Errorf("cannot decode POST body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":99,"title":"Add feature"}`))
+	})
+
+	cmd := setupTestNamed(t, "create-default-reviewers-warn-on-error", mux.ServeHTTP, false)
+	if err := cmd.Flags().Set("warn-on-error", "true"); err != nil {
+		t.Fatalf("cannot set --warn-on-error: %v", err)
+	}
+
+	var createErr error
+	stderr := testutil.CaptureStderr(t, func() {
+		_ = testutil.CaptureStdout(t, func() {
+			createErr = createProcess(cmd, nil)
+		})
+	})
+
+	if createErr != nil {
+		t.Fatalf("createProcess() error = %v, want nil: --warn-on-error must tolerate the failed default-reviewers lookup", createErr)
+	}
+	if pullrequestRequests != 1 {
+		t.Fatalf("expected exactly 1 pullrequest creation request, got %d", pullrequestRequests)
+	}
+	if !strings.Contains(stderr, "internal error") {
+		t.Errorf("stderr = %q, want it to warn about the failed default-reviewers lookup", stderr)
+	}
+	if len(postBody.Reviewers) != 0 {
+		t.Errorf("posted reviewers = %+v, want none: the default-reviewers lookup failed", postBody.Reviewers)
+	}
+}
+
+// TestCreateProcessExplicitDefaultReviewersAPIErrorIgnoresWarnOnError verifies that an EXPLICIT
+// `--reviewer default` still hard-fails on a default-reviewers lookup failure even with
+// --warn-on-error set: unlike the implicit lookup (no --reviewer flag at all), the caller here
+// explicitly asked for the default reviewers, so a failure to resolve them must not be silently
+// tolerated into a pullrequest with none of the reviewers the caller asked for.
+func TestCreateProcessExplicitDefaultReviewersAPIErrorIgnoresWarnOnError(t *testing.T) {
+	withCreateOptions(t, func() {
+		createOptions.Title = "Add feature"
+		createOptions.Source.Value = "feature"
+		createOptions.Destination.Value = ""
+		createOptions.Reviewers = []string{"default"}
+	})
+
+	var pullrequestRequests int
+	mux := http.NewServeMux()
+	mux.HandleFunc("/2.0/user", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	})
+	mux.HandleFunc("/2.0/repositories/"+testutil.FixtureRepositoryFlag+"/effective-default-reviewers", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"message":"internal error"}}`))
+	})
+	mux.HandleFunc("/2.0/repositories/"+testutil.FixtureRepositoryFlag+"/pullrequests", func(w http.ResponseWriter, r *http.Request) {
+		pullrequestRequests++
+	})
+
+	cmd := setupTestNamed(t, "create-explicit-default-reviewers-warn-on-error", mux.ServeHTTP, false)
+	if err := cmd.Flags().Set("warn-on-error", "true"); err != nil {
+		t.Fatalf("cannot set --warn-on-error: %v", err)
+	}
+
+	err := createProcess(cmd, nil)
+	if err == nil {
+		t.Fatal("createProcess() expected an error, got nil: an explicit --reviewer default must not tolerate a failed lookup")
+	}
+	if !strings.Contains(err.Error(), "failed to get the default reviewers") {
+		t.Errorf("error = %q, want it to mention the failed default reviewers lookup", err.Error())
+	}
+	if pullrequestRequests != 0 {
+		t.Errorf("expected no pullrequest creation request, got %d", pullrequestRequests)
+	}
+}
+
 func TestCreateProcessPostAPIError(t *testing.T) {
 	withCreateOptions(t, func() {
 		createOptions.Title = "Add feature"

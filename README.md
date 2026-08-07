@@ -233,10 +233,15 @@ $ bb pr list --state all
 ```
 
 > [!NOTE]
-> The table format truncates any cell longer than 80 characters (ellipsized, and internal
-> newlines collapsed to spaces) so a single multi-paragraph field -- a pull request/comment/task
-> body, a commit message -- can no longer blow one column, and with it every other column, out to
-> an unreadable width. This cap is cosmetic: it only affects the rendered table. `csv`, `tsv`,
+> The table format truncates a fixed set of six free-text-ish columns -- `title`, `description`,
+> `message`, `content`, `reason`, and `participants` -- to 80 display columns (ellipsized, and
+> internal newlines collapsed to spaces first); "display columns" accounts for double-width
+> runes (CJK, most emoji) rather than a plain character/rune count, so those still render at up
+> to 80 terminal columns, not double that. Every other column, including every identifier such
+> as a UUID or an artifact name, always renders at full length regardless of size. This cap
+> exists so a single multi-paragraph field -- a pull request/comment/task body, a commit message
+> -- can no longer blow one column, and with it every other column, out to an unreadable width.
+> This cap is cosmetic: it only affects the rendered table. `csv`, `tsv`,
 > `json`, and `yaml` output always contain the complete, untruncated value, since those formats
 > are meant for scripting. For the same reason, `participants` is not among `bb pullrequest
 > get`/`list`'s default columns, and `description` is not among `list`'s (though it IS a default
@@ -719,7 +724,12 @@ You can `approve`or `unapprove` a pull request with the `bb pullrequest approve`
 bb pullrequest approve 1
 ```
 
-If no pull request is provided, the command will try to approve the opened pull request with the current branch.
+If no pull request is provided, `bb` fetches every open pull request in the current repository
+(`GET pullrequests?state=OPEN` — this is not related to the current git branch): with exactly one
+open pull request it acts on that one; with more than one it errors `too many open pullrequests,
+specify one: <id>, <id>, ...`; with none it errors `no open pullrequest found for repository
+<repo>`. Always pass the explicit pull request id to `approve` instead of relying on this
+fallback — relying on it risks approving the wrong pull request the moment a second one is open.
 
 You can `decline` a pull request with the `bb pullrequest decline` command:
 
@@ -727,7 +737,13 @@ You can `decline` a pull request with the `bb pullrequest decline` command:
 bb pullrequest decline 1
 ```
 
-If no pull request is provided, the command will try to decline the opened pull request with the current branch.
+If no pull request is provided, `bb` fetches every open pull request in the current repository
+(`GET pullrequests?state=OPEN` — this is not related to the current git branch): with exactly one
+open pull request it acts on that one; with more than one it errors `too many open pullrequests,
+specify one: <id>, <id>, ...`; with none it errors `no open pullrequest found for repository
+<repo>`. Always pass the explicit pull request id to `decline` instead of relying on this
+fallback — relying on it risks declining the wrong pull request the moment a second one is open,
+and that action is not reversible.
 
 You can `merge` a pull request with the `bb pullrequest merge` command:
 
@@ -735,7 +751,13 @@ You can `merge` a pull request with the `bb pullrequest merge` command:
 bb pullrequest merge 1
 ```
 
-If no pull request is provided, the command will try to merge the opened pull request with the current branch.
+If no pull request is provided, `bb` fetches every open pull request in the current repository
+(`GET pullrequests?state=OPEN` — this is not related to the current git branch): with exactly one
+open pull request it acts on that one; with more than one it errors `too many open pullrequests,
+specify one: <id>, <id>, ...`; with none it errors `no open pullrequest found for repository
+<repo>`. Always pass the explicit pull request id to `merge` instead of relying on this
+fallback — relying on it risks merging the wrong pull request the moment a second one is open,
+and that action is not reversible.
 
 You can also merge the pull request asynchronously with the `--async` flag:
 
@@ -749,7 +771,11 @@ In that case, you will receive a merge task ID in return, and you can check the 
 bb pullrequest merge-status 1 --task-id 6a0ddb61-40cf-4224-b9e8-bbb5852c66ba
 ```
 
-If no pull request is provided, the command will try to request the merge status of the opened pull request with the current branch.
+If no pull request is provided, `bb` fetches every open pull request in the current repository
+(`GET pullrequests?state=OPEN` — this is not related to the current git branch): with exactly one
+open pull request it acts on that one; with more than one it errors `too many open pullrequests,
+specify one: <id>, <id>, ...`; with none it errors `no open pullrequest found for repository
+<repo>`.
 
 You can request changes on a pull request with the `bb pullrequest request-changes` command:
 
@@ -757,7 +783,13 @@ You can request changes on a pull request with the `bb pullrequest request-chang
 bb pullrequest request-changes 1
 ```
 
-If no pull request is provided, the command will try to request changes on the opened pull request with the current branch.
+If no pull request is provided, `bb` fetches every open pull request in the current repository
+(`GET pullrequests?state=OPEN` — this is not related to the current git branch): with exactly one
+open pull request it acts on that one; with more than one it errors `too many open pullrequests,
+specify one: <id>, <id>, ...`; with none it errors `no open pullrequest found for repository
+<repo>`. Always pass the explicit pull request id to `request-changes` instead of relying on this
+fallback — relying on it risks requesting changes on the wrong pull request the moment a second
+one is open.
 
 To remove the request for changes, you can use the `bb pullrequest remove-request-changes` command:
 
@@ -765,7 +797,13 @@ To remove the request for changes, you can use the `bb pullrequest remove-reques
 bb pullrequest remove-request-changes 1
 ```
 
-If no pull request is provided, the command will try to remove the request for changes on the opened pull request with the current branch.
+If no pull request is provided, `bb` fetches every open pull request in the current repository
+(`GET pullrequests?state=OPEN` — this is not related to the current git branch): with exactly one
+open pull request it acts on that one; with more than one it errors `too many open pullrequests,
+specify one: <id>, <id>, ...`; with none it errors `no open pullrequest found for repository
+<repo>`. Always pass the explicit pull request id to `remove-request-changes` instead of relying
+on this fallback — relying on it risks acting on the wrong pull request the moment a second one
+is open.
 
 You can see the activities of a pull request with the `bb pullrequest activities` command:
 
@@ -773,7 +811,11 @@ You can see the activities of a pull request with the `bb pullrequest activities
 bb pullrequest activities 1
 ```
 
-If no pull request is provided, the command will try to list the activities of the opened pull request with the current branch.
+If no pull request is provided, `bb` fetches every open pull request in the current repository
+(`GET pullrequests?state=OPEN` — this is not related to the current git branch): with exactly one
+open pull request it acts on that one; with more than one it errors `too many open pullrequests,
+specify one: <id>, <id>, ...`; with none it errors `no open pullrequest found for repository
+<repo>`.
 
 An activity kind BitBucket adds in the future that this version of `bb` does not recognize is
 silently dropped from the printed list (rather than failing the whole command) and reported once,
@@ -785,7 +827,11 @@ You can list the commits of a pull request with the `bb pullrequest commits` com
 bb pullrequest commits 1
 ```
 
-If no pull request is provided, the command will try to list the commits of the opened pull request with the current branch.
+If no pull request is provided, `bb` fetches every open pull request in the current repository
+(`GET pullrequests?state=OPEN` — this is not related to the current git branch): with exactly one
+open pull request it acts on that one; with more than one it errors `too many open pullrequests,
+specify one: <id>, <id>, ...`; with none it errors `no open pullrequest found for repository
+<repo>`.
 
 You can see the diff of a pull request with the `bb pullrequest diff` command:
 
@@ -793,7 +839,11 @@ You can see the diff of a pull request with the `bb pullrequest diff` command:
 bb pullrequest diff 1
 ```
 
-If no pull request is provided, the command will try to show the diff of the opened pull request with the current branch.
+If no pull request is provided, `bb` fetches every open pull request in the current repository
+(`GET pullrequests?state=OPEN` — this is not related to the current git branch): with exactly one
+open pull request it acts on that one; with more than one it errors `too many open pullrequests,
+specify one: <id>, <id>, ...`; with none it errors `no open pullrequest found for repository
+<repo>`.
 
 You can get the diffstat of a pull request with the `bb pullrequest diff --stat` command:
 
@@ -801,7 +851,11 @@ You can get the diffstat of a pull request with the `bb pullrequest diff --stat`
 bb pullrequest diff --stat 1
 ```
 
-If no pull request is provided, the command will try to show the diffstat of the opened pull request with the current branch.
+If no pull request is provided, `bb` fetches every open pull request in the current repository
+(`GET pullrequests?state=OPEN` — this is not related to the current git branch): with exactly one
+open pull request it acts on that one; with more than one it errors `too many open pullrequests,
+specify one: <id>, <id>, ...`; with none it errors `no open pullrequest found for repository
+<repo>`.
 
 You can also get the patch of a pull request with the `bb pullrequest patch` command:
 
@@ -809,7 +863,11 @@ You can also get the patch of a pull request with the `bb pullrequest patch` com
 bb pullrequest patch 1
 ```
 
-If no pull request is provided, the command will try to show the patch of the opened pull request with the current branch.
+If no pull request is provided, `bb` fetches every open pull request in the current repository
+(`GET pullrequests?state=OPEN` — this is not related to the current git branch): with exactly one
+open pull request it acts on that one; with more than one it errors `too many open pullrequests,
+specify one: <id>, <id>, ...`; with none it errors `no open pullrequest found for repository
+<repo>`.
 
 #### Pull Request Comments
 
@@ -1031,7 +1089,7 @@ bb artifact download myartifact.zip
 bb artifact download myartifact.zip other.zip --destination ./downloads
 ```
 
-`--destination` defaults to the current directory and must already exist. Each artifact is written under the base name of its `<name>` (any directory components are stripped, so a name cannot write outside the destination directory), overwriting a file already there and preserving that file's existing permissions (a newly downloaded file gets the normal umask-adjusted mode, not a restricted one); a download only replaces the destination file once it has completed successfully, so a failed attempt never leaves a stray empty or partial file behind, nor corrupts a file already there.
+`--destination` defaults to the current directory and must already exist. Each artifact is written under the base name of its `<name>` (any directory components are stripped, so a name cannot write outside the destination directory), overwriting a file already there and preserving that file's existing permissions (a newly downloaded file gets a fixed mode of 0644, not the process umask-adjusted mode and not a restricted one); a download only replaces the destination file once it has completed successfully, so a failed attempt never leaves a stray empty or partial file behind, nor corrupts a file already there.
 
 > [!NOTE]
 > There is no `bb artifact upload`/`delete`, and no `--progress` flag.
