@@ -41,7 +41,7 @@ func (activities Activities) Size() int {
 }
 
 var activitiesCmd = &cobra.Command{
-	Use:               "activities",
+	Use:               "activities [flags] [<pullrequest-id>]",
 	Short:             "List all activities of a pullrequest",
 	Args:              cobra.MaximumNArgs(1),
 	ValidArgsFunction: activitiesValidArgs,

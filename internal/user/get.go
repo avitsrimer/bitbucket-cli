@@ -10,7 +10,7 @@ import (
 )
 
 var getCmd = &cobra.Command{
-	Use:     "get",
+	Use:     "get [flags] <user-id>",
 	Aliases: []string{"show", "info", "display"},
 	Short:   "get a user",
 	Args:    cobra.ExactArgs(1),

@@ -84,6 +84,7 @@ func init() {
 	RootCmd.AddCommand(artifact.Command)
 	RootCmd.AddCommand(branch.Command)
 	RootCmd.AddCommand(commit.Command)
+	RootCmd.AddCommand(installSkillCmd)
 	RootCmd.AddCommand(pipeline.Command)
 	RootCmd.AddCommand(profile.Command)
 	RootCmd.AddCommand(pullrequest.Command)

@@ -11,10 +11,11 @@ command tree), `bb user`, `bb profile` (authentication plumbing), `bb pipeline` 
 `cases`), `bb repository`/`bb repo` (`get`, `list`, `clone` — read-only, no
 create/delete/fork/update, no `get --forks`), `bb workspace` (`get`, `list`, `members` —
 no permission administration), `bb commit`/`bb branch` (read-only: `commit
-get/list/diff/patch`, `branch list`), and `bb artifact` (`list`, `download` — no
-upload/delete, no `--progress`). `pipeline trigger`/`stop` are deliberately the only
-commands with a `y`/`N` confirmation prompt (`--force` skips it); every other
-state-changing command runs immediately.
+get/list/diff/patch`, `branch list`), `bb artifact` (`list`, `download` — no
+upload/delete, no `--progress`), and `bb install-skill` (writes the embedded
+`skill/bitbucket-cli/` Claude skill to `<to>/skills/bitbucket-cli`). `pipeline
+trigger`/`stop` are deliberately the only commands with a `y`/`N` confirmation prompt
+(`--force` skips it); every other state-changing command runs immediately.
 
 Every other command group inherited from upstream (`project`, `issue`, `tag`, `gpg-key`,
 `ssh-key`, `cache`, `remote`, `component`) has been removed from the CLI surface, along
@@ -88,6 +89,15 @@ internal/pipeline/        # bb pipeline get/list/trigger/stop
                            # pipeline->step->pipeline import cycle)
   /step                   # bb pipeline step get/list/logs/report/cases
 internal/artifact/        # bb artifact list/download
+internal/cmd/install_skill.go # bb install-skill: writes skill.Files to <to>/skills/bitbucket-cli
+skill/                    # embed.go (package skill, //go:embed bitbucket-cli, Files embed.FS)
+                           # + bitbucket-cli/SKILL.md, the Claude skill bb install-skill writes.
+                           # Lives at the repo root, not under internal/, so the embed package
+                           # stays importable by internal/cmd without an import cycle. SKILL.md is
+                           # documentation shipped inside the binary: update it in the same PR as
+                           # any change to a documented command/flag, or it goes stale silently
+                           # (a sync-guard test in internal/cmd catches a renamed/removed command
+                           # path, but not a changed flag or behavior description).
 internal/testutil/        # shared test harness (profile/fixture setup); imports
                            # repository, user, and workspace, so any test file declared
                            # "package repository"/"package workspace"/"package user" (as
