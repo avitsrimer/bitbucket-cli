@@ -134,10 +134,11 @@ flag anywhere in this subtree.
 - `bb pullrequest comment list <pr-id>`
 - `bb pullrequest comment get <pr-id> <comment-id>`
 - `bb pullrequest comment create <pr-id> (--comment <text> | --comment-file <path-or-->) [--file
-  <path-in-diff> (--line <n> | --from <n>) [--to <n>]] [--pending] [--parent <comment-id>]`
+  <path-in-diff> (--line <n> | --from <n> [--to <n>])] [--pending] [--parent <comment-id>]`
   (aliases `add`, `new`). `--comment` and `--comment-file` are mutually exclusive and exactly one
   is required. `--line` is a plain alias for `--from` (same underlying value, mutually exclusive
-  with `--from` itself); `--to` pairs with `--from`/`--line` for a multi-line range comment.
+  with `--from` itself); `--to` pairs with `--from` only — it is mutually exclusive with `--line`,
+  so a multi-line range comment must use `--from`/`--to`, never `--line`/`--to`.
   `--pending` marks it a pending (draft) comment.
   **Shell-quoting hazard: a markdown comment body with backticks or `$(...)` is a live
   command-substitution risk on the command line. ALWAYS write it to a file (or heredoc into
@@ -196,13 +197,15 @@ without `--force` depends on what stdin actually is:
 `--dry-run` also skips the prompt (and performs no write), which is the right choice when the
 goal is only to preview the request, not send it.
 
-### Pipeline steps — `bb pipeline step <verb> <pipeline> [<step>]`
+### Pipeline steps — `bb pipeline step list <pipeline>` / `bb pipeline step <get|logs|report|cases> <pipeline> <step>`
 
 Every subcommand's pipeline is a REQUIRED positional first argument — unlike `commit get`,
-there is no "latest pipeline" fallback. The step positional accepts either a UUID or a step
-NAME (case-insensitive, trimmed); `bb` resolves a name to its UUID itself. An unknown name
-errors listing the available names; a name matching more than one step (Bitbucket allows
-duplicates) errors listing the ambiguous UUIDs and asks for a UUID instead.
+there is no "latest pipeline" fallback. `list` takes only the pipeline; `get`/`logs`/`report`/
+`cases` additionally require the step positional (no verb makes it optional). The step
+positional accepts either a UUID or a step NAME (case-insensitive, trimmed); `bb` resolves a
+name to its UUID itself. An unknown name errors listing the available names; a name matching
+more than one step (Bitbucket allows duplicates) errors listing the ambiguous UUIDs and asks
+for a UUID instead.
 
 - `bb pipeline step list <pipeline>`
 - `bb pipeline step get <pipeline> <step-uuid-or-name>` (aliases `show`, `info`, `display`)
@@ -240,19 +243,29 @@ build-time output).
   identifier such as a UUID or an artifact name, which always render at full length) at 80
   display columns, collapsing internal whitespace/newlines to single spaces first — display-only,
   never affects json/yaml/csv/tsv. `--columns <a>,<b>` (or `--columns all`) picks which columns
-  render; repeatable or comma-separated. Every `list` subcommand also takes `--limit <n>`
-  (maximum total items fetched) and `--page-length <n>` (Bitbucket page size per request); most
-  also take `--sort <column>` to sort client-side.
+  render; repeatable or comma-separated. Every API-backed `list` subcommand also takes `--limit
+  <n>` (maximum total items fetched) and `--page-length <n>` (Bitbucket page size per request);
+  most also take `--sort <column>` to sort client-side. `bb profile list` is the one exception —
+  profiles come from the local config file, not a paged API, so it registers only `--columns`/
+  `--sort`; `--limit`/`--page-length` aren't accepted there.
 - **`--dry-run`** (also `--noop`/`--whatif`) behaves differently for write vs. read commands:
   - Write commands (create/update/delete/merge/approve/decline/trigger/stop/comment/task/...)
     run their FULL preflight first — every resolution GET, id/target validation the real write
     would also need — then print the resolved API path and, when there is a request body, its
     JSON payload to stderr, and skip only the final write. A `--dry-run` against a nonexistent
     id still fails exactly like the real command would; it never fabricates a success line.
-  - Read commands (`get`/`list`/`diff`/`patch`/`commits`/`logs`/`report`/`cases`/...)
-    short-circuit at the dry-run check BEFORE making any request at all — there is no
-    "preflight" to preview for these, just a "Dry run: <description>" line on stderr and nothing
-    else. Don't expect a resolved path/payload out of a read command's `--dry-run`.
+  - Read commands (`get`/`list`/`diff`/`patch`/`commits`/`logs`/`report`/`cases`/...) always skip
+    the main/final request under `--dry-run`, printing just a "Dry run: <description>" line on
+    stderr instead — but most of them still resolve their target (repository lookup, PR id
+    lookup) BEFORE that dry-run check, and that resolution is a real GET. Only `pipeline list`,
+    `artifact list`, `commit list`, `branch list`, and `commit diff`/`patch` check dry-run before
+    touching the network at all. Everything else — `pullrequest get`/`diff`/`patch`/`commits`/
+    `activities`, `commit get`, `pipeline get`, `pipeline step get`/`list`/`logs`/`report`/
+    `cases`, `repo get`, `workspace get`, `pullrequest comment list` — resolves the repository
+    (and, where relevant, the pull request id) via a real request first, so `--dry-run` does not
+    guarantee zero network traffic for them. `commit get` goes further still: with no argument or
+    a valid ref it fetches the actual commit before the dry-run gate, not just the repository.
+    `bb commit get <bad-hash> --dry-run` still returns a real 404 from that resolution.
 - **Workspace/repository resolution** for every command follows the same order: the
   `--workspace`/`--repository` flag, then a Bitbucket git remote in the current directory,
   then the profile's `--default-workspace`/`--default-repository`. `--repository` (or
