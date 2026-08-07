@@ -147,18 +147,36 @@ func TestActivitiesProcessLimitAppliesAfterFilteringUnknownKinds(t *testing.T) {
 	}
 }
 
-// TestUnrecognizedActivityVariantPicksLexicographicallyFirstUnrecognizedKey proves that when an
-// entry carries multiple unrecognized keys of mixed shapes (object and scalar), the
-// lexicographically first one wins, regardless of shape -- shape no longer filters candidacy.
-func TestUnrecognizedActivityVariantPicksLexicographicallyFirstUnrecognizedKey(t *testing.T) {
+// TestUnrecognizedActivityVariantPrefersObjectValuedKey reproduces review-iter-7 finding #2: when
+// an entry carries multiple unrecognized keys of mixed shapes, an object-valued one is preferred
+// over a scalar-valued one, since a real new activity kind is expected to serialize as an object
+// (like every existing kind) -- so the [WARN] this drives names the actual new kind
+// ("some_future_activity_kind") instead of incidental scalar metadata riding along on the same
+// entry ("id").
+func TestUnrecognizedActivityVariantPrefersObjectValuedKey(t *testing.T) {
 	data := []byte(`{"pull_request":{"id":1650},"id":999,"some_future_activity_kind":{"date":"2026-08-01T00:00:00+00:00"}}`)
 
 	variant, found := unrecognizedActivityVariant(data)
 	if !found {
 		t.Fatal("unrecognizedActivityVariant() found = false, want true")
 	}
+	if variant != "some_future_activity_kind" {
+		t.Errorf("unrecognizedActivityVariant() = %q, want %q (object-valued key preferred over scalar)", variant, "some_future_activity_kind")
+	}
+}
+
+// TestUnrecognizedActivityVariantFallsBackToLexicographicallyFirstWhenNoObjectCandidate proves the
+// pre-existing lexicographically-first tiebreak still applies when none of the unrecognized keys
+// are object-valued.
+func TestUnrecognizedActivityVariantFallsBackToLexicographicallyFirstWhenNoObjectCandidate(t *testing.T) {
+	data := []byte(`{"pull_request":{"id":1650},"id":999,"links":"not an object"}`)
+
+	variant, found := unrecognizedActivityVariant(data)
+	if !found {
+		t.Fatal("unrecognizedActivityVariant() found = false, want true")
+	}
 	if variant != "id" {
-		t.Errorf("unrecognizedActivityVariant() = %q, want %q (lexicographically first unrecognized key, scalar or not)", variant, "id")
+		t.Errorf("unrecognizedActivityVariant() = %q, want %q (lexicographically first among non-object candidates)", variant, "id")
 	}
 }
 
@@ -201,6 +219,101 @@ func TestUnrecognizedActivityVariantAcceptsScalarValuedVariant(t *testing.T) {
 	}
 	if variant != "some_scalar_kind" {
 		t.Errorf("unrecognizedActivityVariant() = %q, want %q", variant, "some_scalar_kind")
+	}
+}
+
+// TestActivityUnmarshalTreatsArrayValuedKnownVariantAsUnknown reproduces review-iter-7 finding #1:
+// a known variant key ("approval" here) whose value has the wrong SHAPE (an array, not an object)
+// used to error json.Unmarshal(data, &surrogateActivity) out of the whole entry -- before any
+// tolerance logic ever ran -- instead of being tolerated like a genuinely unrecognized kind. After
+// the fix, decoding succeeds and unknownVariant records "approval".
+func TestActivityUnmarshalTreatsArrayValuedKnownVariantAsUnknown(t *testing.T) {
+	data := []byte(`{"pull_request":{"id":1650},"approval":[]}`)
+
+	var activity Activity
+	if err := json.Unmarshal(data, &activity); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v, want nil (a malformed known variant must be tolerated, not error the whole entry)", err)
+	}
+	if activity.Approval != nil {
+		t.Errorf("activity.Approval = %+v, want nil (array-valued approval must not populate the struct)", activity.Approval)
+	}
+	if activity.unknownVariant != "approval" {
+		t.Errorf("activity.unknownVariant = %q, want %q", activity.unknownVariant, "approval")
+	}
+}
+
+// TestActivityUnmarshalTreatsWrongFieldTypeInKnownVariantAsUnknown is
+// TestActivityUnmarshalTreatsArrayValuedKnownVariantAsUnknown for a subtler malformation: the
+// variant key itself is object-shaped as expected, but one of ITS fields has the wrong JSON type
+// (ActivityUpdate.ID is numeric; "abc" is a string).
+func TestActivityUnmarshalTreatsWrongFieldTypeInKnownVariantAsUnknown(t *testing.T) {
+	data := []byte(`{"pull_request":{"id":1650},"update":{"id":"abc"}}`)
+
+	var activity Activity
+	if err := json.Unmarshal(data, &activity); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v, want nil", err)
+	}
+	if activity.Update != nil {
+		t.Errorf("activity.Update = %+v, want nil", activity.Update)
+	}
+	if activity.unknownVariant != "update" {
+		t.Errorf("activity.unknownVariant = %q, want %q", activity.unknownVariant, "update")
+	}
+}
+
+// TestActivityUnmarshalTreatsUnparsableDateInKnownVariantAsUnknown is
+// TestActivityUnmarshalTreatsWrongFieldTypeInKnownVariantAsUnknown for a non-RFC3339 date string,
+// which fails time.Time's own UnmarshalJSON.
+func TestActivityUnmarshalTreatsUnparsableDateInKnownVariantAsUnknown(t *testing.T) {
+	data := []byte(`{"pull_request":{"id":1650},"update":{"date":"08/01/2026"}}`)
+
+	var activity Activity
+	if err := json.Unmarshal(data, &activity); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v, want nil", err)
+	}
+	if activity.Update != nil {
+		t.Errorf("activity.Update = %+v, want nil", activity.Update)
+	}
+	if activity.unknownVariant != "update" {
+		t.Errorf("activity.unknownVariant = %q, want %q", activity.unknownVariant, "update")
+	}
+}
+
+// TestActivitiesProcessTreatsMalformedKnownVariantAsUnknownAcrossThePage is the RunE-level
+// regression test for review-iter-7 finding #1: a page containing malformed known-variant entries
+// (wrong shape, wrong field type, unparsable date) must not abort the whole page's decode; the one
+// well-formed entry must still render, and the malformed ones must be skipped, not printed.
+func TestActivitiesProcessTreatsMalformedKnownVariantAsUnknownAcrossThePage(t *testing.T) {
+	const fixture = `{"values":[
+		{"pull_request":{"id":1650},"approval":{"date":"2026-08-01T00:00:00+00:00","user":{"display_name":"A"}}},
+		{"pull_request":{"id":1650},"approval":[]},
+		{"pull_request":{"id":1650},"update":{"id":"abc"}},
+		{"pull_request":{"id":1650},"update":{"date":"08/01/2026"}}
+	],"next":""}`
+
+	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(fixture))
+	}, false)
+
+	if _, err := profile.GetProfileFromCommand(cmd.Context(), cmd); err != nil {
+		t.Fatalf("cannot warm up profile resolution: %v", err)
+	}
+
+	var runErr error
+	stdout := testutil.CaptureStdout(t, func() {
+		runErr = activitiesProcess(cmd, []string{"1650"})
+	})
+	if runErr != nil {
+		t.Fatalf("activitiesProcess() error = %v, want nil (a malformed known variant must not fail the whole page)", runErr)
+	}
+
+	var activities []Activity
+	if err := json.Unmarshal([]byte(stdout), &activities); err != nil {
+		t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
+	}
+	if len(activities) != 1 {
+		t.Fatalf("printed %d activities, want 1 (the malformed known-variant entries must be skipped, not printed)", len(activities))
 	}
 }
 

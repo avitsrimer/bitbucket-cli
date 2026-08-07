@@ -223,17 +223,21 @@ func dryRunTriggerPayload(payload triggerBody) triggerBody {
 
 // parseTriggerVariables converts "KEY=VALUE" strings into Variables, returning the keys separately
 // so callers can log them without ever touching -- let alone logging -- a value. It rejects entries
-// missing "=" or carrying an empty key.
+// missing "=" or carrying an empty key, naming only the entry's POSITION in the error, never its
+// content: a --variable value is routinely a secret (e.g. `--variable "$DEPLOY_TOKEN"` with the
+// "KEY=" prefix forgotten, or a KEY= whose left-hand side happens to be empty), and the raw entry
+// can carry that secret verbatim even when it fails to parse -- echoing it back in the error would
+// leak it to stderr/CI logs exactly like logging the value itself would.
 func parseTriggerVariables(raw []string) (variables []Variable, keys []string, err error) {
 	if len(raw) == 0 {
 		return nil, nil, nil
 	}
 	variables = make([]Variable, 0, len(raw))
 	keys = make([]string, 0, len(raw))
-	for _, entry := range raw {
+	for i, entry := range raw {
 		parts := strings.SplitN(entry, "=", 2)
 		if len(parts) != 2 || parts[0] == "" {
-			return nil, nil, fmt.Errorf("invalid --variable %q: expected KEY=VALUE with a non-empty key", entry)
+			return nil, nil, fmt.Errorf("invalid --variable #%d: expected KEY=VALUE with a non-empty key", i+1)
 		}
 		variables = append(variables, Variable{Key: parts[0], Value: parts[1]})
 		keys = append(keys, parts[0])

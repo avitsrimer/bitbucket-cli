@@ -8,6 +8,7 @@ import (
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
+	"github.com/zalando/go-keyring"
 )
 
 // liveLookingAccessToken is a realistic-shaped fake access token, distinct enough from any other
@@ -149,6 +150,80 @@ func (suite *ProfileSuite) TestProfileGetYAMLShowsRealAccessToken() {
 	output := runProfileCommand(suite.T(), configPath, "profile", "get", liveTokenProfileName, "--output", "yaml")
 
 	suite.Contains(output, liveLookingAccessToken, "yaml output is the documented scripting path and must show the real token")
+}
+
+// vaultBackedProfileName/vaultBackedVaultKey name the fixture profile the tests below use to
+// reproduce review-iter-7 finding #4 against the REALISTIC shape of the leak: an access token
+// created via `bb profile create --access-token` is stored in the OS vault, not the config file
+// (see resolveVaultSecret) -- the persisted profile carries no accesstoken of its own at all, and
+// LoadSecrets/loadAccessToken is what populates Profile.AccessToken from the vault at runtime, on
+// demand. Both names are distinct from every other fixture in this package's tests, so
+// loadAccessToken's real (non-test-isolated) os.UserCacheDir() file-cache lookup for this profile
+// name is guaranteed to miss -- no test, in this run or any prior one, has ever written a token
+// cache file under this name's hash -- and the mock vault seeded below is reached deterministically
+// instead.
+const vaultBackedProfileName = "iter7-vault-backed-profile"
+const vaultBackedVaultKey = "iter7-vault-backed-vault-key"
+
+// writeVaultBackedConfigWithOutputFormat writes a config carrying one profile with NO accesstoken
+// of its own and outputformat set as given; see vaultBackedProfileName's doc comment for why this
+// shape (rather than writeLiveTokenConfig's directly-embedded accesstoken) is the one that
+// exercises LoadSecrets' vault fallback.
+func writeVaultBackedConfigWithOutputFormat(t *testing.T, outputFormat string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config-cli.yml")
+	content := "profiles:\n    - name: " + vaultBackedProfileName + "\n      default: true\n      outputformat: " + outputFormat + "\n      vaultkey: " + vaultBackedVaultKey + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("cannot write test config: %v", err)
+	}
+	return path
+}
+
+// TestProfileListBareCommandWithProfileOutputFormatJSONDoesNotLoadSecretsFromVault reproduces
+// review-iter-7 finding #4: a profile configured with `outputformat: json` used to make a bare
+// `bb profile list` (no explicit -o/--output flag at all) unconditionally LoadSecrets -- fetching
+// the real token from the vault -- and then render it in cleartext, purely because Profile.Print
+// picks the profile's OWN OutputFormat ahead of -o with no flag and no signal to the caller. The
+// fix loads secrets ONLY when json/yaml output was explicitly requested via -o/--output on the
+// command line.
+func (suite *ProfileSuite) TestProfileListBareCommandWithProfileOutputFormatJSONDoesNotLoadSecretsFromVault() {
+	defer resetProfilesState()()
+	keyring.MockInit()
+	suite.Require().NoError(keyring.Set(vaultBackedVaultKey, vaultBackedProfileName, liveLookingAccessToken))
+	configPath := writeVaultBackedConfigWithOutputFormat(suite.T(), "json")
+
+	output := runProfileCommand(suite.T(), configPath, "profile", "list")
+
+	suite.NotContains(output, liveLookingAccessToken, "a bare `bb profile list` must not fetch or show the real vault-backed access token just because the profile's own outputFormat is json")
+}
+
+// TestProfileGetBareCommandWithProfileOutputFormatYAMLDoesNotLoadSecretsFromVault is
+// TestProfileListBareCommandWithProfileOutputFormatJSONDoesNotLoadSecretsFromVault's
+// `bb profile get` counterpart, using yaml instead of json.
+func (suite *ProfileSuite) TestProfileGetBareCommandWithProfileOutputFormatYAMLDoesNotLoadSecretsFromVault() {
+	defer resetProfilesState()()
+	keyring.MockInit()
+	suite.Require().NoError(keyring.Set(vaultBackedVaultKey, vaultBackedProfileName, liveLookingAccessToken))
+	configPath := writeVaultBackedConfigWithOutputFormat(suite.T(), "yaml")
+
+	output := runProfileCommand(suite.T(), configPath, "profile", "get", vaultBackedProfileName)
+
+	suite.NotContains(output, liveLookingAccessToken, "a bare `bb profile get` must not fetch or show the real vault-backed access token just because the profile's own outputFormat is yaml")
+}
+
+// TestProfileListExplicitJSONFlagLoadsSecretFromVaultEvenWithProfileOutputFormatTable proves the
+// converse: an EXPLICIT -o json on the command line still fetches and shows the real vault-backed
+// secret, even when the profile's own outputFormat is left at its "table" default -- the documented
+// scripting path (FR-7) must keep working.
+func (suite *ProfileSuite) TestProfileListExplicitJSONFlagLoadsSecretFromVaultEvenWithProfileOutputFormatTable() {
+	defer resetProfilesState()()
+	keyring.MockInit()
+	suite.Require().NoError(keyring.Set(vaultBackedVaultKey, vaultBackedProfileName, liveLookingAccessToken))
+	configPath := writeVaultBackedConfigWithOutputFormat(suite.T(), "table")
+
+	output := runProfileCommand(suite.T(), configPath, "profile", "list", "--output", "json")
+
+	suite.Contains(output, liveLookingAccessToken, "an explicit -o json on the command line must still fetch and show the real vault-backed token")
 }
 
 // TestProfileColumnsRejectsClientSecretAndPassword proves ClientSecret and Password have no

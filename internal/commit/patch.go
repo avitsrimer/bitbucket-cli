@@ -44,7 +44,10 @@ func patchProcess(cmd *cobra.Command, args []string) error {
 	// multi-segment branch/tag ref (e.g. "release/1.0") in addition to a bare hash, validating each
 	// '/'-delimited segment so no segment can be ".." for path.Join to collapse. The joined spec
 	// itself legitimately contains ".." (BitBucket's own two-commit patch syntax), so ValidatePathRef
-	// is never called on spec, only on each hash/ref that goes into it.
+	// is never called on spec, only on each hash/ref that goes into it. Verified live against
+	// Bitbucket's public API: GET /repositories/{workspace}/{repo_slug}/patch/{spec} returns the
+	// expected patch for a spec built from a multi-segment branch name, raw slash and all -- unlike
+	// GET .../commit/{revision} (see commit/get.go's own comment), which 404s on the same input.
 	for _, hash := range args {
 		if err := common.ValidatePathRef("commit-hash", hash); err != nil {
 			return fmt.Errorf("cannot get patch: %w", err)

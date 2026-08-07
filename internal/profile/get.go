@@ -80,7 +80,11 @@ func getProcess(cmd *cobra.Command, args []string) (err error) {
 			fmt.Fprintln(os.Stderr, "Profile", profile.Name, "is not valid:", err)
 		}
 	}
-	_ = profile.LoadSecrets(ctx)
+	// LoadSecrets is only called when -o/--output json or yaml was given EXPLICITLY on the command
+	// line (see explicitJSONOrYAMLOutput's doc comment on the list.go call site for why).
+	if explicitJSONOrYAMLOutput(cmd) {
+		_ = profile.LoadSecrets(ctx)
+	}
 	if len(Profiles) == 1 {
 		profile.Default = true
 	}

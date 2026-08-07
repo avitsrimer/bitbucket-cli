@@ -367,10 +367,13 @@ When you use a user/password, the password is stored in the vault of the operati
 
 > [!NOTE]
 > `bb profile list`/`bb profile get` mask the access token in table/csv/tsv output (a masked
-> placeholder even under the explicit `--columns accesstoken`), but `-o json`/`-o yaml` intentionally
-> show it in full -- that's the supported way to script retrieval of a stored token. `client-secret`
-> and `password` have no `--columns` value at all, so they never appear in table/csv/tsv output
-> regardless.
+> placeholder even under the explicit `--columns accesstoken`), but an EXPLICIT `-o json`/`-o yaml`
+> on the command line intentionally shows it in full -- that's the supported way to script
+> retrieval of a stored token. A profile merely configured with `outputformat: json`/`yaml` in its
+> config file does NOT trigger this on its own: a bare `bb profile list`/`bb profile get` (no `-o`
+> flag at all) never loads or shows any secret, regardless of what the profile's own output format
+> is set to. `client-secret` and `password` have no `--columns` value at all, so they never appear
+> in table/csv/tsv output regardless.
 
 You can get the list of your profiles with the `bb profile list` command:
 

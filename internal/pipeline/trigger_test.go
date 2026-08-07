@@ -202,6 +202,54 @@ func TestTriggerProcessRejectsEmptyVariableKey(t *testing.T) {
 	}
 }
 
+// TestTriggerProcessInvalidVariableErrorNeverEchoesTheSecretValue reproduces review-iter-7 finding
+// #3: the error for a malformed --variable used to echo the raw, unsplit entry verbatim
+// (fmt.Errorf("invalid --variable %q: ...", entry)), so a value with no "=" at all -- e.g.
+// `--variable "$DEPLOY_TOKEN"` when the caller forgot the "KEY=" prefix -- leaked the secret
+// straight to stderr/CI logs. The fix reports the --variable's POSITION, never its content.
+func TestTriggerProcessInvalidVariableErrorNeverEchoesTheSecretValue(t *testing.T) {
+	const secretValue = "s3cr3t-token-value"
+	var requestCount int
+	cmd := setupTriggerTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, false)
+	_ = cmd.Flags().Set("branch", "main")
+	_ = cmd.Flags().Set("force", "true")
+	_ = cmd.Flags().Set("variable", secretValue) // no "=" at all -- the missing-"KEY=" shape
+
+	err := triggerProcess(cmd, nil)
+	if err == nil {
+		t.Fatal("triggerProcess() expected an error for a variable with no \"=\", got nil")
+	}
+	if requestCount != 0 {
+		t.Errorf("expected no HTTP request for an invalid variable, got %d", requestCount)
+	}
+	if strings.Contains(err.Error(), secretValue) {
+		t.Errorf("error = %q, want it to never contain the secret value %q", err.Error(), secretValue)
+	}
+}
+
+// TestTriggerProcessEmptyKeyVariableErrorNeverEchoesTheSecretValue is
+// TestTriggerProcessInvalidVariableErrorNeverEchoesTheSecretValue for the empty-key shape
+// ("=s3cr3t"), the other way a real secret ends up on the wrong side of a malformed --variable.
+func TestTriggerProcessEmptyKeyVariableErrorNeverEchoesTheSecretValue(t *testing.T) {
+	const secretValue = "s3cr3t-token-value"
+	var requestCount int
+	cmd := setupTriggerTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, false)
+	_ = cmd.Flags().Set("branch", "main")
+	_ = cmd.Flags().Set("force", "true")
+	_ = cmd.Flags().Set("variable", "="+secretValue)
+
+	err := triggerProcess(cmd, nil)
+	if err == nil {
+		t.Fatal("triggerProcess() expected an error for an empty variable key, got nil")
+	}
+	if requestCount != 0 {
+		t.Errorf("expected no HTTP request for an invalid variable, got %d", requestCount)
+	}
+	if strings.Contains(err.Error(), secretValue) {
+		t.Errorf("error = %q, want it to never contain the secret value %q", err.Error(), secretValue)
+	}
+}
+
 func TestTriggerProcessAPIError(t *testing.T) {
 	cmd := setupTriggerTest(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

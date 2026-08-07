@@ -216,6 +216,44 @@ func TestActivitiesProcessPageLengthShrinksOnFinalPage(t *testing.T) {
 	}
 }
 
+// TestActivitiesProcessPageLengthNotDroppedWhenQueryTextContainsPagelenSubstring reproduces
+// review-iter-7 finding #7: fetchActivityPages' own pagelen= guard used to substring-test the
+// WHOLE request path, including the escaped q= value, so a --query text that happens to contain
+// "pagelen" (e.g. `--query 'title~"pagelen"'`) silently prevented --page-length from ever being
+// appended, even though no pagelen= query parameter was actually present. The fix checks the
+// actual "pagelen" query KEY instead.
+func TestActivitiesProcessPageLengthNotDroppedWhenQueryTextContainsPagelenSubstring(t *testing.T) {
+	const wantQuery = `title~"pagelen"`
+	oldQuery := activitiesOptions.Query
+	activitiesOptions.Query = wantQuery
+	t.Cleanup(func() { activitiesOptions.Query = oldQuery })
+
+	var requestedPagelen string
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		requestedPagelen = r.URL.Query().Get("pagelen")
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"values":[],"next":""}`)
+	}, false)
+	if err := cmd.Flags().Set("page-length", "25"); err != nil {
+		t.Fatalf("cannot set page-length flag: %v", err)
+	}
+
+	if _, err := profile.GetProfileFromCommand(cmd.Context(), cmd); err != nil {
+		t.Fatalf("cannot warm up profile resolution: %v", err)
+	}
+
+	var runErr error
+	testutil.CaptureStdout(t, func() {
+		runErr = activitiesProcess(cmd, []string{"1650"})
+	})
+	if runErr != nil {
+		t.Fatalf("activitiesProcess() error = %v", runErr)
+	}
+	if requestedPagelen != "25" {
+		t.Errorf("request pagelen = %q, want %q (--page-length must not be dropped just because --query's TEXT contains \"pagelen\")", requestedPagelen, "25")
+	}
+}
+
 // TestFetchActivityPagesMalformedNextReturnsParseError proves fetchActivityPages surfaces
 // profile.NextPageURL's own parse error, rather than silently requesting a broken next URL or
 // returning a different error, when BitBucket's response body carries an unparsable "next" link.
