@@ -8,8 +8,8 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 )
 
-// golden byte fixtures captured from the go-core-based code (master, pre-port, see
-// docs/plans/20260807-dep-slimming-and-create-flags.md Task 3), pinned here so Link.MarshalJSON's
+// golden byte fixtures captured from gildas/go-core v0.6.4's JSON marshaling (via a throwaway
+// worktree and temporary capture tests, never committed), pinned here so Link.MarshalJSON's
 // HTTP and ssh/GitRef branches keep producing byte-identical output on the locally-ported
 // common.URL.
 const (

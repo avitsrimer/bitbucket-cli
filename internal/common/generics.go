@@ -4,8 +4,10 @@ import "slices"
 
 // Sort sorts items in place using less as a strict less-than comparator.
 //
-// less(a, b) reporting true means a sorts before b; a and b comparing equal (less(a,b) and
-// less(b,a) both false) is order-preserving, matching slices.SortFunc's stability contract.
+// less(a, b) reporting true means a sorts before b. slices.SortFunc is not a stable sort, so the
+// relative order of two items comparing equal (less(a,b) and less(b,a) both false) is
+// unspecified -- matching go-core's own Sort, which was equally unstable; do not rely on
+// equal-element order, and have less break ties explicitly if a comparator needs one.
 func Sort[S ~[]T, T any](items S, less func(a, b T) bool) {
 	slices.SortFunc(items, func(a, b T) int {
 		if less(a, b) {

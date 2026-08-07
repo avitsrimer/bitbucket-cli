@@ -635,12 +635,21 @@ func (profile Profile) printDelimited(cmd *cobra.Command, payload any, comma run
 	return nil
 }
 
-// printTable prints the given payload to the console as a table
+// printTable prints the given payload to the console as a table. A nil headers (tableableRows'
+// signal for a genuinely empty Tableables) renders only the bare top/bottom rule lines, ignoring
+// rows entirely -- matching upstream tablewriter's own NewWriter().Render() with no SetHeader/
+// Append call ever made, and keeping this renderer's output byte-identical to that pre-local-
+// renderer behavior for the one case where headers can legitimately be nil.
 func (profile Profile) printTable(cmd *cobra.Command, payload any) error {
 	lgr.Printf("[DEBUG] printing payload as table")
 	headers, rows, err := tableableRows(cmd, payload)
 	if err != nil {
 		return err
+	}
+
+	if headers == nil {
+		writeTable(os.Stdout, nil, nil)
+		return nil
 	}
 
 	truncated := make([][]string, len(rows))
@@ -706,11 +715,11 @@ func truncateTableRow(headers, row []string) []string {
 // multi-paragraph value renders as one table line instead of expanding the row across as many
 // lines as it has paragraphs) down to single spaces, then cuts the result to maxTableCellWidth
 // display columns, replacing the final rune with an ellipsis when a cut was needed. Display width
-// (github.com/mattn/go-runewidth, the same measure tablewriter itself uses to size columns), not
-// rune count, is what is compared against the cap: a rune count would still let maxTableCellWidth
-// double-width runes (CJK, most emoji) render at up to twice the cap's actual terminal columns,
-// defeating the "readable regardless of terminal size" goal for exactly the values most likely to
-// need it.
+// (github.com/mattn/go-runewidth, the same measure table.go's local renderer uses to size
+// columns), not rune count, is what is compared against the cap: a rune count would still let
+// maxTableCellWidth double-width runes (CJK, most emoji) render at up to twice the cap's actual
+// terminal columns, defeating the "readable regardless of terminal size" goal for exactly the
+// values most likely to need it.
 func truncateCell(cell string) string {
 	flattened := strings.Join(strings.Fields(cell), " ")
 	if runewidth.StringWidth(flattened) <= maxTableCellWidth {

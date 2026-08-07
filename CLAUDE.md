@@ -35,9 +35,11 @@ plain YAML, 0600. Credentials are stored in the OS vault (macOS Keychain via
 
 `internal/common/cache.go` is a small persistent TTL cache for repository/user/workspace
 lookups, mirrored to disk under `os.UserCacheDir()/bitbucket/<sha256(key)>` as JSON. Default
-TTL is 5 minutes, overridable via `BITBUCKET_CLI_CACHE_DURATION` (a Go duration string). There
-is no encryption (dropped as a simplification: it protected non-sensitive cached metadata while
-the actual OAuth token used a separate, unencrypted mechanism) and no `bb cache clear` command —
+TTL is 5 minutes, overridable via `BITBUCKET_CLI_CACHE_DURATION` (a Go duration string, parsed
+with plain `time.ParseDuration` — the ISO-8601 form (`PT30S`) go-core's env helper used to also
+accept is not supported; an unset, empty, or unparseable value silently falls back to 5 minutes).
+There is no encryption (dropped as a simplification: it protected non-sensitive cached metadata
+while the actual OAuth token used a separate, unencrypted mechanism) and no `bb cache clear` command —
 delete the directory directly to invalidate it.
 
 `Profile` carries five fields (`Progress`, `CloneProtocol`, `CloneUser`, `SshKeyFilename`,
@@ -79,7 +81,15 @@ internal/profile/         # profile CRUD, OAuth2 authorize flow, HTTP client (ne
                            # default redirect policy stripping the Authorization header
                            # on a cross-host redirect, since Bitbucket's downloads
                            # endpoint 302s to a different upload host. Keep both
-                           # properties if you ever touch that file.
+                           # properties if you ever touch that file. table.go is a local
+                           # ASCII-table renderer reproducing kataras/tablewriter's
+                           # NewWriter defaults byte-for-byte (numeric right-align,
+                           # header centering/Title()-casing, multi-line/ragged-row
+                           # rules, runewidth-based widths); table_golden_test.go pins
+                           # that output against bytes captured from the real
+                           # tablewriter before it was dropped -- any change to table.go
+                           # must keep those goldens byte-identical, not just "close
+                           # enough" or "still readable".
 internal/pullrequest/     # pullrequest command tree + shared action helper
   /comment, /task, /common # subcommand packages; /common (prcommon) holds shared getters
                            # (GetPullRequestIDs, PullRequestIDValidArgs), ExistsPullRequest, and
@@ -255,7 +265,10 @@ their error checked in a CLI). `_test.go` files are exempt from `gosec`, `dupl`,
   `profile/token.go`, `pullrequest/task/task.go` — actually use). `gildas/go-core` is no longer a
   dependency; each ported type's byte-for-byte compatibility with the dropped dependency is pinned
   by golden-fixture tests in `internal/common/coretypes_test.go` and alongside each of those four
-  consumers.
+  consumers. `kataras/tablewriter` is also gone the same way, replaced by the local renderer in
+  `internal/profile/table.go` (see Layout). `github.com/mattn/go-runewidth` remains a direct
+  dependency -- table.go calls it to measure display width, the same way `truncateCell` already
+  did -- even though tablewriter, its original reason to appear in the module graph, is gone.
 - Every user-supplied positional (or flag value) that reaches a `repository.Repository.GetPath`
   call — a pull request/comment/task id, a pipeline id, a pipeline step UUID-or-name, a commit
   hash, an artifact name — is validated via `common.ValidatePathIdentifier` before it does:

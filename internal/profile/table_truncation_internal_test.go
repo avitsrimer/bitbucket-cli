@@ -154,7 +154,7 @@ func TestTruncateTableRowCapsParticipants(t *testing.T) {
 // TestPrintTableTruncatesLongCellAndCapsEveryRenderedLine proves a table cell built from a
 // 5000-character description does not blow the rendered table out to an unreadable width: it
 // must be ellipsized, and no line printTable renders may exceed a bounded width (the cap itself
-// plus tablewriter's own border/padding overhead). It also proves an equally long id (not a
+// plus the table renderer's own border/padding overhead). It also proves an equally long id (not a
 // free-text column) is rendered in full: the field report's own complaint was that #33's cap
 // ellipsized identifiers a later command needs verbatim (an artifact Name, a step Image).
 func TestPrintTableTruncatesLongCellAndCapsEveryRenderedLine(t *testing.T) {

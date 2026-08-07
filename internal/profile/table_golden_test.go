@@ -12,10 +12,10 @@ import (
 )
 
 // The golden constants below were captured verbatim from printTable running against
-// kataras/tablewriter on pre-change master (commit 5cbbf79), before it was replaced by the local
-// renderer in table.go, using a throwaway capture harness (never committed) driving the exact
-// same fixtures defined in the test table below. Any byte difference from these constants is a
-// behavior regression in writeTable, not an acceptable rendering variation.
+// kataras/tablewriter (commit 5cbbf79's implementation) using a throwaway capture harness (never
+// committed) driving the exact same fixtures defined in the test table below. Any byte
+// difference from these constants is a behavior regression in writeTable, not an acceptable
+// rendering variation.
 const (
 	goldenNumericOnlyColumn = `+------+
 |  ID  |
@@ -92,6 +92,8 @@ const (
 +----+------+
 +----+------+
 `
+	goldenNilHeaders                = "+\n+\n"
+	goldenMultilineRowFillerLiteral = "+----+---+\n| ID | X |\n+----+---+\n|  1 |   |\n|  2 |    |\n+----+---+\n"
 )
 
 // goldenFixture is a minimal common.Tableables the test fully controls: headers and rows are
@@ -113,7 +115,7 @@ func (f goldenFixture) GetRowAt(index int, _ []string) []string {
 // TestPrintTableGoldenMatrix drives printTable end to end (through tableableRows and
 // truncateTableRow, exactly as the real `bb ... -o table` path does) against a fixed matrix
 // covering every pinned tablewriter default behavior, and asserts byte-for-byte equality with
-// output captured from the pre-change, kataras/tablewriter-based implementation.
+// the golden constants captured from kataras/tablewriter above.
 func TestPrintTableGoldenMatrix(t *testing.T) {
 	cmd := &cobra.Command{Use: "test"}
 	cmd.SetContext(context.Background())
@@ -199,14 +201,55 @@ func TestPrintTableGoldenMatrix(t *testing.T) {
 // tableableRows() never reaches through the real Tableables path (see tableableRows' doc
 // comment: a genuinely empty Tableables never calls GetHeaders, so headers stays nil): headers
 // set, but not a single row ever appended. It drives writeTable directly with the same headers
-// and zero rows -- the shape printTable would produce were that guard ever relaxed, and the shape
-// writeTable itself must handle correctly since printTable no longer special-cases nil headers.
+// and zero rows -- the shape printTable would produce were headers non-nil but rows empty, and
+// the shape writeTable itself must handle correctly regardless of how printTable's own
+// headers-nil guard (see TestPrintTableGoldenNilHeadersIgnoresRows) is reached.
 func TestPrintTableGoldenZeroRowsWithHeaders(t *testing.T) {
 	got := captureStdout(t, func() {
 		writeTable(os.Stdout, []string{"id", "name"}, nil)
 	})
 	if got != goldenZeroRowsWithHeaders {
 		t.Errorf("writeTable() output =\n%s\nwant:\n%s", got, goldenZeroRowsWithHeaders)
+	}
+}
+
+// TestPrintTableGoldenNilHeadersIgnoresRows pins printTable's headers-nil guard: when headers
+// comes back nil, printTable renders only the bare top/bottom rule lines and discards rows
+// entirely, matching upstream tablewriter's NewWriter().Render() with no SetHeader/Append call
+// ever made. GetHeaders returning nil while Size() > 0 cannot happen through any --columns flag
+// today (EnumSliceFlag.Set rejects an empty value), so this drives it directly through a fixture
+// whose GetHeaders always returns nil despite non-empty rows, proving those rows are discarded
+// rather than rendered without a header.
+func TestPrintTableGoldenNilHeadersIgnoresRows(t *testing.T) {
+	cmd := &cobra.Command{Use: "test"}
+	cmd.SetContext(context.Background())
+
+	fixture := goldenFixture{headers: nil, rows: [][]string{{"1", "should never render"}}}
+	got := captureStdout(t, func() {
+		if err := (Profile{}).printTable(cmd, fixture); err != nil {
+			t.Fatalf("printTable() error = %v", err)
+		}
+	})
+	if got != goldenNilHeaders {
+		t.Errorf("printTable() output =\n%s\nwant:\n%s", got, goldenNilHeaders)
+	}
+}
+
+// TestWriteTableMultilineRowFillerUsesLiteralTwoSpaces pins upstream tablewriter's own printRow
+// padding behavior: a row cell shorter than its row's tallest cell is padded out with the two
+// literal space characters "  ", not an empty string, before that filler line is aligned to the
+// column's width. For a column narrower than two display columns (unreachable with any header
+// this codebase ships -- see TestNoHeaderExceedsWrapWidth -- but well within writeTable's own
+// contract), the literal's own two-column width wins over the narrower target width, producing a
+// filler line one column wider than every other line in that column. writeTable reproduces this
+// byte-for-byte per this cycle's compatibility contract even though it never surfaces in
+// production output.
+func TestWriteTableMultilineRowFillerUsesLiteralTwoSpaces(t *testing.T) {
+	got := captureStdout(t, func() {
+		writeTable(os.Stdout, []string{"id", "x"}, [][]string{{"1\n2", ""}})
+	})
+	if got != goldenMultilineRowFillerLiteral {
+		t.Errorf("writeTable() output =\n%s\nwant:\n%s", got, goldenMultilineRowFillerLiteral)
 	}
 }
 

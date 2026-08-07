@@ -28,7 +28,8 @@ func (u URL) MarshalJSON() ([]byte, error) {
 	return data, nil
 }
 
-// UnmarshalJSON implements json.Unmarshaler. An empty string leaves u at its zero value.
+// UnmarshalJSON implements json.Unmarshaler. An empty string returns nil without writing to u
+// at all, leaving the receiver exactly as it was before the call -- not reset to its zero value.
 func (u *URL) UnmarshalJSON(payload []byte) error {
 	var inner string
 	if err := json.Unmarshal(payload, &inner); err != nil {

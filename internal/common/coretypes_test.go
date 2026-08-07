@@ -9,9 +9,9 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 )
 
-// golden byte fixtures captured from the go-core-based code (master, pre-port), pinned here so
-// a swap to the locally-ported types cannot silently change wire behavior. See
-// docs/plans/20260807-dep-slimming-and-create-flags.md Task 3 for the capture procedure.
+// golden byte fixtures captured from gildas/go-core v0.6.4's JSON marshaling (via a throwaway
+// worktree and temporary capture tests, never committed), pinned here so the locally-ported
+// URL/Time/Timestamp types cannot silently change wire behavior.
 const (
 	goldenTimeRFC3339      = "2026-01-02T03:04:05Z"
 	goldenTimestampEpochMS = int64(1767225600000) // 2026-01-01T00:00:00Z in ms
@@ -174,13 +174,13 @@ func TestURLMarshalJSONZeroValue(t *testing.T) {
 	}
 }
 
-func TestURLUnmarshalJSONEmptyStringLeavesZero(t *testing.T) {
+func TestURLUnmarshalJSONEmptyStringLeavesReceiverUntouched(t *testing.T) {
 	got := common.URL(*mustParseURL(t, goldenURLPopulated))
 	if err := json.Unmarshal([]byte(`""`), &got); err != nil {
 		t.Fatal(err)
 	}
-	// go-core's UnmarshalJSON returns nil on an empty string without touching *u: it leaves the
-	// receiver exactly as it was before the call, not reset to zero.
+	// UnmarshalJSON returns nil on an empty string without writing to the receiver at all: a
+	// populated receiver stays populated, it is not reset to the zero value.
 	asURL := got.AsURL()
 	if got := asURL.String(); got != goldenURLPopulated {
 		t.Errorf("UnmarshalJSON(\"\") mutated the receiver: got %s, want unchanged %s", got, goldenURLPopulated)

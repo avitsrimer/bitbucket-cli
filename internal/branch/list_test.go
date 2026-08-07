@@ -188,7 +188,7 @@ func TestListProcessRendersTableOutput(t *testing.T) {
 		t.Errorf("table output = %q, want it to contain the branch name", stdout)
 	}
 	if !strings.Contains(stdout, "+--") {
-		t.Errorf("table output = %q, want tablewriter's box-drawing border", stdout)
+		t.Errorf("table output = %q, want the table renderer's box-drawing border", stdout)
 	}
 	var probe any
 	if err := json.Unmarshal([]byte(stdout), &probe); err == nil {
