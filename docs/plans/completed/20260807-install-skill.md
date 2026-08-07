@@ -217,9 +217,14 @@ covering (a) skill-content accuracy against the source (Use/Args/flags — accur
 correctness property here) and (b) the install command's Go code. Fixer + critical
 re-check only if findings warrant; loop until the re-check is clean.
 
-- [ ] review pass (skill-content accuracy + Go correctness/tests); findings logged
-- [ ] fixer PR(s) for confirmed findings if any, full gate each; re-check until clean
-- [ ] log the outcome
+- [x] review pass (skill-content accuracy + Go correctness/tests); findings logged —
+      one comprehensive 3-agent pass, 25 findings, fixer PR #60
+- [x] fixer PR(s) for confirmed findings if any, full gate each; re-check until clean —
+      four critical re-check rounds (fixer PRs #61, #62, #63, #64); last two rounds
+      fixed README-lockstep drift and one behavior fix (implicit default-reviewer
+      lookup failures now follow the error-tolerance matrix)
+- [x] log the outcome — closing verification: zero critical/major findings,
+      SKILL.md and README consistent, HEAD cc4de9d green
 
 ## Post-Completion
 
