@@ -106,8 +106,8 @@ func TestDiffProcessDryRun(t *testing.T) {
 	}
 }
 
-// TestDiffProcessRejectsInvalidHash proves each <commit-hash> is validated via
-// common.ValidatePathIdentifier before any request is sent -- guarding against `bb commit diff
+// TestDiffProcessRejectsInvalidHash proves each <commit-hash-or-ref> is validated via
+// common.ValidatePathRef before any request is sent -- guarding against `bb commit diff
 // ../../.. aaaaaaa` splicing an extra path segment into repo.GetPath("diff", spec).
 func TestDiffProcessRejectsInvalidHash(t *testing.T) {
 	tests := []struct {
@@ -117,6 +117,8 @@ func TestDiffProcessRejectsInvalidHash(t *testing.T) {
 		{"first hash invalid", []string{"../../..", "aaaaaaa"}},
 		{"second hash invalid", []string{"aaaaaaa", "../../.."}},
 		{"single hash invalid", []string{"../.."}},
+		{"dotdot segment inside a ref", []string{"a/../b", "aaaaaaa"}},
+		{"empty segment inside a ref", []string{"a//b", "aaaaaaa"}},
 	}
 
 	for _, tt := range tests {
@@ -135,5 +137,26 @@ func TestDiffProcessRejectsInvalidHash(t *testing.T) {
 				t.Errorf("expected no HTTP request for an invalid hash, got %d", requestCount)
 			}
 		})
+	}
+}
+
+// TestDiffProcessAcceptsSlashSeparatedRef proves a branch/tag ref containing '/' (e.g.
+// "release/1.0") is accepted, not just a bare commit hash -- Bitbucket's /diff/{spec} endpoint
+// accepts refs.
+func TestDiffProcessAcceptsSlashSeparatedRef(t *testing.T) {
+	var requests []*http.Request
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte("diff"))
+	}, false)
+
+	if err := diffProcess(cmd, []string{"release/1.0", "main"}); err != nil {
+		t.Fatalf("diffProcess() error = %v, want nil (slash-separated refs must be accepted)", err)
+	}
+
+	wantPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/diff/release/1.0..main"
+	if requests[0].URL.Path != wantPath {
+		t.Errorf("path = %s, want %s", requests[0].URL.Path, wantPath)
 	}
 }

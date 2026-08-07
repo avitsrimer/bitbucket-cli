@@ -39,3 +39,37 @@ func TestValidatePathIdentifier(t *testing.T) {
 		})
 	}
 }
+
+func TestValidatePathRef(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		wantErr bool
+	}{
+		{name: "bare hash", value: "aaaaaaa", wantErr: false},
+		{name: "single-segment ref", value: "main", wantErr: false},
+		{name: "two-segment ref", value: "release/1.0", wantErr: false},
+		{name: "three-segment ref", value: "feature/a/b", wantErr: false},
+		{name: "empty", value: "", wantErr: true},
+		{name: "dot", value: ".", wantErr: true},
+		{name: "dotdot", value: "..", wantErr: true},
+		{name: "double slash empty segment", value: "a//b", wantErr: true},
+		{name: "dotdot segment mid-ref", value: "a/../b", wantErr: true},
+		{name: "trailing slash", value: "a/", wantErr: true},
+		{name: "percent-encoded slash segment", value: "%2f", wantErr: true},
+		{name: "percent-encoded slash within segment", value: "a/%2f/b", wantErr: true},
+		{name: "backslash segment", value: `a\b`, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidatePathRef("argument", tt.value)
+			if tt.wantErr && err == nil {
+				t.Errorf("ValidatePathRef(%q) = nil, want an error", tt.value)
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("ValidatePathRef(%q) = %v, want nil", tt.value, err)
+			}
+		})
+	}
+}

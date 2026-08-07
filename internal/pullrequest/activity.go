@@ -1,7 +1,6 @@
 package pullrequest
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -335,27 +334,27 @@ func (activity *Activity) UnmarshalJSON(data []byte) (err error) {
 }
 
 // unrecognizedActivityVariant looks for a top-level JSON key on an activity entry that
-// activityKnownVariants does not recognize AND whose value is itself a JSON object -- every
-// documented variant payload (approval, changes_requested, comment, update) is an object, never a
-// scalar or array, so this keeps an incidental non-object field (an id, a links block, ...)
-// BitBucket might add alongside a genuine variant from ever being mistaken for one. Returns the
-// key (and true) when found. Multiple qualifying keys on one entry cannot happen for a real
-// BitBucket response (an entry carries exactly one variant besides "pull_request"), but if it did,
-// the lexicographically first key is returned for deterministic behavior. data is assumed to
-// already be valid JSON: the caller's own json.Unmarshal into surrogate Activity already succeeded
-// on these same bytes before this is ever called, so the re-unmarshal below cannot fail.
+// activityKnownVariants does not recognize, regardless of the shape of its value -- a future
+// activity kind BitBucket adds could just as easily serialize as an array or a scalar as an
+// object, and tolerating only the object-shaped case would still blind the whole feed on those,
+// exactly the failure mode this exists to prevent. Returns the key (and true) when found; an
+// entry carrying no key besides "pull_request" reports not found, which is what makes decoding
+// still error for a genuinely malformed activity. Multiple qualifying keys on one entry cannot
+// happen for a real BitBucket response (an entry carries exactly one variant besides
+// "pull_request"), but if it did, the lexicographically first key is returned for deterministic
+// behavior. data is assumed to already be valid JSON: the caller's own json.Unmarshal into
+// surrogate Activity already succeeded on these same bytes before this is ever called, so the
+// re-unmarshal below cannot fail.
 func unrecognizedActivityVariant(data []byte) (variant string, found bool) {
 	var raw map[string]json.RawMessage
 	_ = json.Unmarshal(data, &raw)
 
 	var unrecognized []string
-	for key, value := range raw {
+	for key := range raw {
 		if _, known := activityKnownVariants[key]; known {
 			continue
 		}
-		if trimmed := bytes.TrimSpace(value); len(trimmed) > 0 && trimmed[0] == '{' {
-			unrecognized = append(unrecognized, key)
-		}
+		unrecognized = append(unrecognized, key)
 	}
 	if len(unrecognized) == 0 {
 		return "", false

@@ -34,3 +34,27 @@ func ValidatePathIdentifier(name, value string) error {
 	}
 	return nil
 }
+
+// ValidatePathRef validates value as a slash-separated ref (a git branch or tag name, as accepted
+// by e.g. Bitbucket's diff/patch endpoints alongside a bare commit hash) by applying
+// ValidatePathIdentifier's rules to each '/'-delimited segment individually: every segment must be
+// present, must not be "." or "..", and must not contain a literal or percent-encoded path
+// separator. A single-segment value (no "/" at all) is validated exactly as
+// ValidatePathIdentifier would, preserving its error messages for that common case (a bare commit
+// hash). This keeps path traversal impossible -- no segment can smuggle in ".." for GetPath's
+// underlying path.Join to collapse -- while still accepting a multi-segment ref like "release/1.0"
+// or "feature/a/b", which ValidatePathIdentifier's single-segment contract rejects outright by
+// disallowing "/" entirely. Call this instead of ValidatePathIdentifier at any call site where the
+// argument may legitimately be a ref, not just a bare identifier.
+func ValidatePathRef(name, value string) error {
+	segments := strings.Split(value, "/")
+	if len(segments) == 1 {
+		return ValidatePathIdentifier(name, value)
+	}
+	for _, segment := range segments {
+		if err := ValidatePathIdentifier(name, segment); err != nil {
+			return fmt.Errorf("argument %s is invalid (value: %s)", name, value)
+		}
+	}
+	return nil
+}

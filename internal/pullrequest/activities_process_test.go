@@ -147,28 +147,98 @@ func TestActivitiesProcessLimitAppliesAfterFilteringUnknownKinds(t *testing.T) {
 	}
 }
 
-// TestUnrecognizedActivityVariantIgnoresNonObjectKeys proves an incidental non-object top-level
-// key (e.g. a scalar "id" BitBucket might add alongside a genuine variant) is never mistaken for
-// the unknown variant itself: only a key whose value is a JSON object qualifies.
-func TestUnrecognizedActivityVariantIgnoresNonObjectKeys(t *testing.T) {
+// TestUnrecognizedActivityVariantPicksLexicographicallyFirstUnrecognizedKey proves that when an
+// entry carries multiple unrecognized keys of mixed shapes (object and scalar), the
+// lexicographically first one wins, regardless of shape -- shape no longer filters candidacy.
+func TestUnrecognizedActivityVariantPicksLexicographicallyFirstUnrecognizedKey(t *testing.T) {
 	data := []byte(`{"pull_request":{"id":1650},"id":999,"some_future_activity_kind":{"date":"2026-08-01T00:00:00+00:00"}}`)
 
 	variant, found := unrecognizedActivityVariant(data)
 	if !found {
 		t.Fatal("unrecognizedActivityVariant() found = false, want true")
 	}
-	if variant != "some_future_activity_kind" {
-		t.Errorf("unrecognizedActivityVariant() = %q, want %q (not the scalar \"id\" key)", variant, "some_future_activity_kind")
+	if variant != "id" {
+		t.Errorf("unrecognizedActivityVariant() = %q, want %q (lexicographically first unrecognized key, scalar or not)", variant, "id")
 	}
 }
 
-// TestUnrecognizedActivityVariantNoObjectShapedKeys proves an entry whose only non-known keys are
-// all non-object (so none of them can be a genuine variant payload) reports not found.
-func TestUnrecognizedActivityVariantNoObjectShapedKeys(t *testing.T) {
-	data := []byte(`{"pull_request":{"id":1650},"id":999,"note":"just some scalar metadata"}`)
+// TestUnrecognizedActivityVariantNoKeyBesidesPullRequest proves an entry carrying no key besides
+// "pull_request" reports not found -- this is the genuinely malformed case that must still error,
+// per the read-paths-tolerate-unrecognized-VALUES-not-missing-content rule.
+func TestUnrecognizedActivityVariantNoKeyBesidesPullRequest(t *testing.T) {
+	data := []byte(`{"pull_request":{"id":1650}}`)
 
 	_, found := unrecognizedActivityVariant(data)
 	if found {
-		t.Error("unrecognizedActivityVariant() found = true, want false (no object-shaped unrecognized key)")
+		t.Error("unrecognizedActivityVariant() found = true, want false (no key besides pull_request)")
+	}
+}
+
+// TestUnrecognizedActivityVariantAcceptsArrayValuedVariant proves an unrecognized top-level key
+// whose value is a JSON array is tolerated, not just object-shaped ones -- reproduces the
+// review-iter-6 finding that a future activity kind serialized as an array made decoding of the
+// whole entry (and therefore the whole page) fail.
+func TestUnrecognizedActivityVariantAcceptsArrayValuedVariant(t *testing.T) {
+	data := []byte(`{"pull_request":{"id":1650},"reviewers_changed":[]}`)
+
+	variant, found := unrecognizedActivityVariant(data)
+	if !found {
+		t.Fatal("unrecognizedActivityVariant() found = false, want true (array-valued unknown variant)")
+	}
+	if variant != "reviewers_changed" {
+		t.Errorf("unrecognizedActivityVariant() = %q, want %q", variant, "reviewers_changed")
+	}
+}
+
+// TestUnrecognizedActivityVariantAcceptsScalarValuedVariant proves an unrecognized top-level key
+// whose value is a JSON scalar is tolerated, not just object-shaped ones.
+func TestUnrecognizedActivityVariantAcceptsScalarValuedVariant(t *testing.T) {
+	data := []byte(`{"pull_request":{"id":1650},"some_scalar_kind":"just a string"}`)
+
+	variant, found := unrecognizedActivityVariant(data)
+	if !found {
+		t.Fatal("unrecognizedActivityVariant() found = false, want true (scalar-valued unknown variant)")
+	}
+	if variant != "some_scalar_kind" {
+		t.Errorf("unrecognizedActivityVariant() = %q, want %q", variant, "some_scalar_kind")
+	}
+}
+
+// TestActivitiesProcessToleratesArrayAndScalarUnknownVariants is the RunE-level regression test
+// for review-iter-6 finding #1: before the fix, an activity feed containing an unknown variant
+// serialized as an array or a scalar still made json.Unmarshal fail on that entry (and therefore
+// the whole page, decoded in a single json.Unmarshal call by profile.GetAll), defeating FR-5's
+// "never blind the feed" guarantee. After the fix, the page must still decode, the known entry
+// must render, and the array/scalar-valued unknown entries must be skipped, not printed.
+func TestActivitiesProcessToleratesArrayAndScalarUnknownVariants(t *testing.T) {
+	const fixture = `{"values":[
+		{"pull_request":{"id":1650},"approval":{"date":"2026-08-01T00:00:00+00:00","user":{"display_name":"A"}}},
+		{"pull_request":{"id":1650},"reviewers_changed":[]},
+		{"pull_request":{"id":1650},"some_scalar_kind":"just a string"}
+	],"next":""}`
+
+	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(fixture))
+	}, false)
+
+	if _, err := profile.GetProfileFromCommand(cmd.Context(), cmd); err != nil {
+		t.Fatalf("cannot warm up profile resolution: %v", err)
+	}
+
+	var runErr error
+	stdout := testutil.CaptureStdout(t, func() {
+		runErr = activitiesProcess(cmd, []string{"1650"})
+	})
+	if runErr != nil {
+		t.Fatalf("activitiesProcess() error = %v, want nil (array/scalar-valued unknown variants must not fail the whole page)", runErr)
+	}
+
+	var activities []Activity
+	if err := json.Unmarshal([]byte(stdout), &activities); err != nil {
+		t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
+	}
+	if len(activities) != 1 {
+		t.Fatalf("printed %d activities, want 1 (the array/scalar-valued unknown-kind entries must be skipped, not printed)", len(activities))
 	}
 }
