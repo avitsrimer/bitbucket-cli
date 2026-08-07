@@ -44,20 +44,8 @@ func diffValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]stri
 }
 
 func diffProcess(cmd *cobra.Command, args []string) error {
-	// Each hash/ref is validated on its own, before being joined with the literal ".." separator
-	// below: repo.GetPath("diff", spec) is a bare path.Join with no escaping, so an unvalidated
-	// hash/ref could splice extra path segments into the request. ValidatePathRef accepts a
-	// multi-segment branch/tag ref (e.g. "release/1.0") in addition to a bare hash, validating each
-	// '/'-delimited segment so no segment can be ".." for path.Join to collapse. The joined spec
-	// itself legitimately contains ".." (BitBucket's own two-commit diff syntax), so ValidatePathRef
-	// is never called on spec, only on each hash/ref that goes into it. Verified live against
-	// Bitbucket's public API: GET /repositories/{workspace}/{repo_slug}/diff/{spec} returns the
-	// expected diff for a spec built from a multi-segment branch name, raw slash and all -- unlike
-	// GET .../commit/{revision} (see commit/get.go's own comment), which 404s on the same input.
-	for _, hash := range args {
-		if err := common.ValidatePathRef("commit-hash", hash); err != nil {
-			return fmt.Errorf("cannot get diff: %w", err)
-		}
+	if err := validateCommitRefs("diff", args); err != nil {
+		return err
 	}
 
 	spec := args[0]

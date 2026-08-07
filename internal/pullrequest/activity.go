@@ -248,19 +248,9 @@ func (activity Activity) GetRow(headers []string) []string {
 		case "user":
 			row = append(row, summary.actor.Name)
 		case "destination":
-			row = append(row, activity.updateField(func(update *ActivityUpdate) string {
-				if update.Destination.Repository == nil {
-					return common.EmptyCell
-				}
-				return update.Destination.Repository.Name
-			}))
+			row = append(row, emptyCellIfBlank(summary.destination))
 		case "source":
-			row = append(row, activity.updateField(func(update *ActivityUpdate) string {
-				if update.Source.Repository == nil {
-					return common.EmptyCell
-				}
-				return update.Source.Repository.Name
-			}))
+			row = append(row, emptyCellIfBlank(summary.source))
 		case "created_on", "created":
 			row = append(row, activity.updateField(func(update *ActivityUpdate) string { return common.TimeCell(update.CreatedOn) }))
 		case "updated_on", "updated":
@@ -270,6 +260,17 @@ func (activity Activity) GetRow(headers []string) []string {
 		}
 	}
 	return row
+}
+
+// emptyCellIfBlank maps an activitySummary field's zero value ("") to common.EmptyCell: a
+// non-Update activity variant and an Update whose destination/source endpoint carries no
+// repository (see summarize/endpointRepositoryName) both resolve to that same zero value, and
+// GetRow renders either case as common.EmptyCell rather than a literal empty string.
+func emptyCellIfBlank(value string) string {
+	if value == "" {
+		return common.EmptyCell
+	}
+	return value
 }
 
 // updateField returns common.EmptyCell when activity has no Update, otherwise the value returned
@@ -346,7 +347,7 @@ func (activity *Activity) UnmarshalJSON(data []byte) (err error) {
 	case decodeActivityVariant(activity, raw, "comment", &activity.Comment):
 	case decodeActivityVariant(activity, raw, "update", &activity.Update):
 	default:
-		variant, isUnrecognizedVariant := unrecognizedActivityVariant(data)
+		variant, isUnrecognizedVariant := unrecognizedActivityVariant(raw)
 		if !isUnrecognizedVariant {
 			return errors.New("cannot unmarshal activity: argument approval, changes_requested, comment, or update is missing")
 		}
@@ -392,13 +393,10 @@ func decodeActivityVariant[T any](activity *Activity, raw map[string]json.RawMes
 // metadata on the same entry (e.g. {"pull_request":…,"id":7,"some_new_kind":{...}}) is far more
 // likely to be the object-valued candidate than the scalar one -- reporting "id" there instead of
 // "some_new_kind" would name the wrong key in the resulting [WARN]. Ties within the same shape
-// class are broken lexicographically for deterministic behavior. data is assumed to already be
-// valid JSON: the caller's own json.Unmarshal into map[string]json.RawMessage already succeeded on
-// these same bytes before this is ever called, so the re-unmarshal below cannot fail.
-func unrecognizedActivityVariant(data []byte) (variant string, found bool) {
-	var raw map[string]json.RawMessage
-	_ = json.Unmarshal(data, &raw)
-
+// class are broken lexicographically for deterministic behavior. raw is the same
+// map[string]json.RawMessage the caller's own UnmarshalJSON already decoded data into -- this
+// never re-parses the entry's bytes.
+func unrecognizedActivityVariant(raw map[string]json.RawMessage) (variant string, found bool) {
 	var unrecognized []string
 	var unrecognizedObjects []string
 	for key, value := range raw {

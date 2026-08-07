@@ -38,7 +38,9 @@ func listProcess(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("cannot list comments: %w", validateErr)
 	}
 
-	repository, err := repository.GetRepository(cmd.Context(), cmd)
+	ctx := cmd.Context()
+
+	repository, err := repository.GetRepository(ctx, cmd)
 	if err != nil {
 		return fmt.Errorf("cannot get repository: %w", err)
 	}
@@ -54,7 +56,7 @@ func listProcess(cmd *cobra.Command, args []string) (err error) {
 		return nil
 	}
 
-	comments, err := profile.GetAll[Comment](cmd.Context(), cmd, uripath)
+	comments, err := profile.GetAll[Comment](ctx, cmd, uripath)
 	if err != nil {
 		return err
 	}
@@ -66,7 +68,7 @@ func listProcess(cmd *cobra.Command, args []string) (err error) {
 		core.Sort(comments, columns.SortBy(sortValue))
 	}
 	if err := profile.Current.Print(
-		cmd.Context(),
+		ctx,
 		cmd,
 		Comments(core.Filter(comments, func(comment Comment) bool {
 			return comment.Content.Raw != ""

@@ -61,7 +61,7 @@ func ValidatePathRef(name, value string) error {
 	}
 	for _, segment := range segments {
 		if err := ValidatePathIdentifier(name, segment); err != nil {
-			return fmt.Errorf("argument %s is invalid (value: %s)", name, value)
+			return fmt.Errorf("argument %s is invalid (value: %s): %w", name, value, err)
 		}
 	}
 	return nil

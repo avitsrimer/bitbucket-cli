@@ -17,8 +17,8 @@ import (
 // request, up to and including a different resource entirely). A validated id is then GETed at
 // that same path to confirm the sub-resource exists (this also validates the parent pullrequest's
 // existence too), before the DELETE itself is gated on
-// common.WhatIf. Every per-item failure (invalid id, missing sub-resource, or a failed delete) is
-// tolerated according to the profile's error tolerance (see common.TolerateErrors).
+// common.WhatIfPayload. Every per-item failure (invalid id, missing sub-resource, or a failed
+// delete) is tolerated according to the profile's error tolerance (see common.TolerateErrors).
 // singularNoun/pluralNoun describe the resource in lowercase (e.g. "comment"/"comments",
 // "task"/"tasks") for the WhatIf prompt, the debug log, and the aggregate tolerance message.
 func DeleteSubResources(cmd *cobra.Command, repo *repository.Repository, pullrequestID, pathSegment string, ids []string, singularNoun, pluralNoun string) error {
@@ -31,20 +31,21 @@ func DeleteSubResources(cmd *cobra.Command, repo *repository.Repository, pullreq
 	// recordOrStop wraps err with singularNoun/id -- on its own (e.g. a bare "404 Not Found") err
 	// names neither which id failed nor which kind of sub-resource it was, which is what lets
 	// --warn-on-error's aggregate message (and a --stop-on-error abort) actually say which of
-	// possibly several ids in this call failed -- then either returns a stop-worthy error (caller
-	// must return it immediately) or records it and reports the loop should continue to the next id.
-	recordOrStop := func(id string, err error) (stopErr error, shouldContinue bool) {
+	// possibly several ids in this call failed. It returns a non-nil, stop-worthy error the
+	// caller must return immediately under --stop-on-error, or nil after recording the wrapped
+	// error and letting the loop continue to the next id.
+	recordOrStop := func(id string, err error) error {
 		wrapped := fmt.Errorf("%s %s: %w", singularNoun, id, err)
 		if currentProfile.ShouldStopOnError(cmd) {
-			return fmt.Errorf("failed to delete pullrequest %w", wrapped), false
+			return fmt.Errorf("failed to delete pullrequest %w", wrapped)
 		}
 		errs = append(errs, wrapped)
-		return nil, true
+		return nil
 	}
 
 	for _, id := range ids {
 		if err := common.ValidatePathIdentifier(singularNoun+"-id", id); err != nil {
-			if stopErr, shouldContinue := recordOrStop(id, err); !shouldContinue {
+			if stopErr := recordOrStop(id, err); stopErr != nil {
 				return stopErr
 			}
 			continue
@@ -52,7 +53,7 @@ func DeleteSubResources(cmd *cobra.Command, repo *repository.Repository, pullreq
 
 		uripath := repo.GetPath("pullrequests", pullrequestID, pathSegment, id)
 		if err := currentProfile.Get(cmd.Context(), uripath, nil); err != nil {
-			if stopErr, shouldContinue := recordOrStop(id, err); !shouldContinue {
+			if stopErr := recordOrStop(id, err); stopErr != nil {
 				return stopErr
 			}
 			continue
@@ -61,7 +62,7 @@ func DeleteSubResources(cmd *cobra.Command, repo *repository.Repository, pullreq
 			continue
 		}
 		if err := currentProfile.Delete(cmd.Context(), uripath, nil); err != nil {
-			if stopErr, shouldContinue := recordOrStop(id, err); !shouldContinue {
+			if stopErr := recordOrStop(id, err); stopErr != nil {
 				return stopErr
 			}
 			continue

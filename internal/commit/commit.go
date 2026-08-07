@@ -38,6 +38,28 @@ var Command = &cobra.Command{
 	Run:   common.SubcommandRequired("Commit"),
 }
 
+// validateCommitRefs validates each of args as a diff/patch spec ref, before any of them are
+// joined with the literal ".." separator into a spec: repo.GetPath("diff"/"patch", spec) is a
+// bare path.Join with no escaping, so an unvalidated hash/ref could splice extra path segments
+// into the request. ValidatePathRef accepts a multi-segment branch/tag ref (e.g. "release/1.0")
+// in addition to a bare hash, validating each '/'-delimited segment so no segment can be ".." for
+// path.Join to collapse. The joined spec itself legitimately contains ".." (BitBucket's own
+// two-commit diff/patch syntax), so ValidatePathRef is never called on the joined spec, only on
+// each hash/ref that goes into it. The argument name "commit-hash-or-ref" matches diff/patch's own
+// <commit-hash-or-ref> Use string (unlike commit get's single, hash-only positional). Verified
+// live against Bitbucket's public API: GET /repositories/{workspace}/{repo_slug}/diff|patch/{spec}
+// returns the expected diff/patch for a spec built from a multi-segment branch name, raw slash and
+// all -- unlike GET .../commit/{revision} (see commit/get.go's own comment), which 404s on the
+// same input. noun ("diff" or "patch") names the operation in the wrapped error.
+func validateCommitRefs(noun string, args []string) error {
+	for _, hash := range args {
+		if err := common.ValidatePathRef("commit-hash-or-ref", hash); err != nil {
+			return fmt.Errorf("cannot get %s: %w", noun, err)
+		}
+	}
+	return nil
+}
+
 // shortHashLength is the number of characters a short hash is truncated to.
 const shortHashLength = 7
 

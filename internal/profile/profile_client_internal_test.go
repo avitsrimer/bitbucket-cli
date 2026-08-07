@@ -19,13 +19,13 @@ import (
 )
 
 // These tests live in package profile (not profile_test) specifically to reach
-// resolvePageLengthAndLimit, basicAuthorization, and sendOAuthTokenRequest, none of which are
-// exported: profile_client_test.go's external package cannot call them directly.
-// TestNextPageURL exercises the now-exported NextPageURL; it stays in this file for proximity to
+// basicAuthorization and sendOAuthTokenRequest, neither of which is exported:
+// profile_client_test.go's external package cannot call them directly.
+// TestNextPageURL exercises the exported NextPageURL; it stays in this file for proximity to
 // TestResolvePageLengthAndLimit, which it is always used alongside.
 
 func TestResolvePageLengthAndLimit(t *testing.T) {
-	// resolvePageLengthAndLimit reads --page-length/--limit as ints via cmd.Flags().GetInt.
+	// ResolvePageLengthAndLimit reads --page-length/--limit as ints via cmd.Flags().GetInt.
 	newIntCmd := func(pageLength, limit int, pageLengthSet, limitSet bool) *cobra.Command {
 		cmd := &cobra.Command{}
 		cmd.Flags().Int("page-length", 0, "")
@@ -41,7 +41,7 @@ func TestResolvePageLengthAndLimit(t *testing.T) {
 
 	t.Run("uses the default page length when nothing is set", func(t *testing.T) {
 		cmd := newIntCmd(0, 0, false, false)
-		pageLength, limit := resolvePageLengthAndLimit(cmd, 50, true)
+		pageLength, limit := ResolvePageLengthAndLimit(cmd, 50, true)
 		if pageLength != 50 || limit != 0 {
 			t.Errorf("pageLength, limit = %d, %d, want 50, 0", pageLength, limit)
 		}
@@ -49,7 +49,7 @@ func TestResolvePageLengthAndLimit(t *testing.T) {
 
 	t.Run("uses the page-length flag when set", func(t *testing.T) {
 		cmd := newIntCmd(10, 0, true, false)
-		pageLength, limit := resolvePageLengthAndLimit(cmd, 50, true)
+		pageLength, limit := ResolvePageLengthAndLimit(cmd, 50, true)
 		if pageLength != 10 || limit != 0 {
 			t.Errorf("pageLength, limit = %d, %d, want 10, 0", pageLength, limit)
 		}
@@ -57,7 +57,7 @@ func TestResolvePageLengthAndLimit(t *testing.T) {
 
 	t.Run("shrinks page length to limit when limit is smaller", func(t *testing.T) {
 		cmd := newIntCmd(0, 3, false, true)
-		pageLength, limit := resolvePageLengthAndLimit(cmd, 50, true)
+		pageLength, limit := ResolvePageLengthAndLimit(cmd, 50, true)
 		if pageLength != 3 || limit != 3 {
 			t.Errorf("pageLength, limit = %d, %d, want 3, 3", pageLength, limit)
 		}
@@ -65,14 +65,14 @@ func TestResolvePageLengthAndLimit(t *testing.T) {
 
 	t.Run("leaves page length alone when limit is larger", func(t *testing.T) {
 		cmd := newIntCmd(10, 100, true, true)
-		pageLength, limit := resolvePageLengthAndLimit(cmd, 50, true)
+		pageLength, limit := ResolvePageLengthAndLimit(cmd, 50, true)
 		if pageLength != 10 || limit != 100 {
 			t.Errorf("pageLength, limit = %d, %d, want 10, 100", pageLength, limit)
 		}
 	})
 
 	t.Run("handles a nil command", func(t *testing.T) {
-		pageLength, limit := resolvePageLengthAndLimit(nil, 50, true)
+		pageLength, limit := ResolvePageLengthAndLimit(nil, 50, true)
 		if pageLength != 50 || limit != 0 {
 			t.Errorf("pageLength, limit = %d, %d, want 50, 0", pageLength, limit)
 		}
@@ -85,7 +85,7 @@ func TestResolvePageLengthAndLimit(t *testing.T) {
 	// for both the returned limit and the page length derived from it.
 	t.Run("ignores the limit flag entirely when honorLimit is false", func(t *testing.T) {
 		cmd := newIntCmd(0, 1, false, true)
-		pageLength, limit := resolvePageLengthAndLimit(cmd, 50, false)
+		pageLength, limit := ResolvePageLengthAndLimit(cmd, 50, false)
 		if pageLength != 50 || limit != 0 {
 			t.Errorf("pageLength, limit = %d, %d, want 50, 0", pageLength, limit)
 		}

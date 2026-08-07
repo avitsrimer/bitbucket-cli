@@ -45,14 +45,6 @@ func getProcess(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("cannot resolve step %s: %w", stepArg, err)
 	}
-	// stepArg -- a name or a UUID the user typed -- is deliberately not guarded by
-	// ValidatePathIdentifier: a legitimate step name may contain "/" (e.g. a bitbucket-pipelines.yml
-	// step named "build/test"), and stepArg never reaches GetPath directly, only the resolved stepID
-	// does. resolveStepID always returns a canonical UUID string, but it is still guarded here since
-	// it is the value that actually reaches GetPath.
-	if err = common.ValidatePathIdentifier("pipeline-step-uuid-or-name", stepID); err != nil {
-		return fmt.Errorf("cannot get step: %w", err)
-	}
 
 	profileCurrent, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
 	if err != nil {

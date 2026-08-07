@@ -22,7 +22,6 @@ var listCmd = &cobra.Command{
 
 var listOptions struct {
 	Commit string
-	Query  string
 }
 
 // listDefaultState is the state --state fetches when the flag is never explicitly set on the
@@ -35,7 +34,7 @@ func init() {
 	listCmd.Flags().StringVar(&listOptions.Commit, "commit", "", "List pull requests by commit hash")
 	stateFlag := common.NewEnumSliceFlagWithAllAllowed("declined", "merged", "open", "superseded")
 	listCmd.Flags().Var(stateFlag, "state", "Pull request state(s) to fetch (repeatable, or \"all\"). Defaults to \""+listDefaultState+"\"")
-	listCmd.Flags().StringVar(&listOptions.Query, "query", "", "Query string to filter pull requests")
+	listCmd.Flags().String("query", "", "Query string to filter pull requests")
 	listCmd.Flags().String("source", "", "Filter by source branch name")
 	listCmd.Flags().String("destination", "", "Filter by destination branch name")
 	common.RegisterListFlags(listCmd, columns, "pull requests")
@@ -118,18 +117,19 @@ func listStates(cmd *cobra.Command) []string {
 	return states.GetSlice()
 }
 
-// listQueryFilter builds the "q=" filter from listOptions.Query and cmd's --source/--destination
-// branch flags, ANDing every non-empty piece together so all three compose. Branch names are
+// listQueryFilter builds the "q=" filter from cmd's own --query, --source, and --destination
+// flags (all read direct-off-cmd via common.StringFlagValue, not a package-level options
+// binding), ANDing every non-empty piece together so all three compose. Branch names are
 // double-quoted with embedded double quotes/backslashes escaped for Bitbucket's query syntax;
-// listOptions.Query is passed through verbatim since it is already a raw Bitbucket query
-// expression -- when it is combined with a --source/--destination clause, it is parenthesized
-// first so a disjunction inside it (e.g. `state="OPEN" OR state="MERGED"`) cannot have AND bind
-// tighter than the caller intended and silently apply the branch filter to only one disjunct.
-// listOptions.Query alone is returned unparenthesized, matching its pre-existing output exactly.
+// --query is passed through verbatim since it is already a raw Bitbucket query expression --
+// when it is combined with a --source/--destination clause, it is parenthesized first so a
+// disjunction inside it (e.g. `state="OPEN" OR state="MERGED"`) cannot have AND bind tighter than
+// the caller intended and silently apply the branch filter to only one disjunct. --query alone is
+// returned unparenthesized, matching its pre-existing output exactly.
 func listQueryFilter(cmd *cobra.Command) string {
 	var clauses []string
-	if listOptions.Query != "" {
-		clauses = append(clauses, listOptions.Query)
+	if query := common.StringFlagValue(cmd, "query"); query != "" {
+		clauses = append(clauses, query)
 	}
 	if source := common.StringFlagValue(cmd, "source"); source != "" {
 		clauses = append(clauses, "source.branch.name="+quoteBranchFilter(source))

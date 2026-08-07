@@ -145,6 +145,27 @@ func SetupProfile(t testing.TB, profileName string, handler http.HandlerFunc) *c
 	return cmd
 }
 
+// FailIfCalled returns an http.HandlerFunc that fails the test if it is ever invoked, for
+// asserting that some earlier guard (e.g. an invalid positional argument) short-circuits before
+// any HTTP request is issued. reason names, in a few words, what should have prevented the
+// request (e.g. "an invalid pullrequest-id"), rendered as "unexpected HTTP request for %s".
+func FailIfCalled(t testing.TB, reason string) http.HandlerFunc {
+	t.Helper()
+	return func(http.ResponseWriter, *http.Request) {
+		t.Errorf("unexpected HTTP request for %s", reason)
+	}
+}
+
+// DescribeArg renders value for a subtest name, substituting "empty" for the empty string --
+// t.Run("case/", ...) is a confusing subtest name to read in `go test -v` output or a `-run`
+// pattern.
+func DescribeArg(value string) string {
+	if value == "" {
+		return "empty"
+	}
+	return value
+}
+
 // CaptureStdout redirects os.Stdout for the duration of fn and returns what was written; used to
 // assert on profile.Print's rendered output (it writes straight to os.Stdout).
 func CaptureStdout(t testing.TB, fn func()) string {

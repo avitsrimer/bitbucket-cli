@@ -71,7 +71,7 @@ func updateValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]st
 
 func updateProcess(cmd *cobra.Command, args []string) error {
 	if err := common.ValidatePathIdentifier("pullrequest-id", args[0]); err != nil {
-		return fmt.Errorf("failed to update pullrequest: %w", err)
+		return fmt.Errorf("cannot update pullrequest: %w", err)
 	}
 
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)

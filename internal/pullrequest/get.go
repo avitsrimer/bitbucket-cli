@@ -41,7 +41,7 @@ func getValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]strin
 
 func getProcess(cmd *cobra.Command, args []string) error {
 	if err := common.ValidatePathIdentifier("pullrequest-id", args[0]); err != nil {
-		return fmt.Errorf("failed to get pullrequest: %w", err)
+		return fmt.Errorf("cannot get pullrequest: %w", err)
 	}
 
 	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)

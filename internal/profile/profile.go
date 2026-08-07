@@ -204,6 +204,33 @@ func GetProfileFromCommand(context context.Context, cmd *cobra.Command) (profile
 	return profile, nil
 }
 
+// CurrentOrFromCommand returns the already-resolved Current profile when set (by an earlier
+// GetProfileFromCommand/getAll call this invocation), and otherwise resolves it itself via
+// GetProfileFromCommand when cmd carries a "profile" flag: nothing runs before this in a typical
+// invocation (repository.GetRepository/workspace.GetWorkspace are usually the first thing a RunE
+// calls), so Current is still nil at this point more often than not. cmd lacking a "profile" flag
+// (a bare *cobra.Command built by a test, never the real command tree) returns nil rather than
+// panicking. A profile-loading error is logged as a [WARN] naming what -- e.g. "repository" or
+// "workspace" -- default value resolution needed the profile for, rather than returned as this
+// function's own error: it just means the caller's fallback rung has nothing to offer, and the
+// caller's own "every rung failed" error still applies, but the warning line still tells the user
+// the real cause (e.g. an invalid --profile value) instead of leaving them with only the generic
+// missing-argument message.
+func CurrentOrFromCommand(ctx context.Context, cmd *cobra.Command, what string) *Profile {
+	if Current != nil {
+		return Current
+	}
+	if cmd.Flag("profile") == nil {
+		return nil
+	}
+	currentProfile, err := GetProfileFromCommand(ctx, cmd)
+	if err != nil {
+		lgr.Printf("[WARN] cannot load profile to resolve a default %s: %s", what, err.Error())
+		return nil
+	}
+	return currentProfile
+}
+
 // GetHeaders gets the header for a table
 //
 // implements common.Tableable

@@ -1,11 +1,8 @@
 package pullrequest
 
 import (
-	"context"
 	"fmt"
 	"net/url"
-	"strconv"
-	"strings"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
@@ -111,8 +108,7 @@ func activitiesProcess(cmd *cobra.Command, args []string) (err error) {
 	// exhausted, when --limit is unset), so --limit still bounds the number of requests made.
 	// activityLimit below then trims the last page's overshoot down to exactly --limit, exactly
 	// like GetAll would have applied it to an all-known feed.
-	pageLength, limit := activityPageLengthAndLimit(cmd, currentProfile.DefaultPageLength)
-	activities, err := fetchActivityPages(cmd.Context(), currentProfile, uripath, pageLength, limit)
+	activities, err := fetchActivityPages(cmd, currentProfile, uripath)
 	if err != nil {
 		return err
 	}
@@ -135,31 +131,6 @@ func activitiesProcess(cmd *cobra.Command, args []string) (err error) {
 	return nil
 }
 
-// activityPageLengthAndLimit reads cmd's own --page-length and --limit flags, mirroring
-// profile.resolvePageLengthAndLimit (unexported, so not reusable directly): pageLength defaults to
-// defaultPageLength (the profile's own default), overridden by --page-length when explicitly set;
-// limit is 0 (unbounded) unless --limit is explicitly set to a positive value. Unlike an internal
-// id-resolution query, activitiesProcess's own --limit legitimately bounds THIS query's output, so
-// it is always honored here -- there is no GetAllUnbounded-style case to avoid. When limit is
-// smaller than pageLength, pageLength shrinks to it so the final page does not overfetch.
-func activityPageLengthAndLimit(cmd *cobra.Command, defaultPageLength int) (pageLength, limit int) {
-	pageLength = defaultPageLength
-	if flag := cmd.Flag("page-length"); flag != nil && flag.Changed {
-		if length, err := cmd.Flags().GetInt("page-length"); err == nil && length > 0 {
-			pageLength = length
-		}
-	}
-	if flag := cmd.Flag("limit"); flag != nil && flag.Changed {
-		if limitValue, err := cmd.Flags().GetInt("limit"); err == nil && limitValue > 0 {
-			limit = limitValue
-		}
-	}
-	if limit > 0 && (pageLength == 0 || limit < pageLength) {
-		pageLength = limit
-	}
-	return pageLength, limit
-}
-
 // fetchActivityPages fetches the activity feed at uripath page by page via currentProfile,
 // stopping as soon as it has collected limit KNOWN-kind activities (or the feed is exhausted, when
 // limit is 0) -- restoring --limit's original round-trip-bounding behavior (see the comment at its
@@ -169,32 +140,23 @@ func activityPageLengthAndLimit(cmd *cobra.Command, defaultPageLength int) (page
 // slice) still sees -- and warns about -- every unknown-kind entry actually fetched, deduped across
 // every page instead of per page.
 //
+// pageLength/limit are resolved via profile.ResolvePageLengthAndLimit exactly like
+// profile.GetAll/GetAllUnbounded do: pageLength defaults to currentProfile.DefaultPageLength,
+// overridden by --page-length when explicitly set; limit is 0 (unbounded) unless --limit is
+// explicitly set to a positive value. Unlike an internal id-resolution query, activitiesProcess's
+// own --limit legitimately bounds THIS query's output, so honorLimit is always true here -- there
+// is no GetAllUnbounded-style case to avoid.
+//
 // Page-2+ requests go through profile.NextPageURL, the same invariant profile.GetAll itself uses,
 // instead of assigning paginated.Next verbatim: that re-adds any original query parameter (uripath's
 // own q=/pagelen) BitBucket's own "next" link omits, and shrinks pagelen once known-kind activities
 // collected so far are close to limit.
-func fetchActivityPages(ctx context.Context, currentProfile *profile.Profile, uripath string, pageLength, limit int) ([]Activity, error) {
+func fetchActivityPages(cmd *cobra.Command, currentProfile *profile.Profile, uripath string) ([]Activity, error) {
+	ctx := cmd.Context()
 	var activities []Activity
 
-	// originalQuery is parsed BEFORE any pagelen= is appended below, and the presence check that
-	// guards the append reads originalQuery's actual "pagelen" query KEY, not a substring test over
-	// the whole uripath: a substring test also matches "pagelen" occurring inside the escaped q=
-	// value itself (e.g. --query 'title~"pagelen"'), which silently dropped --page-length whenever
-	// the query TEXT happened to contain that word, even though no pagelen= parameter was ever
-	// actually present.
-	originalQuery := url.Values{}
-	if parsed, parseErr := url.Parse(uripath); parseErr == nil {
-		originalQuery = parsed.Query()
-	}
-
-	if pageLength > 0 && !originalQuery.Has("pagelen") {
-		separator := "?"
-		if strings.Contains(uripath, "?") {
-			separator = "&"
-		}
-		uripath = fmt.Sprintf("%s%spagelen=%d", uripath, separator, pageLength)
-		originalQuery.Set("pagelen", strconv.Itoa(pageLength))
-	}
+	pageLength, limit := profile.ResolvePageLengthAndLimit(cmd, currentProfile.DefaultPageLength, true)
+	uripath, originalQuery := profile.AppendPageLength(uripath, pageLength)
 
 	knownCount := 0
 	for {

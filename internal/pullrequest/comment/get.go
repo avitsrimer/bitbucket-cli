@@ -34,12 +34,14 @@ func getProcess(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("cannot get comment: %w", validateErr)
 	}
 
-	profile, err := profile.GetProfileFromCommand(cmd.Context(), cmd)
+	ctx := cmd.Context()
+
+	profile, err := profile.GetProfileFromCommand(ctx, cmd)
 	if err != nil {
 		return fmt.Errorf("cannot get profile: %w", err)
 	}
 
-	repository, err := repository.GetRepository(cmd.Context(), cmd)
+	repository, err := repository.GetRepository(ctx, cmd)
 	if err != nil {
 		return fmt.Errorf("cannot get repository: %w", err)
 	}
@@ -52,14 +54,14 @@ func getProcess(cmd *cobra.Command, args []string) (err error) {
 	var comment Comment
 
 	err = profile.Get(
-		cmd.Context(),
+		ctx,
 		repository.GetPath("pullrequests", pullRequestID, "comments", commentID),
 		&comment,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to get pullrequest comment %s: %w", commentID, err)
 	}
-	if err := profile.Print(cmd.Context(), cmd, comment); err != nil {
+	if err := profile.Print(ctx, cmd, comment); err != nil {
 		return fmt.Errorf("cannot print result: %w", err)
 	}
 	return nil
