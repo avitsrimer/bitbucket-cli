@@ -14,7 +14,7 @@ import (
 )
 
 var diffCmd = &cobra.Command{
-	Use:               "diff [flags] <pullrequest-id>",
+	Use:               "diff [flags] [<pullrequest-id>]",
 	Short:             "show the diff of a pull request by its <pullrequest-id>. If not provided, it will try to show the diff of the only open pullrequest.",
 	Args:              cobra.MaximumNArgs(1),
 	ValidArgsFunction: validDiffArgs,

@@ -14,7 +14,7 @@ import (
 )
 
 var commitsCmd = &cobra.Command{
-	Use:               "commits [flags] <pullrequest-id>",
+	Use:               "commits [flags] [<pullrequest-id>]",
 	Short:             "Lists the commits of a pullrequest by its <pullrequest-id>",
 	Args:              cobra.MaximumNArgs(1),
 	ValidArgsFunction: commitsValidArgs,

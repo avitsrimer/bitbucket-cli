@@ -1107,9 +1107,12 @@ management, pipeline triggering and log inspection, repository/workspace/commit/
 artifact download — including the fork-specific behaviors an agent needs to get right (positional
 pull request/pipeline ids, the `pipeline trigger`/`stop` confirmation prompt and `--force`,
 `--comment-file`/`--description-file` for shell-quoting-hazard-free bodies, `--dry-run`'s
-full-preflight semantics, and output-format/masking rules). Re-running the command always
-overwrites the destination, so it stays in sync with whatever skill content shipped in the `bb`
-binary you ran it with.
+write-command preflight versus a read command's short-circuit, and output-format/masking rules).
+Re-running the command always replaces the destination directory wholesale — any files you added
+under it yourself since the last install are deleted along with it, not merged — so it stays in
+sync with whatever skill content shipped in the `bb` binary you ran it with. `install-skill`
+itself honors `--dry-run`: it prints the destination it would write to and exits without
+touching the filesystem.
 
 ```bash
 bb install-skill

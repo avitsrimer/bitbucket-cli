@@ -19,8 +19,9 @@ import (
 )
 
 var authorizeCmd = &cobra.Command{
-	Use:               "authorize",
+	Use:               "authorize <profile-name>",
 	Short:             "authorize an Authorization Code Grant profile",
+	Args:              cobra.ExactArgs(1),
 	ValidArgsFunction: ValidProfileNames,
 	PreRunE:           disableUnsupportedFlags,
 	RunE:              authorizeProcess,
