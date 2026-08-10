@@ -120,16 +120,19 @@ positional or `--current`; given neither, it errors `argument profile is missing
   mutually exclusive with each other and with `--commit`; `--state`/`--query`/`--source`/
   `--destination` all still apply and compose exactly as above.
   `--author` takes a **UUID in braces** (`'{01234567-89ab-cdef-0123-456789abcdef}'` — braces
-  required, quote it so the shell doesn't eat them) or an Atlassian account ID. Bitbucket
-  usernames are mostly defunct post-GDPR and the nicknames `bb workspace members` prints in its
-  `Name` column are NOT accepted — that command's `ID` column is the UUID this flag wants. There
-  is no `me` sentinel: `--author` is a verbatim pass-through, use `--mine` for yourself. A wrong
-  form comes back as a 404 whose message spells out the accepted forms.
+  required, quote it so the shell doesn't eat them), an Atlassian account ID, or, per Bitbucket's
+  API docs, a username. Prefer the UUID: usernames are largely legacy post-GDPR, and the nicknames
+  `bb workspace members` prints in its `Name` column are NOT usernames — that command's `ID` column
+  is the UUID this flag wants. There is no `me` sentinel: `--author` is a verbatim pass-through,
+  use `--mine` for yourself. An identifier the endpoint cannot resolve to an author comes back
+  either as a 404 (whose message spells out the accepted forms) or as an empty list, so an empty
+  result is not proof the author has no open pull requests — re-check the identifier.
   Author mode adds `repository` to the default columns (`ID, Title, repository, source,
-  destination, state`); repository-scoped `list`/`get` defaults are unchanged, and `--columns
-  repository` / `--sort repository` work on those too. The default sort is still `+id`, which is
-  meaningless across repositories — pass `--sort repository` or `--sort updated_on` in author
-  mode.
+  destination, state`); repository-scoped `list`/`get` defaults are unchanged. `--columns
+  repository` works on `list` and `get` alike; `--sort` is a `list`-only flag (`get` never
+  registers it), so `--sort repository` is available on any `list` — repository-scoped or author
+  mode — and on no `get`. The default sort is still `+id`, which is meaningless across
+  repositories — pass `--sort repository` or `--sort updated_on` in author mode.
   Token scope caveat: this endpoint is workspace-level, so a **Repository** Access Token that
   works fine for repository-scoped `list` gets a 403 here. Use a workspace-scoped token, an API
   token, or fall back to per-repository listing.

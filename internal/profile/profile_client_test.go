@@ -3,6 +3,7 @@ package profile_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -240,14 +241,42 @@ func (suite *ProfileSuite) TestGetMapsBitBucketErrorBody() {
 	suite.Require().ErrorAs(err, &bberr, "a BitBucket-shaped error body should be mapped to a *BitBucketError")
 	suite.Equal("Resource not found", bberr.Message)
 	suite.Equal("There is no API hosted at this URL", bberr.Detail)
+	// byte-identical, not just Contains: the status wrapping IsNotFound relies on must stay invisible
+	// in the text, rendering the *BitBucketError's own message verbatim.
+	suite.Equal("Resource not found: There is no API hosted at this URL", err.Error())
 }
 
 // TestIsNotFoundRecognizesBothErrorShapes pins profile.IsNotFound against both errors a non-2xx
 // response can map to -- a *BitBucketError built from the API's own error payload and the bare
-// status error used when the body carries none -- and against a non-404 of each shape. Callers use
-// it to attach guidance to a specific status (see pullrequest list's --author 404 message), which
-// only works if the status survives the mapping instead of only appearing inside the message text.
+// status error used when the body carries none -- against a non-404 of each shape, and against the
+// errors it must answer honestly without any status at all (nil, an unrelated error, an errors.Join
+// aggregate of the shape Profile.ShouldStopOnError's callers build, which it sees through by
+// errors.As). Callers use it to attach guidance to a specific status (see pullrequest list's
+// --author 404 message), which only works if the status survives the mapping instead of only
+// appearing inside the message text.
 func (suite *ProfileSuite) TestIsNotFoundRecognizesBothErrorShapes() {
+	// withMappedError performs one Get against a server answering with the given status/body and hands
+	// assert the error the client mapped it to, for as long as that server is up.
+	withMappedError := func(status int, contentType, body string, assert func(mapped error)) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			if contentType != "" {
+				w.Header().Set("Content-Type", contentType)
+			}
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte(body))
+		}))
+		defer server.Close()
+
+		apiRoot, err := url.Parse(server.URL)
+		suite.Require().NoError(err)
+		target := &profile.Profile{APIRoot: apiRoot, AccessToken: "dummy-token"}
+
+		var item testItem
+		err = target.Get(suite.Context, "/repo", &item)
+		suite.Require().Error(err)
+		assert(err)
+	}
+
 	tests := []struct {
 		name        string
 		status      int
@@ -263,25 +292,22 @@ func (suite *ProfileSuite) TestIsNotFoundRecognizesBothErrorShapes() {
 
 	for _, tt := range tests {
 		suite.Run(tt.name, func() {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				if tt.contentType != "" {
-					w.Header().Set("Content-Type", tt.contentType)
-				}
-				w.WriteHeader(tt.status)
-				_, _ = w.Write([]byte(tt.body))
-			}))
-			defer server.Close()
-
-			apiRoot, err := url.Parse(server.URL)
-			suite.Require().NoError(err)
-			target := &profile.Profile{APIRoot: apiRoot, AccessToken: "dummy-token"}
-
-			var item testItem
-			err = target.Get(suite.Context, "/repo", &item)
-			suite.Require().Error(err)
-			suite.Equal(tt.want, profile.IsNotFound(err))
+			withMappedError(tt.status, tt.contentType, tt.body, func(mapped error) {
+				suite.Equal(tt.want, profile.IsNotFound(mapped))
+			})
 		})
 	}
+
+	suite.Run("errors carrying no status", func() {
+		suite.False(profile.IsNotFound(nil), "a nil error was never mapped from a 404")
+		suite.False(profile.IsNotFound(errors.New("boom")), "an error the client never produced is not a 404")
+		suite.False(profile.IsNotFound(errors.Join(errors.New("first"), errors.New("second"))))
+
+		withMappedError(http.StatusNotFound, "", "nope", func(notFound error) {
+			suite.True(profile.IsNotFound(errors.Join(errors.New("first failure"), notFound)),
+				"a 404 aggregated with errors.Join must still be recognized")
+		})
+	})
 }
 
 func (suite *ProfileSuite) TestGetNon2xxWithoutJSONBodyReturnsGenericError() {
@@ -300,7 +326,9 @@ func (suite *ProfileSuite) TestGetNon2xxWithoutJSONBodyReturnsGenericError() {
 	suite.Require().Error(err)
 	var bberr *profile.BitBucketError
 	suite.Require().NotErrorAs(err, &bberr, "a non-JSON error body should not be mapped to a BitBucketError")
-	suite.Contains(err.Error(), "500")
+	// byte-identical, not just Contains: the status wrapping IsNotFound relies on must stay invisible
+	// in the text every caller and every other test sees.
+	suite.Equal("cannot send request: 500 Internal Server Error", err.Error())
 }
 
 // TestGetNon2xxWithUnrelatedJSONBodyReturnsGenericError proves a JSON body that isn't shaped like

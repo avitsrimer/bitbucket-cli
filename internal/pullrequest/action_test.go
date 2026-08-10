@@ -8,7 +8,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
 	"github.com/spf13/cobra"
@@ -44,6 +46,30 @@ func setupTestNamed(t *testing.T, profileName string, handler http.HandlerFunc, 
 		_ = cmd.Flags().Set("dry-run", "true")
 	}
 	return cmd
+}
+
+// withScratchUserCache points user.UserCache at a per-test directory for the duration of t. Without
+// it, a code path resolving the current user (createProcess's default reviewers, `pullrequest list
+// --mine`) is served from the binary-wide cache testutil.TempCaches installed the second time any
+// test resolves the same profile's current user (e.g. under -count=2), and a test counting requests
+// fails for a reason that has nothing to do with the code under test. It is the per-test complement
+// of setupTestNamed's per-profile-name isolation: use it whenever a test counts the requests such a
+// path makes.
+func withScratchUserCache(t *testing.T) {
+	t.Helper()
+	old := user.UserCache
+	user.UserCache = common.NewCacheAt[user.User](t.TempDir(), time.Minute)
+	t.Cleanup(func() { user.UserCache = old })
+}
+
+// loadPullRequestsFixture reads the shared pull request list payload the listing tests serve.
+func loadPullRequestsFixture(t *testing.T) []byte {
+	t.Helper()
+	fixture, err := os.ReadFile("../../testdata/pullrequests.json")
+	if err != nil {
+		t.Fatalf("cannot read testdata: %v", err)
+	}
+	return fixture
 }
 
 func TestRunActionSimpleActions(t *testing.T) {

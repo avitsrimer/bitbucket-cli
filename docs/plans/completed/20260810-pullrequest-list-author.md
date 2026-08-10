@@ -333,6 +333,70 @@ has nothing to do with this feature, so it was deliberately NOT included in this
 surface-description hunk was staged (via `git apply --cached`), leaving the jbcontext block in the
 working tree for its author to commit separately.
 
+### Review follow-up
+
+➕ **Note (code review):** a post-implementation review found and fixed, in one follow-up commit:
+
+- *security/correctness:* the workspace segment of the hand-built author-mode path was neither
+  validated nor escaped (only the author segment was), so `--workspace 'acme?state=MERGED'`
+  retargeted the request and dropped `bb`'s own `state`/`q`, and `acme/../otherws` reached another
+  workspace through `JoinPath`'s dot-segment resolution. Now `ValidatePathIdentifier` +
+  `url.PathEscape`, like the author segment.
+- *correctness:* author mode is now detected via `Flags().Changed("author") || mine` instead of
+  `author != ""`, so an explicitly empty `--author ""` fails with "argument author is missing"
+  rather than silently listing the current repository's pull requests by every author (and slipping
+  past the `--repository` guard).
+- *correctness:* the 404 guidance is gated on author mode (not on `--author` being non-empty) and
+  names the resolved target (`workspace: X, author: Y`), so a bad workspace is no longer reported as
+  a bad `--author`, and `--mine`'s 404 gets guidance too — without the accepted-`--author`-forms
+  paragraph, which its user never typed a value for.
+- *correctness:* `--mine` rejects a current user carrying no uuid instead of requesting the
+  well-formed-but-nonexistent `{00000000-...}`.
+- *correctness:* the `id` and `repository` sorters tie-break on each other (`common.Sort` is not
+  stable, and ids are only unique per repository in a cross-repository listing).
+- *simplification:* `profile.BitBucketError.StatusCode` is gone; `mapErrorResponse` wraps every
+  non-2xx error in the single `statusError{StatusCode, err}` carrier (`Error()` verbatim, `Unwrap()`
+  to the payload), so `IsNotFound` is one `errors.As`. Also: `GetRow`'s repository case reuses
+  `emptyCellIfBlank`, `endpointRepositoryName` became `Endpoint.repositoryName` beside
+  `repositoryFullName`, the redundant `Lookup("mine")` guard is gone, and the pre-read `states`
+  parameter no longer threads through three call levels.
+- *tests:* workspace escaping, empty `--author`, workspace dot-segment/separator rejection,
+  `--mine`'s `GetMe` failure and uuid-less user, the `--mine` 404 message, an `--output csv`
+  author-mode listing proving the `repository` column reaches the rendered table, the `--commit`
+  arm's success path, author-mode-wins-over-`--commit`, `IsNotFound(nil)`/`errors.Join`, and
+  byte-identical error messages for both mapped shapes. `TestPullRequestGetRowCoversEveryColumn`
+  moved into the package so it iterates `columns.Columns()` instead of a hand-kept name list;
+  `TestListCmdAuthorModeRegistration` merged into `TestListCmdRealRegistration`, which now asserts
+  the exclusivity error names both flags of the pair; `--mine` tests use a per-test `user.UserCache`
+  so `-count=2` passes; the "unresolvable workspace" subtest chdirs to a scratch remote-less
+  `.git/config` instead of depending on the developer's own remotes.
+- *docs:* README gained the author-mode subsection (plus corrected `read:user`/`read:workspace`
+  scope bullets and the `--repository`-rejection note), SKILL.md no longer implies `--sort` exists
+  on `pullrequest get`, and CLAUDE.md documents the hand-built-uripath rule, the `WhatIf`-before-
+  resolution exception, and the `internal/profile` status-classification surface.
+
+➕ **Note (style/code-smell review):** a later convention pass fixed, in one more commit:
+
+- *convention:* the author-mode 404 message no longer embeds a literal `\n` (guidance follows after
+  `; `, so a one-line log never loses it) and no longer uses ` -- ` as an em dash next to flag names.
+- *correctness:* `listQuery` returns the states it resolved and both request builders hand them back
+  in a `listRequest`, so one invocation reads `--state` exactly once — the mis-registered-flag
+  `[WARN]` fired twice before. Flags are still read direct-off-`cmd`: the resolved values travel
+  *up* as results, never *down* as pre-read parameters.
+  `TestListProcessResolvesStatesOnce` pins the single warning.
+- *tests:* `withScratchUserCache`/`loadPullRequestsFixture` moved to `action_test.go` (shared harness
+  next to `setupTestNamed`, now that `create_test.go` uses the former and `list_test.go` the latter);
+  `withAuthorFlags` → `withAuthorModeFlags` (it also registers `--workspace`);
+  `TestListProcessAuthorNotFoundLeavesOtherErrorsAlone` → `...AuthorNon404ErrorsAreNotDecorated`
+  (it asserts a 403); four overlapping `internal/profile` suite tests collapsed into the
+  `IsNotFound` table plus two byte-identity one-liners inside the tests that already served those
+  responses; `columns_coverage_test.go` → `pullrequest_row_internal_test.go` (sibling packages'
+  `<type>_row_test.go` naming).
+- *quality:* `emptyCellIfBlank` moved from `activity.go` to `pullrequest.go`, beside
+  `PullRequest.GetRow`, since it is a package-wide render helper rather than an activity one.
+- *docs:* README no longer claims `--sort repository` works on `pullrequest get` (only `--columns`
+  does; `--sort` is a `list` flag).
+
 ## Post-Completion
 
 **Manual verification:**

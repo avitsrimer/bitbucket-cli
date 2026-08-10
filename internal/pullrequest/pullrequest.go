@@ -56,8 +56,16 @@ var Command = &cobra.Command{
 }
 
 var columns = common.Columns[PullRequest]{
+	// id and repository tie-break on each other: common.Sort is not a stable sort, and author mode
+	// (--author/--mine) lists across every repository of a workspace, where ids are only unique per
+	// repository -- without the tie-break, same-numbered pull requests from different repositories
+	// would interleave arbitrarily under the default +id sort, and rows sharing a repository would
+	// come out in no particular order under --sort repository.
 	{Name: "id", DefaultSorter: true, Compare: func(a, b PullRequest) bool {
-		return a.ID < b.ID
+		if a.ID != b.ID {
+			return a.ID < b.ID
+		}
+		return strings.ToLower(a.Destination.repositoryFullName()) < strings.ToLower(b.Destination.repositoryFullName())
 	}},
 	{Name: "title", DefaultSorter: false, Compare: func(a, b PullRequest) bool {
 		return strings.ToLower(a.Title) < strings.ToLower(b.Title)
@@ -72,7 +80,11 @@ var columns = common.Columns[PullRequest]{
 		return strings.ToLower(a.Destination.Branch.Name) < strings.ToLower(b.Destination.Branch.Name)
 	}},
 	{Name: "repository", DefaultSorter: false, Compare: func(a, b PullRequest) bool {
-		return strings.ToLower(a.Destination.repositoryFullName()) < strings.ToLower(b.Destination.repositoryFullName())
+		aName, bName := strings.ToLower(a.Destination.repositoryFullName()), strings.ToLower(b.Destination.repositoryFullName())
+		if aName != bName {
+			return aName < bName
+		}
+		return a.ID < b.ID
 	}},
 	{Name: "state", DefaultSorter: false, Compare: func(a, b PullRequest) bool {
 		return strings.ToLower(a.State) < strings.ToLower(b.State)
@@ -186,11 +198,7 @@ func (pullrequest PullRequest) GetRow(headers []string) []string {
 		case "destination":
 			row = append(row, pullrequest.Destination.Branch.Name)
 		case "repository":
-			if fullName := pullrequest.Destination.repositoryFullName(); fullName != "" {
-				row = append(row, fullName)
-			} else {
-				row = append(row, common.EmptyCell)
-			}
+			row = append(row, emptyCellIfBlank(pullrequest.Destination.repositoryFullName()))
 		case "state":
 			row = append(row, pullrequest.State)
 		case "author":
@@ -220,6 +228,18 @@ func (pullrequest PullRequest) GetRow(headers []string) []string {
 		}
 	}
 	return row
+}
+
+// emptyCellIfBlank maps a blank cell value ("") to common.EmptyCell, so a GetRow renders it as
+// common.EmptyCell rather than a literal empty string. It covers every nil-safe accessor feeding a
+// row: a pull request whose destination endpoint carries no repository (PullRequest.GetRow's
+// "repository" column), a non-Update activity variant, and an Update whose destination/source
+// endpoint carries no repository either (see Activity.GetRow, summarize, Endpoint.repositoryName).
+func emptyCellIfBlank(value string) string {
+	if value == "" {
+		return common.EmptyCell
+	}
+	return value
 }
 
 // formatParticipants renders participants as a compact, comma-separated "nickname:state" summary

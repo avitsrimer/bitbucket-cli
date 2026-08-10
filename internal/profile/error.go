@@ -16,9 +16,6 @@ type BitBucketError struct {
 	Message string              `json:"-"`
 	Detail  string              `json:"-"`
 	Fields  map[string][]string `json:"-"`
-	// StatusCode is the HTTP status of the response this error was mapped from. It is set by the
-	// client (mapErrorResponse), not by the payload: Bitbucket's error body carries no status.
-	StatusCode int `json:"-"`
 }
 
 func (bberr *BitBucketError) Error() string {
@@ -42,32 +39,30 @@ func (bberr *BitBucketError) Error() string {
 	return buffer.String()
 }
 
-// statusError is the error a non-2xx response whose body carries no usable BitBucket error payload
-// maps to. It renders exactly the status text (the message every caller and test already sees) and
-// additionally keeps the status code, so a caller can react to a specific status (see IsNotFound)
-// without parsing that message.
+// statusError is the single carrier of the HTTP status a non-2xx response was mapped from: every
+// error mapErrorResponse builds is wrapped in one, whether the body carried a BitBucket error
+// payload (*BitBucketError) or nothing usable (the bare "cannot send request: <status text>"
+// message). It adds nothing to the message it wraps -- Error() renders the wrapped error verbatim,
+// so every caller and test sees exactly the text it always did -- and unwraps to it, so an
+// errors.As for *BitBucketError still finds the payload underneath. Callers reacting to a specific
+// status go through IsNotFound (or an errors.As of their own) rather than parsing the message.
 type statusError struct {
 	StatusCode int
-	StatusText string
+	err        error
 }
 
 func (serr *statusError) Error() string {
-	return "cannot send request: " + serr.StatusText
+	return serr.err.Error()
 }
 
-// IsNotFound reports whether err was mapped from an HTTP 404 response, for either of the two error
-// shapes a non-2xx response produces: a *BitBucketError built from the API's own error payload, or
-// the bare status error used when the body carries none.
+func (serr *statusError) Unwrap() error {
+	return serr.err
+}
+
+// IsNotFound reports whether err was mapped from an HTTP 404 response.
 func IsNotFound(err error) bool {
-	var bberr *BitBucketError
-	if errors.As(err, &bberr) {
-		return bberr.StatusCode == http.StatusNotFound
-	}
 	var serr *statusError
-	if errors.As(err, &serr) {
-		return serr.StatusCode == http.StatusNotFound
-	}
-	return false
+	return errors.As(err, &serr) && serr.StatusCode == http.StatusNotFound
 }
 
 // UnmarshalJSON unmarshals the JSON

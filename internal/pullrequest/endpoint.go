@@ -20,3 +20,13 @@ func (endpoint Endpoint) repositoryFullName() string {
 	}
 	return endpoint.Repository.FullName
 }
+
+// repositoryName returns the endpoint's repository Name, or "" when the endpoint carries no
+// repository (e.g. a source/destination whose repository was deleted after the pull request was
+// opened). Companion of repositoryFullName -- both nil-safe accessors live here, in the same shape.
+func (endpoint Endpoint) repositoryName() string {
+	if endpoint.Repository == nil {
+		return ""
+	}
+	return endpoint.Repository.Name
+}

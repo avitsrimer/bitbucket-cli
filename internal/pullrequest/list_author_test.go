@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -12,10 +13,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// withAuthorFlags registers cmd's own --author/--mine flags with the same names and types listCmd
+// withAuthorModeFlags registers cmd's own --author/--mine flags with the same names and types listCmd
 // registers in init, plus the --workspace flag author mode resolves the workspace from (root
 // registers it on the real command, and testutil.SetupProfile deliberately does not).
-func withAuthorFlags(cmd *cobra.Command) {
+func withAuthorModeFlags(cmd *cobra.Command) {
 	cmd.Flags().String("author", "", "")
 	cmd.Flags().Bool("mine", false, "")
 	cmd.Flags().String("workspace", "", "")
@@ -38,14 +39,22 @@ func setFixtureWorkspace(t *testing.T, cmd *cobra.Command) {
 	}
 }
 
-// loadPullRequestsFixture reads the shared pull request list payload every author-mode test serves.
-func loadPullRequestsFixture(t *testing.T) []byte {
+// chdirToEmptyGitRepo puts the test in a scratch directory carrying a remote-less .git/config, so
+// GetWorkspaceName's git-remote rung fails deterministically instead of resolving whatever remotes
+// the developer's own checkout happens to have (this repository is Bitbucket-hosted work away from
+// having one). Mirrors internal/workspace's own chdirToFakeGitConfig helper; common.OpenGitConfig
+// walks up from the working directory, so the scratch .git/config is what it finds first.
+func chdirToEmptyGitRepo(t *testing.T) {
 	t.Helper()
-	fixture, err := os.ReadFile("../../testdata/pullrequests.json")
-	if err != nil {
-		t.Fatalf("cannot read testdata: %v", err)
+	dir := t.TempDir()
+	gitDir := filepath.Join(dir, ".git")
+	if err := os.Mkdir(gitDir, 0o750); err != nil {
+		t.Fatalf("cannot create fake .git dir: %v", err)
 	}
-	return fixture
+	if err := os.WriteFile(filepath.Join(gitDir, "config"), []byte("[core]\n\tbare = false\n"), 0o600); err != nil {
+		t.Fatalf("cannot write fake .git/config: %v", err)
+	}
+	t.Chdir(dir)
 }
 
 // TestListProcessAuthorMode proves --author switches listProcess to the workspace-wide
@@ -112,7 +121,7 @@ func TestListProcessAuthorMode(t *testing.T) {
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = w.Write(fixture)
 			}, false)
-			withAuthorFlags(cmd)
+			withAuthorModeFlags(cmd)
 			withStateFlag(cmd)
 			cmd.Flags().String("query", "", "")
 			cmd.Flags().String("source", "", "")
@@ -174,6 +183,7 @@ func TestListProcessMineResolvesCurrentUser(t *testing.T) {
 	withListOptions(t, func() {
 		listOptions.Commit = ""
 	})
+	withScratchUserCache(t)
 
 	fixture := loadPullRequestsFixture(t)
 
@@ -187,7 +197,7 @@ func TestListProcessMineResolvesCurrentUser(t *testing.T) {
 		}
 		_, _ = w.Write(fixture)
 	}, false)
-	withAuthorFlags(cmd)
+	withAuthorModeFlags(cmd)
 	setFixtureWorkspace(t, cmd)
 	if err := cmd.Flags().Set("mine", "true"); err != nil {
 		t.Fatalf("cannot set mine flag: %v", err)
@@ -240,7 +250,7 @@ func TestListProcessAuthorEscapesQueryInjection(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(fixture)
 	}, false)
-	withAuthorFlags(cmd)
+	withAuthorModeFlags(cmd)
 	setFixtureWorkspace(t, cmd)
 	setAuthorFlag(t, cmd, "victim?state=MERGED")
 
@@ -264,6 +274,130 @@ func TestListProcessAuthorEscapesQueryInjection(t *testing.T) {
 	}
 }
 
+// TestListProcessAuthorEscapesWorkspace proves the workspace segment is escaped just like the author
+// one. ValidatePathIdentifier lets a "?" through (it guards separators and dot segments), and
+// resolveRequestURL takes everything after the first "?" in the uripath as the raw query -- so an
+// unescaped --workspace 'acme?state=MERGED' would retarget the request at the workspace-get endpoint
+// and drop our own state/q parameters wholesale.
+func TestListProcessAuthorEscapesWorkspace(t *testing.T) {
+	withListOptions(t, func() {
+		listOptions.Commit = ""
+	})
+
+	fixture := loadPullRequestsFixture(t)
+
+	var requests []*http.Request
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(fixture)
+	}, false)
+	withAuthorModeFlags(cmd)
+	if err := cmd.Flags().Set("workspace", "acme?state=MERGED"); err != nil {
+		t.Fatalf("cannot set workspace flag: %v", err)
+	}
+	setAuthorFlag(t, cmd, "{11111111-1111-1111-1111-111111111111}")
+
+	testutil.CaptureStdout(t, func() {
+		if err := listProcess(cmd, nil); err != nil {
+			t.Fatalf("listProcess() error = %v", err)
+		}
+	})
+
+	if len(requests) != 1 {
+		t.Fatalf("expected exactly 1 request, got %d", len(requests))
+	}
+	wantPath := "/2.0/workspaces/acme%3Fstate=MERGED/pullrequests/%7B11111111-1111-1111-1111-111111111111%7D"
+	if got := requests[0].URL.EscapedPath(); got != wantPath {
+		t.Errorf("request path = %s, want %s", got, wantPath)
+	}
+	if got := requests[0].URL.Query()["state"]; !slices.Equal(got, []string{"OPEN"}) {
+		t.Errorf("state query values = %v, want [OPEN] (our own state parameter must survive)", got)
+	}
+}
+
+// TestListProcessMineNotFoundNamesWorkspaceOnly proves the 404 guidance is gated on which flag asked
+// for author mode, not just on the status: a --mine 404 is about the workspace (--mine resolved the
+// author itself), so it names the workspace and must not send the user looking up a UUID they never
+// typed.
+func TestListProcessMineNotFoundNamesWorkspaceOnly(t *testing.T) {
+	withListOptions(t, func() {
+		listOptions.Commit = ""
+	})
+	withScratchUserCache(t)
+
+	cmd := setupTestNamed(t, "test-mine-not-found", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/2.0/user" {
+			_, _ = w.Write([]byte(`{"type":"user","uuid":"{33333333-3333-3333-3333-333333333333}","display_name":"Me"}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"message":"No such workspace"}}`))
+	}, false)
+	withAuthorModeFlags(cmd)
+	setFixtureWorkspace(t, cmd)
+	if err := cmd.Flags().Set("mine", "true"); err != nil {
+		t.Fatalf("cannot set mine flag: %v", err)
+	}
+
+	err := listProcess(cmd, nil)
+	if err == nil {
+		t.Fatal("listProcess() expected an error for a 404 in --mine mode, got nil")
+	}
+	for _, want := range []string{"workspace: acme", "{33333333-3333-3333-3333-333333333333}", "No such workspace", "visible to your token"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %q, want it to mention %q", err.Error(), want)
+		}
+	}
+	if strings.Contains(err.Error(), "UUID in braces") {
+		t.Errorf("error = %q, want no --author accepted-forms guidance when the user never typed --author", err.Error())
+	}
+}
+
+// TestListProcessAuthorModeTableCarriesRepositoryColumn closes the loop between author mode's request
+// scope and its default column set at the profile.Print seam: every other author-mode test runs with
+// the fixture profile's json output, which never reaches GetHeaders. With --output csv the rendered
+// header row itself must carry "repository", and its cells the full name of the repository each pull
+// request came from -- the whole point of a cross-repository listing.
+func TestListProcessAuthorModeTableCarriesRepositoryColumn(t *testing.T) {
+	withListOptions(t, func() {
+		listOptions.Commit = ""
+	})
+
+	fixture := loadPullRequestsFixture(t)
+
+	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(fixture)
+	}, false)
+	withAuthorModeFlags(cmd)
+	setFixtureWorkspace(t, cmd)
+	setAuthorFlag(t, cmd, "{11111111-1111-1111-1111-111111111111}")
+	if err := cmd.Flags().Set("output", "csv"); err != nil {
+		t.Fatalf("cannot set output flag: %v", err)
+	}
+
+	stdout := testutil.CaptureStdout(t, func() {
+		if err := listProcess(cmd, nil); err != nil {
+			t.Fatalf("listProcess() error = %v", err)
+		}
+	})
+
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("csv output = %q, want a header row and 2 data rows", stdout)
+	}
+	if !strings.Contains(strings.ToLower(lines[0]), "repository") {
+		t.Errorf("csv header = %q, want it to carry the repository column author mode adds by default", lines[0])
+	}
+	for _, line := range lines[1:] {
+		if !strings.Contains(line, "gildas_cherruel/gitflow-pr-sandbox") {
+			t.Errorf("csv row = %q, want it to carry the pull request's repository full name", line)
+		}
+	}
+}
+
 // TestListProcessAuthorModeNeedsNoRepository proves author mode never resolves a repository: the
 // --repository flag is emptied (without being marked as explicitly set, which would trip the guard
 // instead), so repository.GetRepository could not possibly succeed, yet the command still runs.
@@ -280,7 +414,7 @@ func TestListProcessAuthorModeNeedsNoRepository(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(fixture)
 	}, false)
-	withAuthorFlags(cmd)
+	withAuthorModeFlags(cmd)
 	setFixtureWorkspace(t, cmd)
 	setAuthorFlag(t, cmd, "{11111111-1111-1111-1111-111111111111}")
 	// Value.Set rather than Flags().Set: the latter would mark the flag Changed, which is exactly
@@ -312,7 +446,7 @@ func TestListProcessAuthorModeDryRun(t *testing.T) {
 	cmd := setupTest(t, func(_ http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r)
 	}, true)
-	withAuthorFlags(cmd)
+	withAuthorModeFlags(cmd)
 	setFixtureWorkspace(t, cmd)
 	setAuthorFlag(t, cmd, "{11111111-1111-1111-1111-111111111111}")
 
@@ -331,11 +465,16 @@ func TestListProcessAuthorModeDryRun(t *testing.T) {
 	}
 }
 
-// TestListProcessAuthorModeErrors covers author mode's four failure paths, each of which must abort
-// before any listing request is issued.
+// TestListProcessAuthorModeErrors covers author mode's failure paths, each of which must abort
+// before any listing request is issued. A subtest declaring a handler drives it instead of the
+// default "no request may reach the server" one, for the paths whose failure IS a request (--mine's
+// GET /user); those also take their own profile name, so the user cache never serves them an entry
+// another test left behind.
 func TestListProcessAuthorModeErrors(t *testing.T) {
 	tests := []struct {
 		name          string
+		profileName   string
+		handler       http.HandlerFunc
 		setup         func(t *testing.T, cmd *cobra.Command)
 		wantErrSubstr string
 	}{
@@ -349,12 +488,89 @@ func TestListProcessAuthorModeErrors(t *testing.T) {
 			wantErrSubstr: "argument author is invalid",
 		},
 		{
+			name: "explicitly empty author",
+			setup: func(t *testing.T, cmd *cobra.Command) {
+				t.Helper()
+				setFixtureWorkspace(t, cmd)
+				// `--author "$UNSET_VAR"`: author mode must still be entered and fail, never fall
+				// back to listing the current repository's pull requests by every author.
+				setAuthorFlag(t, cmd, "")
+			},
+			wantErrSubstr: "argument author is missing",
+		},
+		{
+			name: "workspace with dot segments",
+			setup: func(t *testing.T, cmd *cobra.Command) {
+				t.Helper()
+				if err := cmd.Flags().Set("workspace", ".."); err != nil {
+					t.Fatalf("cannot set workspace flag: %v", err)
+				}
+				setAuthorFlag(t, cmd, "{11111111-1111-1111-1111-111111111111}")
+			},
+			wantErrSubstr: "argument workspace is invalid",
+		},
+		{
+			name: "workspace with path separator",
+			setup: func(t *testing.T, cmd *cobra.Command) {
+				t.Helper()
+				if err := cmd.Flags().Set("workspace", "acme/../otherws"); err != nil {
+					t.Fatalf("cannot set workspace flag: %v", err)
+				}
+				setAuthorFlag(t, cmd, "{11111111-1111-1111-1111-111111111111}")
+			},
+			wantErrSubstr: "argument workspace is invalid",
+		},
+		{
 			name: "unresolvable workspace",
 			setup: func(t *testing.T, cmd *cobra.Command) {
 				t.Helper()
+				chdirToEmptyGitRepo(t)
 				setAuthorFlag(t, cmd, "{11111111-1111-1111-1111-111111111111}")
 			},
 			wantErrSubstr: "cannot get workspace",
+		},
+		{
+			name:        "mine with a failing GET /user",
+			profileName: "test-mine-get-me-fails",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/2.0/user" {
+					http.Error(w, "unexpected request for "+r.URL.Path, http.StatusTeapot)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = w.Write([]byte(`{"type":"error","error":{"message":"Your credentials lack required scopes"}}`))
+			},
+			setup: func(t *testing.T, cmd *cobra.Command) {
+				t.Helper()
+				setFixtureWorkspace(t, cmd)
+				if err := cmd.Flags().Set("mine", "true"); err != nil {
+					t.Fatalf("cannot set mine flag: %v", err)
+				}
+			},
+			wantErrSubstr: "cannot get current user",
+		},
+		{
+			name:        "mine with a uuid-less current user",
+			profileName: "test-mine-no-uuid",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/2.0/user" {
+					http.Error(w, "unexpected request for "+r.URL.Path, http.StatusTeapot)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				// no "uuid" at all: common.UUID leaves the zero value, whose String() is a
+				// well-formed {00000000-...} that would otherwise be requested verbatim.
+				_, _ = w.Write([]byte(`{"type":"user","display_name":"Me"}`))
+			},
+			setup: func(t *testing.T, cmd *cobra.Command) {
+				t.Helper()
+				setFixtureWorkspace(t, cmd)
+				if err := cmd.Flags().Set("mine", "true"); err != nil {
+					t.Fatalf("cannot set mine flag: %v", err)
+				}
+			},
+			wantErrSubstr: "carries no uuid",
 		},
 		{
 			name: "explicit repository with mine",
@@ -389,9 +605,18 @@ func TestListProcessAuthorModeErrors(t *testing.T) {
 			withListOptions(t, func() {
 				listOptions.Commit = ""
 			})
+			withScratchUserCache(t)
 
-			cmd := setupTest(t, testutil.FailIfCalled(t, "an invalid author-mode invocation"), false)
-			withAuthorFlags(cmd)
+			handler := tt.handler
+			if handler == nil {
+				handler = testutil.FailIfCalled(t, "an invalid author-mode invocation")
+			}
+			profileName := tt.profileName
+			if profileName == "" {
+				profileName = "test"
+			}
+			cmd := setupTestNamed(t, profileName, handler, false)
+			withAuthorModeFlags(cmd)
 			tt.setup(t, cmd)
 
 			err := listProcess(cmd, nil)
@@ -418,7 +643,7 @@ func TestListProcessAuthorNotFoundExplainsAcceptedForms(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`{"type":"error","error":{"message":"No such user"}}`))
 	}, false)
-	withAuthorFlags(cmd)
+	withAuthorModeFlags(cmd)
 	setFixtureWorkspace(t, cmd)
 	setAuthorFlag(t, cmd, "jsmith")
 
@@ -433,10 +658,10 @@ func TestListProcessAuthorNotFoundExplainsAcceptedForms(t *testing.T) {
 	}
 }
 
-// TestListProcessAuthorNotFoundLeavesOtherErrorsAlone proves the accepted-forms guidance is only
+// TestListProcessAuthorNon404ErrorsAreNotDecorated proves the accepted-forms guidance is only
 // attached to a 404: a 403 (the shape an insufficiently-scoped token produces on this
 // workspace-level endpoint) surfaces unchanged.
-func TestListProcessAuthorNotFoundLeavesOtherErrorsAlone(t *testing.T) {
+func TestListProcessAuthorNon404ErrorsAreNotDecorated(t *testing.T) {
 	withListOptions(t, func() {
 		listOptions.Commit = ""
 	})
@@ -446,7 +671,7 @@ func TestListProcessAuthorNotFoundLeavesOtherErrorsAlone(t *testing.T) {
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte(`{"type":"error","error":{"message":"Your credentials lack required scopes"}}`))
 	}, false)
-	withAuthorFlags(cmd)
+	withAuthorModeFlags(cmd)
 	setFixtureWorkspace(t, cmd)
 	setAuthorFlag(t, cmd, "jsmith")
 
@@ -486,7 +711,7 @@ func TestAuthorModeValue(t *testing.T) {
 			name: "flags registered but unset",
 			cmd: func() *cobra.Command {
 				cmd := &cobra.Command{Use: "list"}
-				withAuthorFlags(cmd)
+				withAuthorModeFlags(cmd)
 				return cmd
 			},
 		},
@@ -494,7 +719,7 @@ func TestAuthorModeValue(t *testing.T) {
 			name: "author set",
 			cmd: func() *cobra.Command {
 				cmd := &cobra.Command{Use: "list"}
-				withAuthorFlags(cmd)
+				withAuthorModeFlags(cmd)
 				_ = cmd.Flags().Set("author", "jsmith")
 				return cmd
 			},
@@ -505,7 +730,7 @@ func TestAuthorModeValue(t *testing.T) {
 			name: "mine set",
 			cmd: func() *cobra.Command {
 				cmd := &cobra.Command{Use: "list"}
-				withAuthorFlags(cmd)
+				withAuthorModeFlags(cmd)
 				_ = cmd.Flags().Set("mine", "true")
 				return cmd
 			},
@@ -516,7 +741,7 @@ func TestAuthorModeValue(t *testing.T) {
 			name: "mine explicitly false",
 			cmd: func() *cobra.Command {
 				cmd := &cobra.Command{Use: "list"}
-				withAuthorFlags(cmd)
+				withAuthorModeFlags(cmd)
 				_ = cmd.Flags().Set("mine", "false")
 				return cmd
 			},
@@ -533,41 +758,6 @@ func TestAuthorModeValue(t *testing.T) {
 	}
 }
 
-// TestListCmdAuthorModeRegistration proves the REAL listCmd singleton registers --author/--mine and
-// enforces every mutual-exclusivity pair they take part in. Exclusivity cannot be exercised through
-// listProcess: cobra validates flag groups in ValidateFlagGroups during Execute, never in RunE.
-func TestListCmdAuthorModeRegistration(t *testing.T) {
-	for _, name := range []string{"author", "mine"} {
-		if listCmd.Flags().Lookup(name) == nil {
-			t.Errorf("listCmd has no --%s flag registered", name)
-		}
-	}
-
-	pairs := []struct{ first, second string }{
-		{"author", "mine"},
-		{"commit", "author"},
-		{"commit", "mine"},
-	}
-	for _, pair := range pairs {
-		t.Run(pair.first+"-vs-"+pair.second, func(t *testing.T) {
-			old := listOptions
-			t.Cleanup(func() { listOptions = old })
-
-			setRealListFlag(t, pair.first, flagValueFor(pair.first))
-			setRealListFlag(t, pair.second, flagValueFor(pair.second))
-
-			if err := listCmd.ValidateFlagGroups(); err == nil {
-				t.Errorf("ValidateFlagGroups() = nil, want an error for --%s with --%s", pair.first, pair.second)
-			}
-		})
-	}
-}
-
-// flagValueFor returns a valid value to set the named listCmd flag to when only "some value" is
-// needed, as in the mutual-exclusivity pairs above.
-func flagValueFor(name string) string {
-	if name == "mine" {
-		return "true"
-	}
-	return "x"
-}
+// Author mode's registration on the REAL listCmd singleton -- both flags plus every
+// mutual-exclusivity pair they take part in -- is covered by TestListCmdRealRegistration in
+// list_test.go, alongside --commit's own pairs: one table, one place to extend for the next pair.

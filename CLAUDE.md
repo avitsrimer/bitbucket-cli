@@ -282,6 +282,16 @@ their error checked in a CLI). `_test.go` files are exempt from `gosec`, `dupl`,
   segments into the request. The one sanctioned exception is a value that legitimately spans two
   segments in the `workspace/repository` form (`repository.GetRepositoryBySlugOrID`, reached via
   `--repository`/`--default-repository`), which validates that shape on its own terms instead.
+  A uripath built by hand instead of through `GetPath` needs BOTH `ValidatePathIdentifier` *and*
+  `url.PathEscape` on every interpolated segment — `internal/pullrequest/list.go`'s author mode is
+  the reference (it validates the workspace and `--author` segments and escapes both).
+  `url.PathEscape` is the non-negotiable half: validation deliberately permits `?` and `#`, and
+  `profile.resolveRequestURL` splits the uripath on the first `?` and takes the remainder as the
+  request's `RawQuery`, so an unescaped segment can replace the caller's own query parameters
+  wholesale. Validation is the half that buys a clear "argument X is invalid" instead of an
+  unexplained 404 — escaping alone is safe but opaque, which is what
+  `internal/workspace/workspace.go`'s workspace paths (:171, :191) currently do; new hand-built
+  paths should do both.
 - Every mutating `RunE` gates its write on `common.WhatIfPayload` (or, for `pipeline
   trigger`/`stop`, `common.Confirm`; for `pullrequest merge`, `common.ConfirmInteractive`, gated
   after `WhatIfPayload` so `--dry-run` still short-circuits first), called only AFTER every
@@ -291,8 +301,17 @@ their error checked in a CLI). `_test.go` files are exempt from `gosec`, `dupl`,
   something that would actually fail. `WhatIfPayload` echoes the resolved target path and payload
   to stderr; a payload carrying a secret (e.g. a pipeline trigger's `--variable` values) must be
   redacted by the caller before it ever reaches that call. Read-only commands
-  (`get`/`list`/`diff`/...) keep the plain `common.WhatIf` short-circuit, checked before any
-  resolution, since there is no write to gate.
+  (`get`/`list`/`diff`/...) keep the plain `common.WhatIf` short-circuit, since there is no write to
+  gate. It is checked before any resolution that only exists to *find the target*, but a read-only
+  command whose dry-run line cannot even be printed without a lookup resolves that lookup first —
+  `pullrequest list --mine` issues `GET /user` before the gate, since the author it would query is
+  part of what `--dry-run` reports (and resolving it is itself a read, never a write).
+- HTTP status classification lives in `internal/profile/error.go`: `mapErrorResponse` wraps every
+  non-2xx response's error in the unexported `statusError{StatusCode, err}`, whose `Error()` renders
+  the wrapped error verbatim (so messages are unchanged) and which `Unwrap()`s to it (so an
+  `errors.As` for `*BitBucketError` still finds the API's own payload underneath). Callers that need
+  to react to a specific status use the exported `profile.IsNotFound` — or add a sibling helper next
+  to it — never a string match on the message and never a new status field on `BitBucketError`.
 - Read paths tolerate an unrecognized variant/type VALUE (a new activity kind, comment shape,
   ...) rather than failing the whole decode: the offending entries are skipped with one `[WARN]`
   per distinct unrecognized kind (deduped locally to the call, never via package-level state) and

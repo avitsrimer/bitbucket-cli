@@ -174,43 +174,9 @@ func TestPullRequestGetRowParticipantsEmpty(t *testing.T) {
 	assert.Equal(t, []string{" "}, row)
 }
 
-// TestPullRequestGetRowCoversEveryColumn iterates every column name GetHeaders can produce via
-// --columns (the participants column above already covers the one entry needing a non-trivial
-// fixture) and requires each declared column to produce its real value instead of falling through
-// to GetRow's default " " arm for a populated field.
-func TestPullRequestGetRowCoversEveryColumn(t *testing.T) {
-	createdOn := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
-	target := pullrequest.PullRequest{
-		ID:           42,
-		Title:        "Add feature",
-		Description:  "some description",
-		State:        "OPEN",
-		Author:       user.User{Name: "Jane Doe"},
-		ClosedBy:     user.User{Name: "John Doe"},
-		Reason:       "declined by reviewer",
-		CommentCount: 3,
-		TaskCount:    1,
-		Participants: []user.Participant{{User: user.User{Nickname: "jane_doe"}, State: "approved"}},
-		CreatedOn:    createdOn,
-		UpdatedOn:    createdOn,
-		Source:       pullrequest.Endpoint{Branch: pullrequest.Branch{Name: "feature"}},
-		Destination: pullrequest.Endpoint{
-			Branch:     pullrequest.Branch{Name: "master"},
-			Repository: &repository.Repository{FullName: "acme/widgets"},
-		},
-		MergeCommit: &commit.CommitReference{Hash: "abcdef0123456789"},
-	}
-
-	for _, name := range []string{
-		"id", "title", "description", "source", "destination", "repository", "state", "author",
-		"closed_by", "commit", "reason", "comments", "tasks", "participants", "created_on",
-		"updated_on",
-	} {
-		row := target.GetRow([]string{name})
-		require.Len(t, row, 1)
-		assert.NotEqual(t, " ", row[0], "column %q hit GetRow's default arm instead of a real case", name)
-	}
-}
+// Every-column GetRow coverage lives in pullrequest_row_internal_test.go, inside the package: only
+// an internal test can iterate the column table itself (columns.Columns()) instead of a hand-kept
+// name list that goes stale the moment a column is added.
 
 func TestPullRequestGetRowWithoutUpdatedOnOrMergeCommit(t *testing.T) {
 	target := pullrequest.PullRequest{}
