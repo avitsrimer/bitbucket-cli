@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
+	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 	"github.com/spf13/cobra"
 )
@@ -537,6 +538,68 @@ func setRealListFlag(t *testing.T, name, value string) {
 		_ = flag.Value.Set(previous)
 		flag.Changed = wasChanged
 	})
+}
+
+// TestListCmdRepositoryColumnOnRepositoryScopedList proves the "repository" column is a first-class
+// member of the shared column table rather than an author-mode-only addition: --columns repository
+// and --sort repository are accepted and honored by the REAL listCmd on the repository-scoped
+// listing too, where the column merely is not part of the defaults.
+func TestListCmdRepositoryColumnOnRepositoryScopedList(t *testing.T) {
+	if !slices.Contains(columns.Columns(), "repository") {
+		t.Fatalf("columns table = %v, want it to declare a \"repository\" column", columns.Columns())
+	}
+
+	setRealColumnsFlag(t, "repository")
+	setRealListFlag(t, "sort", "repository")
+
+	pr := PullRequest{Destination: Endpoint{Repository: &repository.Repository{FullName: "acme/widgets"}}}
+	headers := pr.GetHeaders(listCmd)
+	if !slices.Equal(headers, []string{"repository"}) {
+		t.Fatalf("GetHeaders() = %v, want [repository] from --columns repository", headers)
+	}
+	if row := pr.GetRow(headers); !slices.Equal(row, []string{"acme/widgets"}) {
+		t.Errorf("GetRow() = %v, want [acme/widgets]", row)
+	}
+
+	if sortValue := common.SortFlagValue(listCmd); sortValue != "repository" {
+		t.Fatalf("SortFlagValue() = %q, want repository", sortValue)
+	}
+	pullrequests := []PullRequest{
+		{ID: 1, Destination: Endpoint{Repository: &repository.Repository{FullName: "acme/Zebra"}}},
+		{ID: 2},
+		{ID: 3, Destination: Endpoint{Repository: &repository.Repository{FullName: "acme/apples"}}},
+	}
+	common.Sort(pullrequests, columns.SortBy("repository"))
+	// a pull request whose payload carried no destination repository sorts as an empty full name
+	// (first) instead of panicking, then the rest sort case-insensitively
+	ids := []uint64{pullrequests[0].ID, pullrequests[1].ID, pullrequests[2].ID}
+	if !slices.Equal(ids, []uint64{2, 3, 1}) {
+		t.Errorf("sorted ids = %v, want [2 3 1]", ids)
+	}
+}
+
+// setRealColumnsFlag sets --columns to value on the real listCmd singleton, restoring both the
+// EnumSliceFlag's accumulated Values and the flag's Changed bit afterwards. The generic
+// setRealListFlag cannot be used here: EnumSliceFlag.Set appends rather than replaces, and its
+// String() is a bracketed representation Set does not accept back.
+func setRealColumnsFlag(t *testing.T, value string) {
+	t.Helper()
+	flag := listCmd.Flags().Lookup("columns")
+	if flag == nil {
+		t.Fatal("listCmd has no --columns flag registered")
+	}
+	enum, ok := flag.Value.(*common.EnumSliceFlag)
+	if !ok {
+		t.Fatalf("--columns flag value is %T, want *common.EnumSliceFlag", flag.Value)
+	}
+	previous, wasChanged := slices.Clone(enum.Values), flag.Changed
+	t.Cleanup(func() {
+		enum.Values = previous
+		flag.Changed = wasChanged
+	})
+	if err := listCmd.Flags().Set("columns", value); err != nil {
+		t.Fatalf("cannot set --columns flag: %v", err)
+	}
 }
 
 // TestListCmdRealRegistration proves the REAL listCmd singleton (not a throwaway command

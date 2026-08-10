@@ -71,6 +71,9 @@ var columns = common.Columns[PullRequest]{
 	{Name: "destination", DefaultSorter: false, Compare: func(a, b PullRequest) bool {
 		return strings.ToLower(a.Destination.Branch.Name) < strings.ToLower(b.Destination.Branch.Name)
 	}},
+	{Name: "repository", DefaultSorter: false, Compare: func(a, b PullRequest) bool {
+		return strings.ToLower(a.Destination.repositoryFullName()) < strings.ToLower(b.Destination.repositoryFullName())
+	}},
 	{Name: "state", DefaultSorter: false, Compare: func(a, b PullRequest) bool {
 		return strings.ToLower(a.State) < strings.ToLower(b.State)
 	}},
@@ -145,8 +148,19 @@ func init() {
 // "nickname:state" summary (see formatParticipants) is exactly the kind of unbounded, list-shaped
 // value the default column set otherwise avoids -- it stays reachable via an explicit
 // `--columns participants` on either command, or unconditionally in -o json/yaml.
+//
+// repository joins the default set only in `pullrequest list`'s author mode (--author/--mine), which
+// lists across every repository of the workspace and would otherwise render rows with no way to tell
+// which repository each pull request belongs to. Author mode is detected through the same
+// authorModeValue helper listProcess builds its request with, so the request scope and the default
+// column set can never disagree. Repository-scoped `list` and `get` defaults are unchanged -- there
+// the column is redundant, since every row shares the one repository named on the command line --
+// but `--columns repository` and `--sort repository` remain available on both.
 func (pullrequest PullRequest) GetHeaders(cmd *cobra.Command) []string {
 	defaults := []string{"ID", "Title", "source", "destination", "state"}
+	if _, _, authorMode := authorModeValue(cmd); authorMode {
+		defaults = []string{"ID", "Title", "repository", "source", "destination", "state"}
+	}
 	if cmd != nil && cmd.Name() == "get" {
 		defaults = append(defaults, "description")
 	}
@@ -171,6 +185,12 @@ func (pullrequest PullRequest) GetRow(headers []string) []string {
 			row = append(row, pullrequest.Source.Branch.Name)
 		case "destination":
 			row = append(row, pullrequest.Destination.Branch.Name)
+		case "repository":
+			if fullName := pullrequest.Destination.repositoryFullName(); fullName != "" {
+				row = append(row, fullName)
+			} else {
+				row = append(row, common.EmptyCell)
+			}
 		case "state":
 			row = append(row, pullrequest.State)
 		case "author":
