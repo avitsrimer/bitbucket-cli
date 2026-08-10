@@ -200,24 +200,14 @@ func (activity Activity) summarize() activitySummary {
 			author:      activity.Update.Author.Name,
 			closedBy:    activity.Update.ClosedBy.Name,
 			reason:      activity.Update.Reason,
-			destination: endpointRepositoryName(activity.Update.Destination),
-			source:      endpointRepositoryName(activity.Update.Source),
+			destination: activity.Update.Destination.repositoryName(),
+			source:      activity.Update.Source.repositoryName(),
 			createdOn:   activity.Update.CreatedOn,
 			updatedOn:   activity.Update.UpdatedOn,
 		}
 	default:
 		return activitySummary{}
 	}
-}
-
-// endpointRepositoryName returns endpoint.Repository's Name, or "" when endpoint carries no
-// repository (e.g. a source/destination whose repository was deleted after the pull request was
-// opened).
-func endpointRepositoryName(endpoint Endpoint) string {
-	if endpoint.Repository == nil {
-		return ""
-	}
-	return endpoint.Repository.Name
 }
 
 // GetRow gets the row for a table
@@ -260,17 +250,6 @@ func (activity Activity) GetRow(headers []string) []string {
 		}
 	}
 	return row
-}
-
-// emptyCellIfBlank maps an activitySummary field's zero value ("") to common.EmptyCell: a
-// non-Update activity variant and an Update whose destination/source endpoint carries no
-// repository (see summarize/endpointRepositoryName) both resolve to that same zero value, and
-// GetRow renders either case as common.EmptyCell rather than a literal empty string.
-func emptyCellIfBlank(value string) string {
-	if value == "" {
-		return common.EmptyCell
-	}
-	return value
 }
 
 // updateField returns common.EmptyCell when activity has no Update, otherwise the value returned

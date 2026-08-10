@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
+	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 	"github.com/spf13/cobra"
 )
@@ -260,6 +261,36 @@ func TestListStatesDefaultsWhenFlagRegisteredButNotChanged(t *testing.T) {
 	want := []string{listDefaultState}
 	if !slices.Equal(got, want) {
 		t.Errorf("listStates() = %v, want %v", got, want)
+	}
+}
+
+// TestListProcessResolvesStatesOnce proves one listProcess invocation resolves --state exactly once:
+// the states naming the listing in the debug/dry-run line are the ones the request was built from,
+// not a second read of the flag. A cmd whose "state" flag is registered with the wrong type makes
+// that observable -- listStates warns about the mismatch, and a single command run must warn once.
+func TestListProcessResolvesStatesOnce(t *testing.T) {
+	withListOptions(t, func() {
+		listOptions.Commit = ""
+	})
+
+	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[]}`))
+	}, false)
+	// deliberately the wrong type for the "state" flag listStates expects, and explicitly set so the
+	// flag counts as Changed and the type assertion is actually reached.
+	cmd.Flags().String("state", "", "")
+	if err := cmd.Flags().Set("state", "open"); err != nil {
+		t.Fatalf("cannot set state flag: %v", err)
+	}
+
+	logs := testutil.CaptureLog(t)
+	if err := listProcess(cmd, nil); err != nil {
+		t.Fatalf("listProcess() error = %v", err)
+	}
+
+	if got := strings.Count(logs.String(), "state flag is not an EnumSliceFlag"); got != 1 {
+		t.Errorf("mis-registered state flag warned %d times, want exactly 1 per invocation (logs = %q)", got, logs.String())
 	}
 }
 
@@ -518,6 +549,86 @@ func TestListProcessRejectsPathTraversalInCommit(t *testing.T) {
 	}
 }
 
+// TestListProcessCommitScopedListing covers the --commit arm's success path: the repository-scoped
+// by-commit endpoint, which takes no filter parameters of its own (--commit is mutually exclusive
+// with --state/--query/--source/--destination), so the request carries no query string at all.
+func TestListProcessCommitScopedListing(t *testing.T) {
+	withListOptions(t, func() {
+		listOptions.Commit = "ae86d5323477989fab3bf3879cd1234543565753"
+	})
+
+	fixture := loadPullRequestsFixture(t)
+
+	var requests []*http.Request
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(fixture)
+	}, false)
+
+	stdout := testutil.CaptureStdout(t, func() {
+		if err := listProcess(cmd, nil); err != nil {
+			t.Fatalf("listProcess() error = %v", err)
+		}
+	})
+
+	if len(requests) != 1 {
+		t.Fatalf("expected exactly 1 request, got %d", len(requests))
+	}
+	wantPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/commit/ae86d5323477989fab3bf3879cd1234543565753/pullrequests"
+	if requests[0].URL.Path != wantPath {
+		t.Errorf("path = %s, want %s", requests[0].URL.Path, wantPath)
+	}
+	if got := requests[0].URL.RawQuery; got != "" {
+		t.Errorf("query = %q, want none on the by-commit endpoint", got)
+	}
+
+	var pullrequests []PullRequest
+	if err := json.Unmarshal([]byte(stdout), &pullrequests); err != nil {
+		t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
+	}
+	if len(pullrequests) != 2 {
+		t.Fatalf("expected 2 pullrequests, got %d", len(pullrequests))
+	}
+}
+
+// TestListProcessAuthorModeIgnoresCommit pins what a direct listProcess call with both --author and
+// --commit set actually does. Cobra rejects the combination at parse time, so a real invocation never
+// reaches this, but the dispatch has to be deterministic: author mode wins and the --commit value is
+// dropped, rather than the commit path silently winning and the workspace-wide scope the user asked
+// for being lost.
+func TestListProcessAuthorModeIgnoresCommit(t *testing.T) {
+	withListOptions(t, func() {
+		listOptions.Commit = "ae86d5323477989fab3bf3879cd1234543565753"
+	})
+
+	fixture := loadPullRequestsFixture(t)
+
+	var requests []*http.Request
+	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(fixture)
+	}, false)
+	withAuthorModeFlags(cmd)
+	setFixtureWorkspace(t, cmd)
+	setAuthorFlag(t, cmd, "{11111111-1111-1111-1111-111111111111}")
+
+	testutil.CaptureStdout(t, func() {
+		if err := listProcess(cmd, nil); err != nil {
+			t.Fatalf("listProcess() error = %v", err)
+		}
+	})
+
+	if len(requests) != 1 {
+		t.Fatalf("expected exactly 1 request, got %d", len(requests))
+	}
+	wantPath := "/2.0/workspaces/acme/pullrequests/%7B11111111-1111-1111-1111-111111111111%7D"
+	if got := requests[0].URL.EscapedPath(); got != wantPath {
+		t.Errorf("request path = %s, want the author-mode path %s", got, wantPath)
+	}
+}
+
 // setRealListFlag sets name to value on the real listCmd singleton and registers a t.Cleanup that
 // fully restores the flag's prior state -- both its Value (via DefValue) and its Changed bit --
 // so a test driving the singleton directly (rather than a throwaway re-declaration) never leaks
@@ -539,37 +650,125 @@ func setRealListFlag(t *testing.T, name, value string) {
 	})
 }
 
+// TestListCmdRepositoryColumnOnRepositoryScopedList proves the "repository" column is a first-class
+// member of the shared column table rather than an author-mode-only addition: --columns repository
+// and --sort repository are accepted and honored by the REAL listCmd on the repository-scoped
+// listing too, where the column merely is not part of the defaults.
+func TestListCmdRepositoryColumnOnRepositoryScopedList(t *testing.T) {
+	if !slices.Contains(columns.Columns(), "repository") {
+		t.Fatalf("columns table = %v, want it to declare a \"repository\" column", columns.Columns())
+	}
+
+	setRealColumnsFlag(t, "repository")
+	setRealListFlag(t, "sort", "repository")
+
+	pr := PullRequest{Destination: Endpoint{Repository: &repository.Repository{FullName: "acme/widgets"}}}
+	headers := pr.GetHeaders(listCmd)
+	if !slices.Equal(headers, []string{"repository"}) {
+		t.Fatalf("GetHeaders() = %v, want [repository] from --columns repository", headers)
+	}
+	if row := pr.GetRow(headers); !slices.Equal(row, []string{"acme/widgets"}) {
+		t.Errorf("GetRow() = %v, want [acme/widgets]", row)
+	}
+
+	if sortValue := common.SortFlagValue(listCmd); sortValue != "repository" {
+		t.Fatalf("SortFlagValue() = %q, want repository", sortValue)
+	}
+	pullrequests := []PullRequest{
+		{ID: 1, Destination: Endpoint{Repository: &repository.Repository{FullName: "acme/Zebra"}}},
+		{ID: 2},
+		{ID: 3, Destination: Endpoint{Repository: &repository.Repository{FullName: "acme/apples"}}},
+	}
+	common.Sort(pullrequests, columns.SortBy("repository"))
+	// a pull request whose payload carried no destination repository sorts as an empty full name
+	// (first) instead of panicking, then the rest sort case-insensitively
+	ids := []uint64{pullrequests[0].ID, pullrequests[1].ID, pullrequests[2].ID}
+	if !slices.Equal(ids, []uint64{2, 3, 1}) {
+		t.Errorf("sorted ids = %v, want [2 3 1]", ids)
+	}
+}
+
+// setRealColumnsFlag sets --columns to value on the real listCmd singleton, restoring both the
+// EnumSliceFlag's accumulated Values and the flag's Changed bit afterwards. The generic
+// setRealListFlag cannot be used here: EnumSliceFlag.Set appends rather than replaces, and its
+// String() is a bracketed representation Set does not accept back.
+func setRealColumnsFlag(t *testing.T, value string) {
+	t.Helper()
+	flag := listCmd.Flags().Lookup("columns")
+	if flag == nil {
+		t.Fatal("listCmd has no --columns flag registered")
+	}
+	enum, ok := flag.Value.(*common.EnumSliceFlag)
+	if !ok {
+		t.Fatalf("--columns flag value is %T, want *common.EnumSliceFlag", flag.Value)
+	}
+	previous, wasChanged := slices.Clone(enum.Values), flag.Changed
+	t.Cleanup(func() {
+		enum.Values = previous
+		flag.Changed = wasChanged
+	})
+	if err := listCmd.Flags().Set("columns", value); err != nil {
+		t.Fatalf("cannot set --columns flag: %v", err)
+	}
+}
+
 // TestListCmdRealRegistration proves the REAL listCmd singleton (not a throwaway command
-// re-declaring the same flags) actually registers --state/--source/--destination/--commit and
-// enforces all four --commit mutual-exclusivity pairs -- a guard against the flag tests above
-// passing even if listCmd's own init() registration were changed or dropped.
+// re-declaring the same flags) actually registers every flag listProcess's tests drive through a
+// synthetic command, and enforces every mutual-exclusivity pair among them -- a guard against the
+// flag tests above passing even if listCmd's own init() registration were changed or dropped.
+// Exclusivity cannot be exercised through listProcess: cobra validates flag groups in
+// ValidateFlagGroups during Execute, never in RunE.
+//
+// Each subtest asserts the error NAMES both flags of the pair under test. ValidateFlagGroups
+// validates every group registered on the shared singleton, so a bare "got an error" assertion would
+// also be satisfied by an unrelated pair left conflicting by some other test -- proving nothing about
+// the pair the subtest set.
 func TestListCmdRealRegistration(t *testing.T) {
-	for _, name := range []string{"state", "source", "destination", "commit", "query"} {
+	for _, name := range []string{"state", "source", "destination", "commit", "query", "author", "mine"} {
 		if listCmd.Flags().Lookup(name) == nil {
 			t.Errorf("listCmd has no --%s flag registered", name)
 		}
 	}
 
-	for _, other := range []string{"state", "query", "source", "destination"} {
-		t.Run("commit-vs-"+other, func(t *testing.T) {
+	pairs := []struct{ first, second string }{
+		{"commit", "state"},
+		{"commit", "query"},
+		{"commit", "source"},
+		{"commit", "destination"},
+		{"author", "mine"},
+		{"commit", "author"},
+		{"commit", "mine"},
+	}
+	for _, pair := range pairs {
+		t.Run(pair.first+"-vs-"+pair.second, func(t *testing.T) {
 			old := listOptions
 			t.Cleanup(func() { listOptions = old })
 
-			setRealListFlag(t, "commit", "abc123")
-			switch other {
-			case "state":
-				setRealListFlag(t, "state", "open")
-			case "query":
-				setRealListFlag(t, "query", "x")
-			case "source":
-				setRealListFlag(t, "source", "x")
-			case "destination":
-				setRealListFlag(t, "destination", "x")
-			}
+			setRealListFlag(t, pair.first, exclusivityValueFor(pair.first))
+			setRealListFlag(t, pair.second, exclusivityValueFor(pair.second))
 
-			if err := listCmd.ValidateFlagGroups(); err == nil {
-				t.Errorf("ValidateFlagGroups() = nil, want an error for --commit with --%s", other)
+			err := listCmd.ValidateFlagGroups()
+			if err == nil {
+				t.Fatalf("ValidateFlagGroups() = nil, want an error for --%s with --%s", pair.first, pair.second)
+			}
+			for _, name := range []string{pair.first, pair.second} {
+				if !strings.Contains(err.Error(), name) {
+					t.Errorf("ValidateFlagGroups() error = %q, want it to name --%s (the reported conflict may be another pair's)", err.Error(), name)
+				}
 			}
 		})
+	}
+}
+
+// exclusivityValueFor returns a valid value to set the named listCmd flag to when only "some value"
+// is needed, as in the mutual-exclusivity pairs above.
+func exclusivityValueFor(name string) string {
+	switch name {
+	case "mine":
+		return "true"
+	case "state":
+		return "open"
+	default:
+		return "x"
 	}
 }

@@ -144,7 +144,9 @@ The `--workspace` flag is also dynamically auto-completed with the workspaces yo
 > `bb repo get`, `bb repo list`, and `bb repo clone` reject `--repository` (it is also hidden
 > from their `--help`): the repository is always the command's own positional argument (`get`,
 > `clone`) or the current workspace's repositories (`list`), so a separate `--repository` override
-> would be ambiguous or meaningless.
+> would be ambiguous or meaningless. `bb pullrequest list --author/--mine` rejects it too, for the
+> same reason: that listing spans every repository of the workspace (see
+> [Listing one author's pull requests across a whole workspace](#listing-one-authors-pull-requests-across-a-whole-workspace)).
 
 `get` and `list` commands support the `--columns` flag to specify which columns to display in the output. You can pass a comma-separated list of columns, repeat the flag, or use `all` to display all columns. If you do not provide this flag, the default columns are displayed.
 
@@ -297,7 +299,10 @@ app-password equivalents in parentheses.
   `list`/`download`, and resolving the target repository for every other command
 - `read:pullrequest` *(Pull requests: Read)* — `pullrequest list/get/activities/diff/patch/commits`,
   comment and task reads[^readpr]
-- `read:user` *(Account: Read)* — `bb user get`/`me` (including `--emails`) — nothing else uses it
+- `read:user` *(Account: Read)* — `bb user get`/`me` (including `--emails`), and
+  `pullrequest list --mine`, which resolves your own account through the same endpoint and fails
+  without it (`pullrequest create`'s default-reviewer lookup also calls it, but only degrades to a
+  `[WARN]`)
 
 **[Optional] — grant per workflow**
 
@@ -311,8 +316,12 @@ app-password equivalents in parentheses.
 - `read:workspace` *(Workspaces: Read)* — **only** `workspace get/list/members` and the
   workspace-name validation in `profile update --default-workspace`. Everything else deliberately
   works without it: explicitly supplied `--workspace` values, `--default-workspace` on
-  `profile create`, and all repository/pull-request/pipeline operations never call a workspace
-  endpoint
+  `profile create`, and every repository/pull-request/pipeline operation, none of which needs a
+  workspace *lookup*. `pullrequest list --author/--mine` does address a workspace-level path
+  (`/workspaces/{workspace}/pullrequests/{user}`), but it is a pull-request endpoint and only needs
+  `read:pullrequest` — the workspace slug is never resolved through a workspace endpoint. A
+  Repository Access Token nonetheless cannot reach it: see
+  [Listing one author's pull requests across a whole workspace](#listing-one-authors-pull-requests-across-a-whole-workspace)
 
 **Not needed**
 
@@ -706,6 +715,29 @@ bb pullrequest list --destination master --state open
 ```
 
 `--commit` is mutually exclusive with `--state`, `--query`, `--source`, and `--destination` (Bitbucket's by-commit endpoint takes no other filter).
+
+#### Listing one author's pull requests across a whole workspace
+
+`--mine` lists your own open pull requests across **every repository** of the workspace, in a single request, and `--author` does the same for somebody else:
+
+```bash
+bb pullrequest list --mine
+bb pullrequest list --mine --state all --sort updated_on
+bb pullrequest list --author '{01234567-89ab-cdef-0123-456789abcdef}'
+bb pullrequest list --author 557058:11111111-2222-3333-4444-555555555555 --workspace myworkspace
+```
+
+Either flag switches the command to Bitbucket's workspace-level `/workspaces/{workspace}/pullrequests/{user}` endpoint, which changes a few things:
+
+- **No repository is resolved at all**, so this works from any directory — you are not required to be in a Bitbucket checkout, as long as the workspace resolves (`--workspace`, a Bitbucket git remote, or the profile's `--default-workspace`). Passing `--repository` explicitly is rejected rather than silently ignored, since the listing spans every repository.
+- `repository` joins the **default columns** (`ID`, `Title`, `repository`, `source`, `destination`, `state`), so each row shows which repository its pull request belongs to. Repository-scoped `list` and `pullrequest get` keep their own defaults; `--columns repository` works on both, and `--sort repository` on any `list`.
+- Pull request ids are only unique per repository, so the default `+id` sort is of limited use across repositories — prefer `--sort repository` or `--sort updated_on`.
+- `--state`, `--query`, `--source`, and `--destination` compose exactly as they do on the repository-scoped listing. `--author`, `--mine`, and `--commit` are mutually exclusive with each other.
+
+`--author` accepts the author's **UUID in braces** (quote it: most shells treat braces specially), their **Atlassian account ID**, or — per Bitbucket's API documentation for this endpoint — their **username**. The UUID is the reliable form: usernames are largely legacy post-GDPR, and the nicknames in the `Name` column of `bb workspace members` are *not* usernames — that command's `ID` column carries the UUID this flag wants. An identifier the endpoint cannot resolve to an author comes back either as a 404 (which `bb` wraps with the accepted forms) or as an empty listing, so an empty result does not by itself prove the author has no matching pull requests. There is no `me` sentinel; use `--mine`, which resolves your own account through `GET /user` (this needs the `read:user` scope).
+
+> [!NOTE]
+> This endpoint is workspace-level, so a [Repository Access Token](#profiles) cannot use it (it 403s no matter which workspace you name). Use an API token, a Workspace Access Token, or OAuth 2.0 for `--author`/`--mine`.
 
 You can create a pull request with the `bb pullrequest create` command:
 

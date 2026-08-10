@@ -50,6 +50,10 @@ func setReviewerFlag(t *testing.T, cmd *cobra.Command, values ...string) {
 }
 
 func TestCreateProcessSuccessWithDefaultReviewers(t *testing.T) {
+	// createProcess resolves the current user through user.GetMe, so this test counts a GET /user it
+	// would otherwise only see once per binary: the shared cache testutil.TempCaches installs serves
+	// every later resolution of the same profile (e.g. under -count=2).
+	withScratchUserCache(t)
 	withCreateOptions(t, func() {
 		createOptions.Title = "Add feature"
 		createOptions.Description = "some description"

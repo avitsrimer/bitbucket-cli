@@ -669,7 +669,9 @@ func resolveRequestURL(apiRoot *url.URL, uripath string) (*url.URL, error) {
 }
 
 // mapErrorResponse turns a non-2xx response into an error: BitBucket's own error payload when
-// the body carries one, a generic status error otherwise
+// the body carries one, a generic status error otherwise. Either way the result is wrapped in a
+// statusError carrying the response's status code, so a caller can classify it (see IsNotFound)
+// without parsing the message -- which the wrapping leaves untouched.
 func mapErrorResponse(result *Response) error {
 	var bberr BitBucketError
 	// BitBucketError.UnmarshalJSON's last-resort fallback succeeds for any valid JSON object
@@ -677,9 +679,9 @@ func mapErrorResponse(result *Response) error {
 	// empty; only trust it when it actually carried something, otherwise fall through to the
 	// generic status-text error so failures are never reported as a completely blank message.
 	if jerr := json.Unmarshal(result.Body, &bberr); jerr == nil && (bberr.Message != "" || bberr.Detail != "" || len(bberr.Fields) > 0) {
-		return &bberr
+		return &statusError{StatusCode: result.StatusCode, err: &bberr}
 	}
-	return fmt.Errorf("cannot send request: %s", result.StatusText)
+	return &statusError{StatusCode: result.StatusCode, err: errors.New("cannot send request: " + result.StatusText)}
 }
 
 func (profile *Profile) send(ctx context.Context, options *requestOptions, uripath string, response any) (result *Response, err error) {

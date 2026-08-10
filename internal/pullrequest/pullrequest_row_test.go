@@ -6,6 +6,7 @@ import (
 
 	"github.com/avitsrimer/bitbucket-cli/internal/commit"
 	"github.com/avitsrimer/bitbucket-cli/internal/pullrequest"
+	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
@@ -31,6 +32,86 @@ func TestPullRequestGetHeadersGetIncludesDescription(t *testing.T) {
 
 	listCmd := &cobra.Command{Use: "list"}
 	assert.Equal(t, []string{"ID", "Title", "source", "destination", "state"}, target.GetHeaders(listCmd))
+}
+
+// TestPullRequestGetHeadersAuthorMode proves the "repository" column joins the DEFAULT column set
+// exactly when `pullrequest list` runs in author mode (--author or --mine), and never otherwise.
+// The "flags registered but unset" case is the one that matters most: --mine is a bool flag, whose
+// unset Value.String() is the non-empty "false", so a detection reading flag values as strings
+// would flip every plain list (and every `get`) into author mode.
+func TestPullRequestGetHeadersAuthorMode(t *testing.T) {
+	authorDefaults := []string{"ID", "Title", "repository", "source", "destination", "state"}
+	repoDefaults := []string{"ID", "Title", "source", "destination", "state"}
+
+	tests := []struct {
+		name  string
+		setup func(t *testing.T, cmd *cobra.Command)
+		want  []string
+	}{
+		{
+			name: "author set",
+			setup: func(t *testing.T, cmd *cobra.Command) {
+				t.Helper()
+				require.NoError(t, cmd.Flags().Set("author", "{11111111-1111-1111-1111-111111111111}"))
+			},
+			want: authorDefaults,
+		},
+		{
+			name: "mine set",
+			setup: func(t *testing.T, cmd *cobra.Command) {
+				t.Helper()
+				require.NoError(t, cmd.Flags().Set("mine", "true"))
+			},
+			want: authorDefaults,
+		},
+		{
+			name:  "flags registered but unset",
+			setup: func(*testing.T, *cobra.Command) {},
+			want:  repoDefaults,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := &cobra.Command{Use: "list"}
+			cmd.Flags().String("author", "", "")
+			cmd.Flags().Bool("mine", false, "")
+			tt.setup(t, cmd)
+
+			assert.Equal(t, tt.want, pullrequest.PullRequest{}.GetHeaders(cmd))
+		})
+	}
+
+	// a command that never registered the flags at all (`pullrequest get`, and every other
+	// GetHeaders caller) is not author mode either
+	getCmd := &cobra.Command{Use: "get [flags] <pullrequest-id>"}
+	getDefaults := []string{"ID", "Title", "source", "destination", "state", "description"}
+	assert.Equal(t, getDefaults, pullrequest.PullRequest{}.GetHeaders(getCmd))
+	assert.Equal(t, repoDefaults, pullrequest.PullRequest{}.GetHeaders(&cobra.Command{Use: "list"}))
+	assert.Equal(t, repoDefaults, pullrequest.PullRequest{}.GetHeaders(nil))
+}
+
+// TestPullRequestGetRowRepository proves the "repository" column renders the destination
+// repository's full_name, and falls back to the shared EmptyCell filler when the payload carried no
+// repository (the field is optional on the API's endpoint object) or an empty full_name.
+func TestPullRequestGetRowRepository(t *testing.T) {
+	withRepository := pullrequest.PullRequest{
+		Destination: pullrequest.Endpoint{
+			Branch:     pullrequest.Branch{Name: "master"},
+			Repository: &repository.Repository{FullName: "acme/widgets"},
+		},
+	}
+	assert.Equal(t, []string{"acme/widgets"}, withRepository.GetRow([]string{"repository"}))
+
+	withoutRepository := pullrequest.PullRequest{
+		Destination: pullrequest.Endpoint{Branch: pullrequest.Branch{Name: "master"}},
+	}
+	assert.Equal(t, []string{" "}, withoutRepository.GetRow([]string{"repository"}))
+
+	emptyFullName := pullrequest.PullRequest{
+		Destination: pullrequest.Endpoint{Repository: &repository.Repository{}},
+	}
+	assert.Equal(t, []string{" "}, emptyFullName.GetRow([]string{"repository"}))
 }
 
 func TestPullRequestGetRow(t *testing.T) {
@@ -93,39 +174,9 @@ func TestPullRequestGetRowParticipantsEmpty(t *testing.T) {
 	assert.Equal(t, []string{" "}, row)
 }
 
-// TestPullRequestGetRowCoversEveryColumn iterates every column name GetHeaders can produce via
-// --columns (the participants column above already covers the one entry needing a non-trivial
-// fixture) and requires each declared column to produce its real value instead of falling through
-// to GetRow's default " " arm for a populated field.
-func TestPullRequestGetRowCoversEveryColumn(t *testing.T) {
-	createdOn := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
-	target := pullrequest.PullRequest{
-		ID:           42,
-		Title:        "Add feature",
-		Description:  "some description",
-		State:        "OPEN",
-		Author:       user.User{Name: "Jane Doe"},
-		ClosedBy:     user.User{Name: "John Doe"},
-		Reason:       "declined by reviewer",
-		CommentCount: 3,
-		TaskCount:    1,
-		Participants: []user.Participant{{User: user.User{Nickname: "jane_doe"}, State: "approved"}},
-		CreatedOn:    createdOn,
-		UpdatedOn:    createdOn,
-		Source:       pullrequest.Endpoint{Branch: pullrequest.Branch{Name: "feature"}},
-		Destination:  pullrequest.Endpoint{Branch: pullrequest.Branch{Name: "master"}},
-		MergeCommit:  &commit.CommitReference{Hash: "abcdef0123456789"},
-	}
-
-	for _, name := range []string{
-		"id", "title", "description", "source", "destination", "state", "author", "closed_by",
-		"commit", "reason", "comments", "tasks", "participants", "created_on", "updated_on",
-	} {
-		row := target.GetRow([]string{name})
-		require.Len(t, row, 1)
-		assert.NotEqual(t, " ", row[0], "column %q hit GetRow's default arm instead of a real case", name)
-	}
-}
+// Every-column GetRow coverage lives in pullrequest_row_internal_test.go, inside the package: only
+// an internal test can iterate the column table itself (columns.Columns()) instead of a hand-kept
+// name list that goes stale the moment a column is added.
 
 func TestPullRequestGetRowWithoutUpdatedOnOrMergeCommit(t *testing.T) {
 	target := pullrequest.PullRequest{}

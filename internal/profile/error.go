@@ -2,7 +2,9 @@ package profile
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 )
 
@@ -35,6 +37,32 @@ func (bberr *BitBucketError) Error() string {
 		buffer.WriteString(")")
 	}
 	return buffer.String()
+}
+
+// statusError is the single carrier of the HTTP status a non-2xx response was mapped from: every
+// error mapErrorResponse builds is wrapped in one, whether the body carried a BitBucket error
+// payload (*BitBucketError) or nothing usable (the bare "cannot send request: <status text>"
+// message). It adds nothing to the message it wraps -- Error() renders the wrapped error verbatim,
+// so every caller and test sees exactly the text it always did -- and unwraps to it, so an
+// errors.As for *BitBucketError still finds the payload underneath. Callers reacting to a specific
+// status go through IsNotFound (or an errors.As of their own) rather than parsing the message.
+type statusError struct {
+	StatusCode int
+	err        error
+}
+
+func (serr *statusError) Error() string {
+	return serr.err.Error()
+}
+
+func (serr *statusError) Unwrap() error {
+	return serr.err
+}
+
+// IsNotFound reports whether err was mapped from an HTTP 404 response.
+func IsNotFound(err error) bool {
+	var serr *statusError
+	return errors.As(err, &serr) && serr.StatusCode == http.StatusNotFound
 }
 
 // UnmarshalJSON unmarshals the JSON
