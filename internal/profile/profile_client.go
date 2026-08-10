@@ -677,9 +677,10 @@ func mapErrorResponse(result *Response) error {
 	// empty; only trust it when it actually carried something, otherwise fall through to the
 	// generic status-text error so failures are never reported as a completely blank message.
 	if jerr := json.Unmarshal(result.Body, &bberr); jerr == nil && (bberr.Message != "" || bberr.Detail != "" || len(bberr.Fields) > 0) {
+		bberr.StatusCode = result.StatusCode
 		return &bberr
 	}
-	return fmt.Errorf("cannot send request: %s", result.StatusText)
+	return &statusError{StatusCode: result.StatusCode, StatusText: result.StatusText}
 }
 
 func (profile *Profile) send(ctx context.Context, options *requestOptions, uripath string, response any) (result *Response, err error) {

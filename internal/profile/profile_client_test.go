@@ -242,6 +242,48 @@ func (suite *ProfileSuite) TestGetMapsBitBucketErrorBody() {
 	suite.Equal("There is no API hosted at this URL", bberr.Detail)
 }
 
+// TestIsNotFoundRecognizesBothErrorShapes pins profile.IsNotFound against both errors a non-2xx
+// response can map to -- a *BitBucketError built from the API's own error payload and the bare
+// status error used when the body carries none -- and against a non-404 of each shape. Callers use
+// it to attach guidance to a specific status (see pullrequest list's --author 404 message), which
+// only works if the status survives the mapping instead of only appearing inside the message text.
+func (suite *ProfileSuite) TestIsNotFoundRecognizesBothErrorShapes() {
+	tests := []struct {
+		name        string
+		status      int
+		body        string
+		contentType string
+		want        bool
+	}{
+		{name: "404 with bitbucket error body", status: http.StatusNotFound, body: `{"type":"error","error":{"message":"No such user"}}`, contentType: "application/json", want: true},
+		{name: "404 without json body", status: http.StatusNotFound, body: "not found, not json", want: true},
+		{name: "403 with bitbucket error body", status: http.StatusForbidden, body: `{"type":"error","error":{"message":"forbidden"}}`, contentType: "application/json"},
+		{name: "500 without json body", status: http.StatusInternalServerError, body: "boom"},
+	}
+
+	for _, tt := range tests {
+		suite.Run(tt.name, func() {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if tt.contentType != "" {
+					w.Header().Set("Content-Type", tt.contentType)
+				}
+				w.WriteHeader(tt.status)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer server.Close()
+
+			apiRoot, err := url.Parse(server.URL)
+			suite.Require().NoError(err)
+			target := &profile.Profile{APIRoot: apiRoot, AccessToken: "dummy-token"}
+
+			var item testItem
+			err = target.Get(suite.Context, "/repo", &item)
+			suite.Require().Error(err)
+			suite.Equal(tt.want, profile.IsNotFound(err))
+		})
+	}
+}
+
 func (suite *ProfileSuite) TestGetNon2xxWithoutJSONBodyReturnsGenericError() {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)

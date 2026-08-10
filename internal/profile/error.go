@@ -2,7 +2,9 @@ package profile
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 )
 
@@ -14,6 +16,9 @@ type BitBucketError struct {
 	Message string              `json:"-"`
 	Detail  string              `json:"-"`
 	Fields  map[string][]string `json:"-"`
+	// StatusCode is the HTTP status of the response this error was mapped from. It is set by the
+	// client (mapErrorResponse), not by the payload: Bitbucket's error body carries no status.
+	StatusCode int `json:"-"`
 }
 
 func (bberr *BitBucketError) Error() string {
@@ -35,6 +40,34 @@ func (bberr *BitBucketError) Error() string {
 		buffer.WriteString(")")
 	}
 	return buffer.String()
+}
+
+// statusError is the error a non-2xx response whose body carries no usable BitBucket error payload
+// maps to. It renders exactly the status text (the message every caller and test already sees) and
+// additionally keeps the status code, so a caller can react to a specific status (see IsNotFound)
+// without parsing that message.
+type statusError struct {
+	StatusCode int
+	StatusText string
+}
+
+func (serr *statusError) Error() string {
+	return "cannot send request: " + serr.StatusText
+}
+
+// IsNotFound reports whether err was mapped from an HTTP 404 response, for either of the two error
+// shapes a non-2xx response produces: a *BitBucketError built from the API's own error payload, or
+// the bare status error used when the body carries none.
+func IsNotFound(err error) bool {
+	var bberr *BitBucketError
+	if errors.As(err, &bberr) {
+		return bberr.StatusCode == http.StatusNotFound
+	}
+	var serr *statusError
+	if errors.As(err, &serr) {
+		return serr.StatusCode == http.StatusNotFound
+	}
+	return false
 }
 
 // UnmarshalJSON unmarshals the JSON
