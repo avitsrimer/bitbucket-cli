@@ -6,7 +6,10 @@ Guidance for Claude Code when working in this repository.
 
 `bb` — an opinionated, macOS-first fork of [gildas/bitbucket-cli](https://github.com/gildas/bitbucket-cli),
 deliberately narrower than upstream. The supported CLI surface is `bb pullrequest` (full
-command tree), `bb user`, `bb profile` (authentication plumbing), `bb pipeline` (`get`,
+command tree; `pullrequest list` additionally takes `--author <id>`/`--mine`, which switch it
+to a workspace-wide author mode — `GET /workspaces/{ws}/pullrequests/{user}`, no repository
+resolution at all, an explicitly-passed `--repository` rejected, and `repository` added to the
+default column set), `bb user`, `bb profile` (authentication plumbing), `bb pipeline` (`get`,
 `list`, `trigger`, `stop`, plus the `step` subgroup: `get`, `list`, `logs`, `report`,
 `cases`), `bb repository`/`bb repo` (`get`, `list`, `clone` — read-only, no
 create/delete/fork/update, no `get --forks`), `bb workspace` (`get`, `list`, `members` —

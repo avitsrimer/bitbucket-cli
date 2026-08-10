@@ -110,6 +110,29 @@ positional or `--current`; given neither, it errors `argument profile is missing
   [--destination <branch>] [--query '<bitbucket query>'] [--commit <full-hash>]` — `--state`
   is repeatable and defaults to `open` alone when omitted; `all` fetches every state. `--commit`
   is mutually exclusive with `--state`/`--query`/`--source`/`--destination`.
+- `bb pullrequest list --mine` / `bb pullrequest list --author <user>` — **author mode**: lists
+  pull requests across EVERY repository of the resolved workspace in one request, instead of the
+  repository-scoped listing above. Use this for "my open PRs" or "what has X got open" rather
+  than looping over `bb repo list`. No repository is resolved at all, so it works from any
+  directory (including a non-Bitbucket checkout) as long as the workspace resolves via
+  `--workspace` > Bitbucket git remote > profile `--default-workspace`. Passing `--repository`
+  explicitly is rejected with an error rather than silently ignored. `--author` and `--mine` are
+  mutually exclusive with each other and with `--commit`; `--state`/`--query`/`--source`/
+  `--destination` all still apply and compose exactly as above.
+  `--author` takes a **UUID in braces** (`'{01234567-89ab-cdef-0123-456789abcdef}'` — braces
+  required, quote it so the shell doesn't eat them) or an Atlassian account ID. Bitbucket
+  usernames are mostly defunct post-GDPR and the nicknames `bb workspace members` prints in its
+  `Name` column are NOT accepted — that command's `ID` column is the UUID this flag wants. There
+  is no `me` sentinel: `--author` is a verbatim pass-through, use `--mine` for yourself. A wrong
+  form comes back as a 404 whose message spells out the accepted forms.
+  Author mode adds `repository` to the default columns (`ID, Title, repository, source,
+  destination, state`); repository-scoped `list`/`get` defaults are unchanged, and `--columns
+  repository` / `--sort repository` work on those too. The default sort is still `+id`, which is
+  meaningless across repositories — pass `--sort repository` or `--sort updated_on` in author
+  mode.
+  Token scope caveat: this endpoint is workspace-level, so a **Repository** Access Token that
+  works fine for repository-scoped `list` gets a 403 here. Use a workspace-scoped token, an API
+  token, or fall back to per-repository listing.
 - `bb pullrequest get <id>` (aliases `show`, `info`, `display`) — the id is REQUIRED here (no
   fallback — unlike approve/unapprove/request-changes/remove-request-changes/decline/merge/
   merge-status/diff/patch/commits/activities below; see the CRITICAL section above for what
