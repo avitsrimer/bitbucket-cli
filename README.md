@@ -1053,6 +1053,12 @@ bb pullrequest comment add 1 \
   --line    404
 ```
 
+`--line` anchors the comment to line 404 of `README.md` as it reads at the pull request's head
+(the **new** side of the diff) — this is the line number you'd get counting in the file as it
+exists on the branch. Use `--from` instead of `--line` to anchor to a line number in the file's
+**old** (base) version, e.g. to comment on a line that was deleted. `--line` and `--from` are
+mutually exclusive; there is no `--to`.
+
 `--file` names a path inside the pull request's own diff, not a local file: every invocation
 (with or without `--dry-run`) validates it against the pull request's actual diffstat before
 sending the comment, which is deliberately stricter than what the write endpoint itself enforces.
@@ -1402,6 +1408,14 @@ ways that break existing scripts and installs:
 - **Config file format is unchanged** (plain YAML, same `profiles:` shape) but the on-disk
   filename is `config-cli.yml`, not `config-cli.json` as some older docs suggested — see
   [Profiles](#profiles).
+- **`bb pullrequest comment create`/`update --line` now anchors to the new (head) side of the
+  file, not the old (base) side.** Previously `--line` was sent as the API's `inline.from`
+  (old-side), which mis-anchored the comment whenever lines were added or removed above it;
+  `--line` now maps to `inline.to` (new-side), matching how users actually count line numbers —
+  against the file as it reads in the pull request. Use `--from` to anchor to the old side (e.g.
+  a deleted line) instead. `--to` is removed — it never had working "range end" semantics.
+
+
 
 ## Maturity
 

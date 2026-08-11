@@ -253,13 +253,13 @@ Non-negotiable rules for whoever executes this plan (agent or human):
 - Modify: `CLAUDE.md` (grep for stale `--line`/`--from`/`--to` comment-flag references; update
   the "What this is" summary if it describes the old flag model)
 
-- [ ] rewrite SKILL.md `:205-212` and `:223-226`: old-side vs new-side semantics, `--to`
+- [x] rewrite SKILL.md `:205-212` and `:223-226`: old-side vs new-side semantics, `--to`
       removal (leave validation/range wording to PR 2/3 edits)
-- [ ] README.md: fix the `--line 404` example (`:1050-1053`), the validation paragraph
+- [x] README.md: fix the `--line 404` example (`:1050-1053`), the validation paragraph
       (`:1056-1060`) as far as PR 1 changes it, and add the breaking change (`--line` side
       flip, `--to` removal) to the Upgrading section (`:1369+`)
-- [ ] verify the SKILL.md sync-guard test in `internal/cmd` passes
-- [ ] full gate: `go test -race ./...`, `golangci-lint run` — **PR 1 boundary**
+- [x] verify the SKILL.md sync-guard test in `internal/cmd` passes
+- [x] full gate: `go test -race ./...`, `golangci-lint run` — **PR 1 boundary**
 
 ---
 **PR 2 — validate anchor lines against the PR's own diff (Task 4)**

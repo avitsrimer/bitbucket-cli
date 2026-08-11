@@ -204,12 +204,13 @@ flag anywhere in this subtree.
 - `bb pullrequest comment list <pr-id>`
 - `bb pullrequest comment get <pr-id> <comment-id>`
 - `bb pullrequest comment create <pr-id> (--comment <text> | --comment-file <path-or-->) [--file
-  <path-in-diff> [(--line <n> | --from <n> [--to <n>])]] [--pending] [--parent <comment-id>]`
+  <path-in-diff> [--line <n>] [--from <n>]] [--pending] [--parent <comment-id>]`
   (aliases `add`, `new`). `--comment` and `--comment-file` are mutually exclusive and exactly one
-  is required. `--line` is a plain alias for `--from` (same underlying value, mutually exclusive
-  with `--from` itself); `--to` pairs with `--from` only — it is mutually exclusive with `--line`,
-  so a multi-line range comment must use `--from`/`--to`, never `--line`/`--to`.
-  `--pending` marks it a pending (draft) comment.
+  is required. `--line` anchors to the line number in the **new** (head) version of the file —
+  this is what most people mean when they say "comment on line N", since that's the file as it
+  reads in the PR. `--from` anchors to the line number in the **old** (base) version of the file
+  instead, for commenting on a line that was deleted. `--line` and `--from` are mutually
+  exclusive; there is no `--to`. `--pending` marks it a pending (draft) comment.
   **Shell-quoting hazard: a markdown comment body with backticks or `$(...)` is a live
   command-substitution risk on the command line. ALWAYS write it to a file (or heredoc into
   `--comment-file -`) instead of passing it inline with `--comment` whenever the body
@@ -222,7 +223,7 @@ flag anywhere in this subtree.
   `--file` must name a path the pull request's own diff actually touches (validated against
   the diffstat even under `--dry-run`), not an arbitrary local file.
 - `bb pullrequest comment update <pr-id> <comment-id> (--comment <text> | --comment-file
-  <path-or-->) [--file <path-in-diff> [(--line <n> | --from <n> [--to <n>])]] [--pending]
+  <path-or-->) [--file <path-in-diff> [--line <n>] [--from <n>]] [--pending]
   [--parent <comment-id>]` (aliases `edit`) — same flag set as `create` above.
 - `bb pullrequest comment delete <pr-id> <comment-id>...` (aliases `remove`, `rm`)
 - `bb pullrequest comment resolve <pr-id> <comment-id>`
