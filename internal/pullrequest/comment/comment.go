@@ -36,16 +36,16 @@ type commentEditOptions struct {
 	Comment     string
 	CommentFile string
 	File        string
-	From        int
-	To          int
 	ParentID    int64
 	Pending     bool
 }
 
 // payload builds the request body for a create/update comment request from o, resolving the
-// comment body from --comment or --comment-file/stdin, the --file/--line/--from/--to file anchor,
-// and the --parent/--pending flags. Returns an error when the resolved comment body is empty or
-// when --line/--from/--to was given without --file.
+// comment body from --comment or --comment-file/stdin, the --file/--line/--from file anchor, and
+// the --parent/--pending flags. --line anchors to the new (head) version of the file, --from to
+// the old (base) version -- see registerCommentEditFlags. Returns an error when the resolved
+// comment body is empty, when --line/--from was given without --file, or when --line/--from is
+// not a positive integer.
 func (o commentEditOptions) payload(cmd *cobra.Command) (CommentPayload, error) {
 	commentBody, err := o.resolveComment(cmd)
 	if err != nil {
@@ -64,17 +64,13 @@ func (o commentEditOptions) payload(cmd *cobra.Command) (CommentPayload, error) 
 	}
 
 	if o.File != "" {
-		payload.Anchor = &common.FileAnchor{
-			Path: o.File,
+		anchor, err := o.fileAnchor(cmd)
+		if err != nil {
+			return CommentPayload{}, err
 		}
-		if o.From > 0 {
-			payload.Anchor.From = uint64(o.From)
-		}
-		if o.To > 0 {
-			payload.Anchor.To = uint64(o.To)
-		}
-	} else if o.From > 0 || o.To > 0 {
-		return CommentPayload{}, errors.New("cannot specify from/to without a file")
+		payload.Anchor = anchor
+	} else if common.StringFlagValue(cmd, "line") != "" || common.StringFlagValue(cmd, "from") != "" {
+		return CommentPayload{}, errors.New("cannot specify --line/--from without --file")
 	}
 
 	if cmd.Flag("pending").Changed {
@@ -82,6 +78,40 @@ func (o commentEditOptions) payload(cmd *cobra.Command) (CommentPayload, error) 
 	}
 
 	return payload, nil
+}
+
+// fileAnchor builds the *common.FileAnchor for o's --file/--line/--from flags. Called only when
+// o.File is non-empty. Returns an error when --line/--from is not a positive integer.
+func (o commentEditOptions) fileAnchor(cmd *cobra.Command) (*common.FileAnchor, error) {
+	line := common.StringFlagValue(cmd, "line")
+	from := common.StringFlagValue(cmd, "from")
+
+	anchor := &common.FileAnchor{Path: o.File}
+	if line != "" {
+		to, err := parseAnchorLine("line", line)
+		if err != nil {
+			return nil, err
+		}
+		anchor.To = to
+	}
+	if from != "" {
+		fromLine, err := parseAnchorLine("from", from)
+		if err != nil {
+			return nil, err
+		}
+		anchor.From = fromLine
+	}
+	return anchor, nil
+}
+
+// parseAnchorLine parses value, the raw string given to flagName (--line or --from), as a
+// positive line number.
+func parseAnchorLine(flagName, value string) (uint64, error) {
+	line, err := strconv.ParseUint(value, 10, 64)
+	if err != nil || line == 0 {
+		return 0, fmt.Errorf("--%s must be a positive line number, got %q", flagName, value)
+	}
+	return line, nil
 }
 
 // resolveComment returns the comment body to send: o.CommentFile's content (or cmd's stdin, via
@@ -104,13 +134,11 @@ func registerCommentEditFlags(cmd *cobra.Command, options *commentEditOptions, c
 	cmd.Flags().StringVar(&options.Comment, "comment", "", commentHelp)
 	cmd.Flags().StringVar(&options.CommentFile, "comment-file", "", "Read the comment body from <path>, or - to read it from stdin. Mutually exclusive with --comment.")
 	cmd.Flags().StringVar(&options.File, "file", "", "File to comment on")
-	cmd.Flags().IntVar(&options.From, "line", 0, "Line to comment on, same as --from. Cannot be used with --to")
-	cmd.Flags().IntVar(&options.From, "from", 0, "From line to comment on. Cannot be used with --line")
-	cmd.Flags().IntVar(&options.To, "to", 0, "To line to comment on. Cannot be used with --line")
+	cmd.Flags().String("line", "", "Line to comment on, anchored to the new (head) version of the file. Cannot be used with --from.")
+	cmd.Flags().String("from", "", "Line to comment on, anchored to the old (base) version of the file -- for commenting on deleted lines. Cannot be used with --line.")
 	cmd.Flags().Int64Var(&options.ParentID, "parent", 0, "Parent comment ID to reply to")
 	cmd.Flags().BoolVar(&options.Pending, "pending", false, "Mark the comment as pending")
 	cmd.MarkFlagsMutuallyExclusive("line", "from")
-	cmd.MarkFlagsMutuallyExclusive("line", "to")
 	cmd.MarkFlagsMutuallyExclusive("comment", "comment-file")
 	cmd.MarkFlagsOneRequired("comment", "comment-file")
 	_ = cmd.MarkFlagFilename("comment-file")

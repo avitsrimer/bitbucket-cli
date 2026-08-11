@@ -166,8 +166,6 @@ func TestCreateProcessWithFileAnchor(t *testing.T) {
 	withCommentEditOptions(t, &createOptions, func() {
 		createOptions.Comment = "fix this"
 		createOptions.File = "main.go"
-		createOptions.From = 10
-		createOptions.To = 12
 	})
 
 	var gotBody CommentPayload
@@ -185,6 +183,12 @@ func TestCreateProcessWithFileAnchor(t *testing.T) {
 			_, _ = w.Write([]byte(`{"id":2}`))
 		}
 	}, false)
+	if err := cmd.Flags().Set("from", "10"); err != nil {
+		t.Fatalf("cannot set --from: %v", err)
+	}
+	if err := cmd.Flags().Set("line", "12"); err != nil {
+		t.Fatalf("cannot set --line: %v", err)
+	}
 
 	testutil.CaptureStdout(t, func() {
 		if err := createProcess(cmd, []string{"42"}); err != nil {
@@ -193,7 +197,7 @@ func TestCreateProcessWithFileAnchor(t *testing.T) {
 	})
 
 	if gotBody.Anchor == nil {
-		t.Fatal("posted anchor = nil, want the --file/--from/--to anchor to be set")
+		t.Fatal("posted anchor = nil, want the --file/--from/--line anchor to be set")
 	}
 	if gotBody.Anchor.Path != "main.go" || gotBody.Anchor.From != 10 || gotBody.Anchor.To != 12 {
 		t.Errorf("posted anchor = %+v, want {Path:main.go From:10 To:12}", gotBody.Anchor)
@@ -260,22 +264,25 @@ func TestCreateProcessEmptyCommentBodyErrors(t *testing.T) {
 	}
 }
 
-// TestCreateProcessFromWithoutFileReturnsError verifies that --from/--to without --file produces
-// the real, readable "cannot specify from/to without a file" error message, and sends no request.
+// TestCreateProcessFromWithoutFileReturnsError verifies that --from without --file produces the
+// real, readable "cannot specify --line/--from without --file" error message, and sends no
+// request.
 func TestCreateProcessFromWithoutFileReturnsError(t *testing.T) {
 	withCommentEditOptions(t, &createOptions, func() {
 		createOptions.Comment = "fix this"
-		createOptions.From = 10
 	})
 
 	var requestCount int
 	cmd := setupTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, false)
+	if err := cmd.Flags().Set("from", "10"); err != nil {
+		t.Fatalf("cannot set --from: %v", err)
+	}
 
 	err := createProcess(cmd, []string{"42"})
 	if err == nil {
 		t.Fatal("createProcess() expected an error, got nil")
 	}
-	if !strings.Contains(err.Error(), "cannot specify from/to without a file") {
+	if !strings.Contains(err.Error(), "cannot specify --line/--from without --file") {
 		t.Errorf("error = %q, want it to contain the real message instead of a blank/generic one", err.Error())
 	}
 	if requestCount != 0 {

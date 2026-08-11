@@ -84,20 +84,143 @@ func TestRegisterCommentEditFlagsAcceptsCommentAlone(t *testing.T) {
 	}
 }
 
-// TestRegisterCommentEditFlagsLineHelpTextDescribesLine proves the FR-11 fix: --line's help
-// string describes --line, not a copy-pasted description of --from.
-func TestRegisterCommentEditFlagsLineHelpTextDescribesLine(t *testing.T) {
+// TestRegisterCommentEditFlagsLineHelpTextDescribesSides proves --line and --from each describe
+// their own file side: --line anchors to the new (head) version of the file, --from to the old
+// (base) version, and neither copies the other's text.
+func TestRegisterCommentEditFlagsLineHelpTextDescribesSides(t *testing.T) {
 	cmd, _ := newIsolatedCommentEditCmd()
 
-	flag := cmd.Flags().Lookup("line")
-	if flag == nil {
+	line := cmd.Flags().Lookup("line")
+	if line == nil {
 		t.Fatal("--line flag not registered")
 	}
-	if !strings.Contains(flag.Usage, "--line") && !strings.HasPrefix(flag.Usage, "Line to comment on") {
-		t.Errorf("--line help text = %q, want it to describe --line rather than --from", flag.Usage)
+	if !strings.Contains(line.Usage, "new") {
+		t.Errorf("--line help text = %q, want it to describe the new (head) file side", line.Usage)
 	}
-	if strings.Contains(flag.Usage, "From line to comment on") {
-		t.Errorf("--line help text = %q, still carries --from's copy-pasted description", flag.Usage)
+
+	from := cmd.Flags().Lookup("from")
+	if from == nil {
+		t.Fatal("--from flag not registered")
+	}
+	if !strings.Contains(from.Usage, "old") {
+		t.Errorf("--from help text = %q, want it to describe the old (base) file side", from.Usage)
+	}
+
+	if line.Usage == from.Usage {
+		t.Errorf("--line and --from share identical help text %q, want each to describe its own side", line.Usage)
+	}
+}
+
+// TestRegisterCommentEditFlagsRejectsUnknownToFlag verifies --to (removed: its documented "range
+// end" semantics never matched the API) is rejected as an unknown flag rather than silently
+// accepted as an alias of anything.
+func TestRegisterCommentEditFlagsRejectsUnknownToFlag(t *testing.T) {
+	cmd, _ := newIsolatedCommentEditCmd()
+	cmd.SetArgs([]string{"42", "--comment", "hi", "--to", "5"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil, want an unknown flag error for --to")
+	}
+	if !strings.Contains(err.Error(), "unknown flag") {
+		t.Errorf("error = %q, want an unknown flag error", err.Error())
+	}
+}
+
+// TestRegisterCommentEditFlagsRejectsLineAndFromTogether verifies --line and --from remain
+// mutually exclusive.
+func TestRegisterCommentEditFlagsRejectsLineAndFromTogether(t *testing.T) {
+	cmd, _ := newIsolatedCommentEditCmd()
+	cmd.SetArgs([]string{"42", "--comment", "hi", "--file", "main.go", "--line", "10", "--from", "5"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil, want a mutual-exclusion error for --line/--from")
+	}
+	if !strings.Contains(err.Error(), "none of the others can be") {
+		t.Errorf("error = %q, want a mutual-exclusion error", err.Error())
+	}
+}
+
+// TestPayloadLineAnchorsNewSide proves the bug fix: --line now anchors to the new (head) file
+// side (inline.to), not the old side (inline.from).
+func TestPayloadLineAnchorsNewSide(t *testing.T) {
+	cmd, options := newIsolatedCommentEditCmd()
+	cmd.SetArgs([]string{"42", "--comment", "hi", "--file", "main.go", "--line", "1040"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	payload, err := options.payload(cmd)
+	if err != nil {
+		t.Fatalf("payload() error = %v", err)
+	}
+	if payload.Anchor == nil {
+		t.Fatal("payload.Anchor = nil, want a file anchor")
+	}
+	if payload.Anchor.To != 1040 {
+		t.Errorf("payload.Anchor.To = %d, want 1040", payload.Anchor.To)
+	}
+	if payload.Anchor.From != 0 {
+		t.Errorf("payload.Anchor.From = %d, want 0 (unset)", payload.Anchor.From)
+	}
+}
+
+// TestPayloadFromAnchorsOldSide proves --from still anchors to the old (base) file side
+// (inline.from).
+func TestPayloadFromAnchorsOldSide(t *testing.T) {
+	cmd, options := newIsolatedCommentEditCmd()
+	cmd.SetArgs([]string{"42", "--comment", "hi", "--file", "main.go", "--from", "990"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	payload, err := options.payload(cmd)
+	if err != nil {
+		t.Fatalf("payload() error = %v", err)
+	}
+	if payload.Anchor == nil {
+		t.Fatal("payload.Anchor = nil, want a file anchor")
+	}
+	if payload.Anchor.From != 990 {
+		t.Errorf("payload.Anchor.From = %d, want 990", payload.Anchor.From)
+	}
+	if payload.Anchor.To != 0 {
+		t.Errorf("payload.Anchor.To = %d, want 0 (unset)", payload.Anchor.To)
+	}
+}
+
+// TestPayloadLineZeroOrNegativeRejected verifies a zero, negative, or non-numeric --line/--from
+// value is rejected rather than silently sent as (or coerced to) a valid line number.
+func TestPayloadLineZeroOrNegativeRejected(t *testing.T) {
+	tests := []struct {
+		name  string
+		flag  string
+		value string
+	}{
+		{"line zero", "line", "0"},
+		{"line negative", "line", "-5"},
+		{"line non-numeric", "line", "abc"},
+		{"from zero", "from", "0"},
+		{"from negative", "from", "-5"},
+		{"from non-numeric", "from", "abc"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd, options := newIsolatedCommentEditCmd()
+			cmd.SetArgs([]string{"42", "--comment", "hi", "--file", "main.go", "--" + tt.flag + "=" + tt.value})
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+
+			_, err := options.payload(cmd)
+			if err == nil {
+				t.Fatalf("payload() expected an error for --%s %q, got nil", tt.flag, tt.value)
+			}
+			if !strings.Contains(err.Error(), "--"+tt.flag) {
+				t.Errorf("error = %q, want it to name --%s", err.Error(), tt.flag)
+			}
+		})
 	}
 }
 
