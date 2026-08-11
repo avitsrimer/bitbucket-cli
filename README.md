@@ -1415,8 +1415,6 @@ ways that break existing scripts and installs:
   against the file as it reads in the pull request. Use `--from` to anchor to the old side (e.g.
   a deleted line) instead. `--to` is removed — it never had working "range end" semantics.
 
-
-
 ## Maturity
 
 > [!WARNING]
