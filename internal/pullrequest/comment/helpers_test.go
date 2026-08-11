@@ -15,12 +15,14 @@ func TestMain(m *testing.M) {
 
 // setupTest primes the fixture workspace/repository caches, points the profile client at a fresh
 // httptest server, and returns a standalone command carrying the flags this package's RunE
-// functions read (profile, repository, output, dry-run, pending).
+// functions read (profile, repository, output, dry-run, pending, line, from).
 func setupTest(t *testing.T, handler http.HandlerFunc, dryRun bool) *cobra.Command {
 	t.Helper()
 
 	testutil.PrimeFixtureCaches(t)
 	cmd := testutil.SetupProfile(t, "comment-test", handler)
+	cmd.Flags().String("line", "", "")
+	cmd.Flags().String("from", "", "")
 	if dryRun {
 		_ = cmd.Flags().Set("dry-run", "true")
 	}

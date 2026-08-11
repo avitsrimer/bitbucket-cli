@@ -156,22 +156,24 @@ func TestUpdateProcessEmptyCommentBodyErrors(t *testing.T) {
 	}
 }
 
-// TestUpdateProcessToWithoutFileReturnsError mirrors the create-side check: --to without --file
-// produces the real, readable error message, not a blank one, and sends no request.
-func TestUpdateProcessToWithoutFileReturnsError(t *testing.T) {
+// TestUpdateProcessLineWithoutFileReturnsError mirrors the create-side check: --line without
+// --file produces the real, readable error message, not a blank one, and sends no request.
+func TestUpdateProcessLineWithoutFileReturnsError(t *testing.T) {
 	withCommentEditOptions(t, &updateOptions, func() {
 		updateOptions.Comment = "updated comment"
-		updateOptions.To = 5
 	})
 
 	var requestCount int
 	cmd := setupTest(t, func(http.ResponseWriter, *http.Request) { requestCount++ }, false)
+	if err := cmd.Flags().Set("line", "5"); err != nil {
+		t.Fatalf("cannot set --line: %v", err)
+	}
 
 	err := updateProcess(cmd, []string{"42", "7"})
 	if err == nil {
 		t.Fatal("updateProcess() expected an error, got nil")
 	}
-	if !strings.Contains(err.Error(), "cannot specify from/to without a file") {
+	if !strings.Contains(err.Error(), "cannot specify --line/--from without --file") {
 		t.Errorf("error = %q, want it to contain the real message instead of a blank/generic one", err.Error())
 	}
 	if requestCount != 0 {
