@@ -236,13 +236,14 @@ Non-negotiable rules for whoever executes this plan (agent or human):
 - Modify: `internal/common/file_anchor.go`
 - Create: `internal/common/file_anchor_test.go` (`package common_test`)
 
-- [ ] write tests first: `String()` cases — new-side single (`path:1040`), old-side single
+- [x] write tests first: `String()` cases — new-side single (`path:1040`), old-side single
       (`path:990(old)`), both sides set (read comment — new side wins), path-only; JSON
       marshal keeps `from`/`to` names + omitempty
-- [ ] implement; check `comment list` "file" column output AND its sorter
+- [x] implement; check `comment list` "file" column output AND its sorter
       (`comment.go:215-220`, `:265-270`) plus any pinned fixtures — update where the new
-      format is intentional
-- [ ] run tests - must pass before task 3
+      format is intentional (sorter/GetRow call `.String()` generically; no format-specific
+      pinned fixtures found for the anchor string)
+- [x] run tests - must pass before task 3
 
 ### Task 3: Documentation sync (ships in PR 1)
 
