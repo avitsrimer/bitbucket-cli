@@ -49,10 +49,20 @@ func init() {
 	updateCmd.Flags().StringSliceVar(&updateOptions.AddReviewers, "add-reviewer", nil, "Reviewer(s) to add to the pullrequest. Can be specified multiple times, or as a comma-separated list. Can be the user Account ID, UUID, name, or nickname. If the first reviewer is `default`, the command will try to find the default reviewers from the repository or project settings. If `all` is the only value, every workspace member is added as a reviewer. Both sentinels exclude the current user when identifiable; with a token that cannot read the user identity, Bitbucket rejects the self-review server-side instead.")
 	updateCmd.Flags().StringSliceVar(&updateOptions.RemoveReviewers, "remove-reviewer", nil, "Reviewer(s) to remove from the pullrequest. Can be specified multiple times, or as a comma-separated list. Can be the user Account ID, UUID, name, or nickname.")
 	updateCmd.Flags().BoolVar(&updateOptions.CloseSourceBranch, "close-source-branch", false, "Close the source branch after merging")
+	registerDraftStateFlags(updateCmd)
 
 	_ = updateCmd.RegisterFlagCompletionFunc(updateOptions.Destination.CompletionFunc("destination"))
 	_ = updateCmd.RegisterFlagCompletionFunc("add-reviewer", reviewerCompletionFunc)
 	_ = updateCmd.RegisterFlagCompletionFunc("remove-reviewer", reviewerCompletionFunc)
+}
+
+// registerDraftStateFlags registers the mutually exclusive --ready/--draft pair on cmd.
+// applySimpleFieldUpdates reads both flags' Changed state and value off cmd, so there is no
+// package-level binding for either.
+func registerDraftStateFlags(cmd *cobra.Command) {
+	cmd.Flags().Bool("ready", false, "Mark the pullrequest as ready for review (clears its draft status). Mutually exclusive with --draft")
+	cmd.Flags().Bool("draft", false, "Mark the pullrequest as a draft. Mutually exclusive with --ready")
+	cmd.MarkFlagsMutuallyExclusive("ready", "draft")
 }
 
 func updateValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
@@ -186,6 +196,22 @@ func applySimpleFieldUpdates(cmd *cobra.Command, pullrequest *PullRequest) (bool
 	}
 	if cmd.Flag("close-source-branch").Changed {
 		pullrequest.CloseSourceBranch = updateOptions.CloseSourceBranch
+		updateWanted = true
+	}
+	// --ready/--draft are two spellings of one decision, so they are one if/else here rather than
+	// two independent blocks: cobra's MarkFlagsMutuallyExclusive already rejects both on the same
+	// command line, and this way a caller that somehow sets both cannot silently get whichever
+	// block happens to come last. Each applies its own value, so --ready=false is --draft and
+	// --draft=false is --ready; passing either flag marks the update as wanted even when the
+	// pullrequest is already in the resulting state, mirroring --close-source-branch.
+	switch {
+	case cmd.Flag("ready").Changed:
+		ready, _ := cmd.Flags().GetBool("ready")
+		pullrequest.Draft = !ready
+		updateWanted = true
+	case cmd.Flag("draft").Changed:
+		draft, _ := cmd.Flags().GetBool("draft")
+		pullrequest.Draft = draft
 		updateWanted = true
 	}
 	return updateWanted, nil

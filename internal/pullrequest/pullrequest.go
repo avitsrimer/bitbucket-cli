@@ -33,6 +33,7 @@ type PullRequest struct {
 	State             string                  `json:"state"`
 	MergeCommit       *commit.CommitReference `json:"merge_commit,omitempty"`
 	CloseSourceBranch bool                    `json:"close_source_branch"`
+	Draft             bool                    `json:"draft"`
 	ClosedBy          user.User               `json:"closed_by"`
 	Author            user.User               `json:"author"`
 	Reviewers         []user.User             `json:"reviewers,omitempty"`
@@ -88,6 +89,11 @@ var columns = common.Columns[PullRequest]{
 	}},
 	{Name: "state", DefaultSorter: false, Compare: func(a, b PullRequest) bool {
 		return strings.ToLower(a.State) < strings.ToLower(b.State)
+	}},
+	// non-drafts sort before drafts, with no tie-break within either group -- the same shape as
+	// every other low-cardinality comparator here (state, comments, tasks, participants).
+	{Name: "draft", DefaultSorter: false, Compare: func(a, b PullRequest) bool {
+		return !a.Draft && b.Draft
 	}},
 	{Name: "author", DefaultSorter: false, Compare: func(a, b PullRequest) bool {
 		return strings.ToLower(a.Author.Name) < strings.ToLower(b.Author.Name)
@@ -156,6 +162,16 @@ func init() {
 // cmd.Name() distinguishes the two commands: getCmd's Use starts with "get", listCmd's with
 // "list".
 //
+// draft is a default column on `get`, `update` and `create`, and not on `list`. On `get` a
+// single-row table has room for it; on `update` and `create` the printed row is the server's own
+// response to the write, so `update <id> --ready` and `create --draft` confirm the resulting draft
+// state from their own output instead of needing a second command (neither registers --columns, so
+// a default is the only way the column can appear there). `merge` also prints a single row without
+// registering --columns, but its response is always a non-draft, so it is left out.
+// description stays `get`-only: a mutation's echoed body is not the place to re-read a PR's whole
+// description. `list` keeps its default set narrow -- there draft is reachable via an explicit
+// `--columns draft` / `--sort draft` -- and every command carries the key in -o json/yaml.
+//
 // participants is deliberately out of both defaults, on either command: a multi-reviewer PR's
 // "nickname:state" summary (see formatParticipants) is exactly the kind of unbounded, list-shaped
 // value the default column set otherwise avoids -- it stays reachable via an explicit
@@ -173,8 +189,13 @@ func (pullrequest PullRequest) GetHeaders(cmd *cobra.Command) []string {
 	if _, _, authorMode := authorModeValue(cmd); authorMode {
 		defaults = []string{"ID", "Title", "repository", "source", "destination", "state"}
 	}
-	if cmd != nil && cmd.Name() == "get" {
-		defaults = append(defaults, "description")
+	if cmd != nil {
+		switch cmd.Name() {
+		case "get":
+			defaults = append(defaults, "description", "draft")
+		case "update", "create":
+			defaults = append(defaults, "draft")
+		}
 	}
 	return common.HeadersFromFlag(cmd, defaults...)
 }
@@ -201,6 +222,8 @@ func (pullrequest PullRequest) GetRow(headers []string) []string {
 			row = append(row, emptyCellIfBlank(pullrequest.Destination.repositoryFullName()))
 		case "state":
 			row = append(row, pullrequest.State)
+		case "draft":
+			row = append(row, strconv.FormatBool(pullrequest.Draft))
 		case "author":
 			row = append(row, pullrequest.Author.Name)
 		case "closed_by":

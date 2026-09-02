@@ -66,11 +66,11 @@ func TestListProcess(t *testing.T) {
 				if err := json.Unmarshal([]byte(stdout), &pullrequests); err != nil {
 					t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
 				}
-				if len(pullrequests) != 2 {
-					t.Fatalf("expected 2 pullrequests, got %d", len(pullrequests))
+				if len(pullrequests) != 3 {
+					t.Fatalf("expected 3 pullrequests, got %d", len(pullrequests))
 				}
-				if pullrequests[0].ID != 1 || pullrequests[1].ID != 2 {
-					t.Errorf("pullrequests = %+v, want sorted by id ascending (1, 2)", pullrequests)
+				if pullrequests[0].ID != 1 || pullrequests[1].ID != 2 || pullrequests[2].ID != 3 {
+					t.Errorf("pullrequests = %+v, want sorted by id ascending (1, 2, 3)", pullrequests)
 				}
 			},
 		},
@@ -245,8 +245,8 @@ func TestListProcessSucceedsWithWorkspaceFlagWhenWorkspaceListingIsForbidden(t *
 	if err := json.Unmarshal([]byte(stdout), &pullrequests); err != nil {
 		t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
 	}
-	if len(pullrequests) != 2 {
-		t.Fatalf("expected 2 pullrequests, got %d", len(pullrequests))
+	if len(pullrequests) != 3 {
+		t.Fatalf("expected 3 pullrequests, got %d", len(pullrequests))
 	}
 }
 
@@ -587,8 +587,8 @@ func TestListProcessCommitScopedListing(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &pullrequests); err != nil {
 		t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
 	}
-	if len(pullrequests) != 2 {
-		t.Fatalf("expected 2 pullrequests, got %d", len(pullrequests))
+	if len(pullrequests) != 3 {
+		t.Fatalf("expected 3 pullrequests, got %d", len(pullrequests))
 	}
 }
 

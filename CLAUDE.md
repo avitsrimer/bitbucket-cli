@@ -16,12 +16,20 @@ create/delete/fork/update, no `get --forks`), `bb workspace` (`get`, `list`, `me
 no permission administration), `bb commit`/`bb branch` (read-only: `commit
 get/list/diff/patch`, `branch list`), `bb artifact` (`list`, `download` — no
 upload/delete, no `--progress`), and `bb install-skill` (writes the embedded
-`skill/bitbucket-cli/` Claude skill to `<to>/skills/bitbucket-cli`). `pipeline
-trigger`/`stop` ask for a `y`/`N` confirmation prompt with `--force` to skip it.
+`skill/bitbucket-cli/` Claude skill to `<to>/skills/bitbucket-cli`). `draft` is a `PullRequest`
+field surfaced as a column: it sits in the defaults of `get`, `update` and `create` (on the latter
+two the printed row is the server's own response to the write, which is what makes those mutations
+self-confirming) but not in `list`'s — `merge` prints a single row without `--columns` too, but its
+response is always a non-draft, so it carries no `draft` column. It is reachable
+via `--columns draft` on `get`/`list`, `--sort draft` on `list` only, and always present in `-o
+json|yaml`. `pipeline trigger`/`stop` ask for a `y`/`N` confirmation prompt with `--force` to skip it.
 `pullrequest merge` also asks for a `y`/`N` confirmation but deliberately has no
 `--force` of any kind — merging is not automatable via `bb` (see
 `internal/common/confirm.go`'s `ConfirmInteractive`). Every other state-changing
-command runs immediately.
+command runs immediately. `pullrequest update` takes `--ready`/`--draft` (mutually
+exclusive; they clear/set the pull request's draft state — each applying its own value, so
+`--ready=false` is `--draft` — combine with every other `update` flag in the same PUT, and are an
+ordinary `WhatIfPayload`-gated mutation — no confirmation prompt, no `--force` of any kind).
 
 Every other command group inherited from upstream (`project`, `issue`, `tag`, `gpg-key`,
 `ssh-key`, `cache`, `remote`, `component`) has been removed from the CLI surface, along

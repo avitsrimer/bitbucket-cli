@@ -258,7 +258,16 @@ $ bb pr list --state all
 > `--columns description`/`--columns participants` (or `--columns all`) to include them anyway on
 > whichever subcommand doesn't already. In table/csv/tsv, `participants` renders a compact
 > `nickname:state` summary per reviewer; `-o json`/`yaml` carry the full participant objects
-> (role, approval state, participation date) regardless of `--columns`.
+> (role, approval state, participation date) regardless of `--columns`. `draft` (`true`/`false`)
+> follows the same split for a different reason: it is a default column on `get`, `update` and
+> `create`, and not on `list`, whose default set stays narrow. On `update` and `create` that
+> default is what makes the write self-confirming: the row they print is the server's own response
+> to it, so `update <id> --ready` and `create --draft` show the resulting draft state without a
+> follow-up command (neither takes `--columns`, so the default is the only way that column can
+> appear there; `merge` prints a single row without `--columns` too, but its response is always a
+> non-draft, so it carries no `draft` column). On `list`, pass `--columns draft` (and `--sort
+> draft`, `list`-only like every `--sort`, orders non-drafts before drafts); `--columns draft`
+> works on `get` too. `-o json`/`yaml` always carry the `draft` key on every one of them.
 
 ### Environment variables
 
@@ -805,6 +814,11 @@ bb pullrequest create \
   --draft
 ```
 
+`create`'s own output carries a `draft` column, so the flag's effect is visible from the same
+call. To promote the draft later, use `bb pullrequest update <id> --ready` (see below) rather than
+the web UI; `bb pullrequest get <id>` shows the `draft` column by default too, and `-o
+json`/`yaml` always carry a `draft` key.
+
 Writing a markdown description on the command line means fighting shell quoting -- backticks and
 `$(...)` inside double quotes are a live command-substitution hazard. `--description-file` reads
 the description from a file instead, or from stdin with `-`, and is mutually exclusive with
@@ -863,6 +877,25 @@ identity, Bitbucket rejects the self-review server-side instead. `--remove-revie
 resolve either word specially -- `--remove-reviewer default` or `--remove-reviewer all` only match
 a current reviewer literally named `default` or `all`.
 
+`--ready` takes a pull request out of draft (marks it ready for review) and `--draft` puts it back
+into draft. The two are mutually exclusive with each other, and either one combines with every
+other `update` flag in the same single request -- promoting a draft and adding its reviewers is one
+call, not two. Passing `--ready` on a pull request that is already ready (or `--draft` on one that
+is already a draft) still sends the update, exactly like `--close-source-branch` does. Both are
+ordinary boolean flags, so an explicit value applies: `--ready=false` is `--draft`, and
+`--draft=false` is `--ready`. The row `update` prints is the server's own response to the write and
+carries a `draft` column by default, so the resulting state is visible from the same call:
+
+```bash
+bb pullrequest update 1 --ready
+bb pullrequest update 1 --ready --add-reviewer {userUUID} --title "My pull request"
+bb pullrequest update 1 --draft
+```
+
+`update` -- including `--ready`/`--draft` -- only works on OPEN pull requests: Bitbucket's API
+documents the update endpoint as mutating open pull requests only, and rejects a merged, declined,
+or superseded target server-side.
+
 You can `approve`or `unapprove` a pull request with the `bb pullrequest approve` or `bb pullrequest unapprove` command:
 
 ```bash
@@ -903,6 +936,11 @@ specify one: <id>, <id>, ...`; with none it errors `no open pullrequest found fo
 <repo>`. Always pass the explicit pull request id to `merge` instead of relying on this
 fallback — relying on it risks merging the wrong pull request the moment a second one is open,
 and that action is not reversible.
+
+Per Bitbucket's own documentation, a draft pull request is not eligible for merging at all,
+manually or automatically. If `merge` is refused because the pull request is a draft, promote it
+first with `bb pullrequest update <id> --ready` (which combines with any other `update` flag in
+the same call), then merge.
 
 `merge` always asks `Merge pullrequest <id>? [y/N]` before sending the request, and — unlike
 every other confirmation-gated command in this fork — there is **no `--force`** to skip it, in

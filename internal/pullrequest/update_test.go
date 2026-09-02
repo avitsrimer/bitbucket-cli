@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -56,6 +57,9 @@ func registerUpdateFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("close-source-branch", false, "")
 	cmd.Flags().StringSlice("add-reviewer", nil, "")
 	cmd.Flags().StringSlice("remove-reviewer", nil, "")
+	// --ready/--draft go through the real registration: applySimpleFieldUpdates reads them off
+	// cmd, and cmd.Flag(name) is nil (so .Changed panics) for any flag not registered here.
+	registerDraftStateFlags(cmd)
 	// Mirrors RootCmd's persistent stop-on-error/warn-on-error/ignore-errors flags (see
 	// internal/cmd/root.go): Profile.ShouldStopOnError/ShouldWarnOnError/ShouldIgnoreErrors read
 	// them via cmd.Flag(name).Changed unconditionally. Guarded against double-registration since
@@ -104,11 +108,58 @@ func TestUpdateValidArgsReturnsNoCompletionsWhenArgAlreadyProvided(t *testing.T)
 func TestApplySimpleFieldUpdates(t *testing.T) {
 	tests := []struct {
 		name        string
-		setFlags    bool
+		flags       map[string]string
+		initial     PullRequest
 		wantChanged bool
+		want        PullRequest
 	}{
-		{name: "title and description changed", setFlags: true, wantChanged: true},
-		{name: "no flags changed", setFlags: false, wantChanged: false},
+		{
+			name:        "title and description changed",
+			flags:       map[string]string{"title": "New title", "description": "New description"},
+			wantChanged: true,
+			want:        PullRequest{Title: "New title", Description: "New description", Summary: common.RenderedText{Raw: "New description"}},
+		},
+		{
+			name:        "no flags changed",
+			initial:     PullRequest{Title: "Old title", Draft: true},
+			wantChanged: false,
+			want:        PullRequest{Title: "Old title", Draft: true},
+		},
+		{
+			name:        "--ready on a draft clears Draft",
+			flags:       map[string]string{"ready": "true"},
+			initial:     PullRequest{Title: "T", Draft: true},
+			wantChanged: true,
+			want:        PullRequest{Title: "T", Draft: false},
+		},
+		{
+			name:        "--draft on a non-draft sets Draft",
+			flags:       map[string]string{"draft": "true"},
+			initial:     PullRequest{Title: "T", Draft: false},
+			wantChanged: true,
+			want:        PullRequest{Title: "T", Draft: true},
+		},
+		{
+			name:        "--ready alone on an already-ready pullrequest still reports a change",
+			flags:       map[string]string{"ready": "true"},
+			initial:     PullRequest{Title: "T", Draft: false},
+			wantChanged: true,
+			want:        PullRequest{Title: "T", Draft: false},
+		},
+		{
+			name:        "--ready=false applies its value and sets Draft",
+			flags:       map[string]string{"ready": "false"},
+			initial:     PullRequest{Title: "T", Draft: false},
+			wantChanged: true,
+			want:        PullRequest{Title: "T", Draft: true},
+		},
+		{
+			name:        "--draft=false applies its value and clears Draft",
+			flags:       map[string]string{"draft": "false"},
+			initial:     PullRequest{Title: "T", Draft: true},
+			wantChanged: true,
+			want:        PullRequest{Title: "T", Draft: false},
+		},
 	}
 
 	for _, tt := range tests {
@@ -120,16 +171,13 @@ func TestApplySimpleFieldUpdates(t *testing.T) {
 
 			cmd := &cobra.Command{}
 			registerUpdateFlags(cmd)
-			if tt.setFlags {
-				if err := cmd.Flags().Set("title", "New title"); err != nil {
-					t.Fatalf("cannot set title flag: %v", err)
-				}
-				if err := cmd.Flags().Set("description", "New description"); err != nil {
-					t.Fatalf("cannot set description flag: %v", err)
+			for name, value := range tt.flags {
+				if err := cmd.Flags().Set(name, value); err != nil {
+					t.Fatalf("cannot set %s flag: %v", name, err)
 				}
 			}
 
-			var pr PullRequest
+			pr := tt.initial
 			changed, err := applySimpleFieldUpdates(cmd, &pr)
 			if err != nil {
 				t.Fatalf("applySimpleFieldUpdates() error = %v", err)
@@ -137,14 +185,14 @@ func TestApplySimpleFieldUpdates(t *testing.T) {
 			if changed != tt.wantChanged {
 				t.Errorf("applySimpleFieldUpdates() = %v, want %v", changed, tt.wantChanged)
 			}
-			if !tt.setFlags {
-				return
+			if pr.Title != tt.want.Title {
+				t.Errorf("Title = %q, want %q", pr.Title, tt.want.Title)
 			}
-			if pr.Title != "New title" {
-				t.Errorf("Title = %q, want %q", pr.Title, "New title")
+			if pr.Description != tt.want.Description || pr.Summary.Raw != tt.want.Summary.Raw {
+				t.Errorf("Description/Summary.Raw = %q/%q, want %q/%q", pr.Description, pr.Summary.Raw, tt.want.Description, tt.want.Summary.Raw)
 			}
-			if pr.Description != "New description" || pr.Summary.Raw != "New description" {
-				t.Errorf("Description/Summary.Raw = %q/%q, want %q", pr.Description, pr.Summary.Raw, "New description")
+			if pr.Draft != tt.want.Draft {
+				t.Errorf("Draft = %v, want %v", pr.Draft, tt.want.Draft)
 			}
 		})
 	}
@@ -463,6 +511,301 @@ func TestUpdateProcessSimpleFieldsSuccess(t *testing.T) {
 	}
 }
 
+// draftStateFlag is one flag=value pair of a draft-state case, applied in order so the flags reach
+// the command exactly the way pflag applies a command line -- a map would apply them in a random
+// order, which matters as soon as a case sets two flags that write the same field.
+type draftStateFlag struct {
+	name  string
+	value string
+}
+
+// draftStateCase is one --ready/--draft scenario driven end to end through updateProcess.
+type draftStateCase struct {
+	name        string
+	getBody     string
+	getStatus   int // non-zero serves this status with an error body instead of getBody
+	mutate      func()
+	flags       []draftStateFlag
+	dryRun      bool
+	wantMethods []string
+	// wantPutBody pins dotted paths into the PUT body, decoded as a map rather than a typed
+	// PullRequest so that an absent draft key fails distinctly instead of reading as false.
+	wantPutBody      map[string]any
+	wantErrSubstr    string
+	wantStderrSubstr string
+}
+
+// draftStatePutResponse is what the draft-state PUT handler answers with. It is deliberately NOT
+// an echo of the request body (its draft and title differ from every case's payload), so the
+// assertion on the printed output exercises decoding a server-shaped response rather than
+// re-reading the request bytes the PUT-body assertions already cover.
+const draftStatePutResponse = `{"id":42,"title":"Server title","state":"OPEN","draft":true}`
+
+// draftStateMembersResponse serves the workspace-member lookup an --add-reviewer value is
+// resolved against.
+const draftStateMembersResponse = `{"values":[{"user":{"uuid":"{33333333-3333-3333-3333-333333333333}","nickname":"alice"}}]}`
+
+// lookupJSONPath resolves a dotted path ("destination.branch.name", "reviewers.0.nickname")
+// against a decoded JSON body, so a case can pin one nested value without spelling out every
+// sibling key the payload also carries.
+func lookupJSONPath(body map[string]any, path string) (any, bool) {
+	var current any = body
+	for segment := range strings.SplitSeq(path, ".") {
+		switch node := current.(type) {
+		case map[string]any:
+			value, ok := node[segment]
+			if !ok {
+				return nil, false
+			}
+			current = value
+		case []any:
+			index, err := strconv.Atoi(segment)
+			if err != nil || index < 0 || index >= len(node) {
+				return nil, false
+			}
+			current = node[index]
+		default:
+			return nil, false
+		}
+	}
+	return current, true
+}
+
+// run drives updateProcess for the case against an httptest server, returning the request methods
+// seen in order, the decoded PUT body (nil when no PUT was sent) and the captured output.
+func (tt draftStateCase) run(t *testing.T) (methods []string, putBody map[string]any, stdout, stderr string) {
+	t.Helper()
+
+	withUpdateOptions(t, func() {
+		if tt.mutate != nil {
+			tt.mutate()
+		}
+	})
+
+	cmd := setupTestNamed(t, "update-draft-state-"+strings.ReplaceAll(tt.name, " ", "-"), func(w http.ResponseWriter, r *http.Request) {
+		methods = append(methods, r.Method)
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/members"):
+			_, _ = w.Write([]byte(draftStateMembersResponse))
+		case r.Method == http.MethodGet:
+			if tt.getStatus != 0 {
+				w.WriteHeader(tt.getStatus)
+				_, _ = w.Write([]byte(`{"type":"error","error":{"message":"pull request not found"}}`))
+				return
+			}
+			_, _ = w.Write([]byte(tt.getBody))
+		case r.Method == http.MethodPut:
+			if err := json.NewDecoder(r.Body).Decode(&putBody); err != nil {
+				t.Errorf("cannot decode PUT body: %v", err)
+			}
+			_, _ = w.Write([]byte(draftStatePutResponse))
+		default:
+			t.Errorf("unexpected %s request to %s", r.Method, r.URL.Path)
+		}
+	}, tt.dryRun)
+	registerUpdateFlags(cmd)
+	for _, flag := range tt.flags {
+		if err := cmd.Flags().Set(flag.name, flag.value); err != nil {
+			t.Fatalf("cannot set %s flag: %v", flag.name, err)
+		}
+	}
+
+	stderr = testutil.CaptureStderr(t, func() {
+		stdout = testutil.CaptureStdout(t, func() {
+			err := updateProcess(cmd, []string{"42"})
+			switch {
+			case tt.wantErrSubstr == "" && err != nil:
+				t.Fatalf("updateProcess() error = %v, want nil", err)
+			case tt.wantErrSubstr != "" && err == nil:
+				t.Fatalf("updateProcess() error = nil, want it to contain %q", tt.wantErrSubstr)
+			case tt.wantErrSubstr != "" && !strings.Contains(err.Error(), tt.wantErrSubstr):
+				t.Fatalf("updateProcess() error = %q, want it to contain %q", err.Error(), tt.wantErrSubstr)
+			}
+		})
+	})
+	return methods, putBody, stdout, stderr
+}
+
+// assertPutBody checks the request sequence and every dotted path the case pins in the PUT body.
+func (tt draftStateCase) assertPutBody(t *testing.T, methods []string, putBody map[string]any) {
+	t.Helper()
+
+	if !slices.Equal(methods, tt.wantMethods) {
+		t.Fatalf("request methods = %v, want %v", methods, tt.wantMethods)
+	}
+	if !slices.Contains(tt.wantMethods, http.MethodPut) {
+		if putBody != nil {
+			t.Errorf("PUT body = %v, want no PUT at all", putBody)
+		}
+		return
+	}
+	if putBody == nil {
+		t.Fatal("no PUT body was decoded, want the resolved payload")
+	}
+	for path, want := range tt.wantPutBody {
+		got, ok := lookupJSONPath(putBody, path)
+		if !ok {
+			t.Errorf("PUT body has no %s, want %v (full body: %v)", path, want, putBody)
+			continue
+		}
+		if got != want {
+			t.Errorf("PUT body %s = %v, want %v", path, got, want)
+		}
+	}
+}
+
+// TestUpdateProcessDraftState drives updateProcess end to end for every --ready/--draft
+// combination, pinning the bytes actually sent rather than the in-memory PullRequest: which
+// requests are made, what the single PUT body carries, and what the dry-run echo says.
+func TestUpdateProcessDraftState(t *testing.T) {
+	tests := []draftStateCase{
+		{
+			name:        "--ready clears the draft state",
+			getBody:     `{"id":42,"title":"T","draft":true}`,
+			flags:       []draftStateFlag{{"ready", "true"}},
+			wantMethods: []string{http.MethodGet, http.MethodPut},
+			// the key is present and false, never omitted: the server reads an absent key as
+			// "leave unchanged"
+			wantPutBody: map[string]any{"draft": false, "title": "T"},
+		},
+		{
+			name:        "--draft sets the draft state",
+			getBody:     `{"id":42,"title":"T","draft":false}`,
+			flags:       []draftStateFlag{{"draft", "true"}},
+			wantMethods: []string{http.MethodGet, http.MethodPut},
+			wantPutBody: map[string]any{"draft": true},
+		},
+		{
+			name:        "--ready=false is --draft",
+			getBody:     `{"id":42,"title":"T","draft":false}`,
+			flags:       []draftStateFlag{{"ready", "false"}},
+			wantMethods: []string{http.MethodGet, http.MethodPut},
+			wantPutBody: map[string]any{"draft": true},
+		},
+		{
+			name:        "--draft=false is --ready",
+			getBody:     `{"id":42,"title":"T","draft":true}`,
+			flags:       []draftStateFlag{{"draft", "false"}},
+			wantMethods: []string{http.MethodGet, http.MethodPut},
+			wantPutBody: map[string]any{"draft": false},
+		},
+		{
+			name:        "--ready on an already-ready pullrequest still sends the update",
+			getBody:     `{"id":42,"title":"T","draft":false}`,
+			flags:       []draftStateFlag{{"ready", "true"}},
+			wantMethods: []string{http.MethodGet, http.MethodPut},
+			wantPutBody: map[string]any{"draft": false},
+		},
+		{
+			name:        "--draft on an already-draft pullrequest still sends the update",
+			getBody:     `{"id":42,"title":"T","draft":true}`,
+			flags:       []draftStateFlag{{"draft", "true"}},
+			wantMethods: []string{http.MethodGet, http.MethodPut},
+			wantPutBody: map[string]any{"draft": true},
+		},
+		{
+			name:    "--ready combines with every simple field in one PUT",
+			getBody: `{"id":42,"title":"Old","draft":true,"close_source_branch":false,"destination":{"branch":{"name":"develop"}}}`,
+			mutate: func() {
+				updateOptions.Title = "New"
+				updateOptions.Description = "New description"
+				updateOptions.Destination.Value = "main"
+				updateOptions.CloseSourceBranch = true
+			},
+			flags: []draftStateFlag{
+				{"ready", "true"}, {"title", "New"}, {"description", "New description"},
+				{"destination", "main"}, {"close-source-branch", "true"},
+			},
+			wantMethods: []string{http.MethodGet, http.MethodPut},
+			wantPutBody: map[string]any{
+				"draft": false, "title": "New", "description": "New description",
+				"close_source_branch": true, "destination.branch.name": "main",
+			},
+		},
+		{
+			name:    "--ready combines with --add-reviewer in one PUT",
+			getBody: `{"id":42,"title":"T","draft":true}`,
+			mutate: func() {
+				updateOptions.AddReviewers = []string{"alice"}
+			},
+			flags: []draftStateFlag{{"ready", "true"}, {"add-reviewer", "alice"}},
+			// the extra GET is the workspace-member lookup the reviewer value is resolved against
+			wantMethods: []string{http.MethodGet, http.MethodGet, http.MethodPut},
+			wantPutBody: map[string]any{"draft": false, "reviewers.0.nickname": "alice"},
+		},
+		{
+			name:    "an update that never mentions draft state echoes it unchanged",
+			getBody: `{"id":42,"title":"Old","draft":true}`,
+			mutate: func() {
+				updateOptions.Title = "New"
+			},
+			flags:       []draftStateFlag{{"title", "New"}},
+			wantMethods: []string{http.MethodGet, http.MethodPut},
+			wantPutBody: map[string]any{"draft": true, "title": "New"},
+		},
+		{
+			// bb's PullRequest mirrors the API object and PUTs it back whole, so a GET body with
+			// no draft key at all decodes to Draft == false and the PUT carries "draft": false --
+			// exactly what close_source_branch, the same shape of plain bool on the same struct,
+			// does. Pinned here because the resulting PUT then states a draft value the
+			// caller never asked about.
+			name:        "a GET body with no draft key sends draft false",
+			getBody:     `{"id":42,"title":"Old"}`,
+			mutate:      func() { updateOptions.Title = "New" },
+			flags:       []draftStateFlag{{"title", "New"}},
+			wantMethods: []string{http.MethodGet, http.MethodPut},
+			wantPutBody: map[string]any{"draft": false, "title": "New"},
+		},
+		{
+			name:             "--ready --dry-run resolves the target but sends no PUT",
+			getBody:          `{"id":42,"title":"T","draft":true}`,
+			flags:            []draftStateFlag{{"ready", "true"}},
+			dryRun:           true,
+			wantMethods:      []string{http.MethodGet},
+			wantStderrSubstr: `"draft": false`,
+		},
+		{
+			name:             "--draft --dry-run resolves the target but sends no PUT",
+			getBody:          `{"id":42,"title":"T","draft":false}`,
+			flags:            []draftStateFlag{{"draft", "true"}},
+			dryRun:           true,
+			wantMethods:      []string{http.MethodGet},
+			wantStderrSubstr: `"draft": true`,
+		},
+		{
+			name:          "--draft on a nonexistent pullrequest fails before any PUT",
+			getStatus:     http.StatusNotFound,
+			flags:         []draftStateFlag{{"draft", "true"}},
+			wantMethods:   []string{http.MethodGet},
+			wantErrSubstr: "failed to get pullrequest 42",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			methods, putBody, stdout, stderr := tt.run(t)
+
+			tt.assertPutBody(t, methods, putBody)
+			if tt.wantStderrSubstr != "" && !strings.Contains(stderr, tt.wantStderrSubstr) {
+				t.Errorf("stderr = %q, want it to contain %q", stderr, tt.wantStderrSubstr)
+			}
+			if !slices.Contains(tt.wantMethods, http.MethodPut) {
+				return
+			}
+			// the printed row comes from the server's response to the PUT, not from the payload
+			// that was sent: that response is the authoritative record of the resulting state
+			var printed map[string]any
+			if err := json.Unmarshal([]byte(stdout), &printed); err != nil {
+				t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
+			}
+			if printed["draft"] != true || printed["title"] != "Server title" {
+				t.Errorf("printed result = %v, want the server's own PUT response %s", printed, draftStatePutResponse)
+			}
+		})
+	}
+}
+
 // TestUpdateProcessStripsParticipantsFromPutBody proves the Participants field the initial GET
 // populated (a server-owned, read-only record of each reviewer's approval state) is never echoed
 // back in the PUT payload, mirroring the existing Summary.Type/Markup/HTML stripping.
@@ -609,20 +952,38 @@ func TestUpdateProcessNoChangesSkipsPut(t *testing.T) {
 	}
 }
 
+// TestUpdateProcessGetAPIError covers both modes on purpose: --dry-run still performs the
+// resolving GET, so it must fail exactly the way a real invocation does for a target that does not
+// exist rather than reporting a fabricated success.
 func TestUpdateProcessGetAPIError(t *testing.T) {
-	cmd := setupTestNamed(t, "update-get-error", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		_, _ = w.Write([]byte(`{"type":"error","error":{"message":"pull request not found"}}`))
-	}, false)
-	registerUpdateFlags(cmd)
+	for _, dryRun := range []bool{false, true} {
+		name := "real"
+		if dryRun {
+			name = "dry-run"
+		}
+		t.Run(name, func(t *testing.T) {
+			var requests []*http.Request
+			cmd := setupTestNamed(t, "update-get-error-"+name, func(w http.ResponseWriter, r *http.Request) {
+				requests = append(requests, r)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"type":"error","error":{"message":"pull request not found"}}`))
+			}, dryRun)
+			registerUpdateFlags(cmd)
 
-	err := updateProcess(cmd, []string{"42"})
-	if err == nil {
-		t.Fatal("updateProcess() expected an error, got nil")
-	}
-	if !strings.Contains(err.Error(), "failed to get pullrequest") {
-		t.Errorf("error = %q, want it to mention the failed get", err.Error())
+			err := updateProcess(cmd, []string{"42"})
+			if err == nil {
+				t.Fatal("updateProcess() expected an error, got nil")
+			}
+			for _, want := range []string{"failed to get pullrequest", "pull request not found"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error = %q, want it to contain %q", err.Error(), want)
+				}
+			}
+			if len(requests) != 1 || requests[0].Method != http.MethodGet {
+				t.Errorf("requests = %v, want exactly one GET and no PUT", requests)
+			}
+		})
 	}
 }
 
