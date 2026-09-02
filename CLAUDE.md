@@ -21,7 +21,12 @@ trigger`/`stop` ask for a `y`/`N` confirmation prompt with `--force` to skip it.
 `pullrequest merge` also asks for a `y`/`N` confirmation but deliberately has no
 `--force` of any kind — merging is not automatable via `bb` (see
 `internal/common/confirm.go`'s `ConfirmInteractive`). Every other state-changing
-command runs immediately.
+command runs immediately. `pullrequest update` takes `--ready`/`--draft` (mutually
+exclusive; they clear/set the pull request's draft state, combine with every other
+`update` flag in the same PUT, and are an ordinary `WhatIfPayload`-gated mutation — no
+confirmation prompt, no `--force` of any kind); `draft` is a `PullRequest` field surfaced
+as a column (in `get`'s defaults, `--columns draft` on `list`, `--sort draft` on `list`
+only) and always present in `-o json|yaml`.
 
 Every other command group inherited from upstream (`project`, `issue`, `tag`, `gpg-key`,
 `ssh-key`, `cache`, `remote`, `component`) has been removed from the CLI surface, along
