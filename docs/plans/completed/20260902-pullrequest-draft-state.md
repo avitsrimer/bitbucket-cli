@@ -381,10 +381,21 @@ these defaults):
 *Items requiring manual intervention or external systems - no checkboxes, informational only*
 
 **Manual verification** (operator, with their own Bitbucket Cloud profile and a throwaway
-repository):
+repository). The whole feature rests on two API contracts httptest can never prove — that `PUT
+/repositories/{ws}/{repo}/pullrequests/{id}` honors `draft` in **both** directions, and that the
+*list* endpoint returns `draft` per entry — so **do not cut the release tag before these run**: a
+server that silently ignored the key, or a list response without it, would pass the entire suite:
 - `bb pullrequest create --title t --source b --destination main --reviewer none --draft`, then
   `bb pullrequest get <id> --columns id,draft` shows `true`; `bb pullrequest update <id> --ready`
-  and `get` again shows `false`; `update <id> --draft` flips it back.
+  and `get` again shows `false`; `update <id> --draft` flips it back (this last step is the
+  re-draft direction of the PUT contract, the half `--draft` and the docs promise).
+- `bb pullrequest update <id> --title "..."` (no `--ready`/`--draft`) against a **draft** pull
+  request leaves it a draft: `PullRequest.Draft` is a plain bool with no `omitempty`, so every
+  `update` PUTs a `draft` key back, and this is the check that the echoed value is the current one
+  rather than a silent promotion.
+- `bb pullrequest list --columns draft` against a workspace with a known draft pull request shows
+  `true` on that row — if the list endpoint omits `draft`, that column renders `false` everywhere
+  and the docs point users and agents at a silently wrong value.
 - `bb pullrequest update <id> --ready --add-reviewer <uuid>` lands both changes in one call
   (confirm in the web UI that draft status cleared and the reviewer was added).
 - On a merged/declined PR, `update <id> --ready` returns Bitbucket's "only open pull requests can
@@ -393,6 +404,12 @@ repository):
 **External system updates**:
 - Cut a release tag (`v0.5.0` or next appropriate) so the Homebrew cask picks up the new flags;
   the peer's environment was `bb 0.4.0` via Homebrew.
+- The release notes MUST call out the output change: `bb pullrequest get`'s default column set
+  gained a trailing `draft` field, and `update`/`create`'s gained one too, so `-o csv`/`-o tsv`
+  emit one extra field than before and any positional parser of that output breaks. Suggest
+  pinning the columns (`--columns id,title,state`) for scripts that depend on the shape.
+  `CHANGELOG.md` is a stub redirecting to GitHub Releases, so the release notes are the only
+  vehicle for this.
 - Notify the requesting session that `--ready`/`--draft` and the `draft` column/JSON key are
   available once merged.
 
@@ -446,3 +463,28 @@ repository):
 **Next:** a post-task automated review pass runs after this close-out — the quality,
 implementation, testing, simplification, and documentation review agents plus a code-smells pass.
 Their findings are logged in `docs/plans/progress-pullrequest-draft-state.txt`.
+
+**Post-merge review pass (applied on the branch):**
+
+- `--ready`/`--draft` now apply the flag's own value (`GetBool`) in one `switch` rather than two
+  `Changed`-only blocks, so `--ready=false` means `--draft`, `--draft=false` means `--ready`, and
+  a caller that somehow set both cannot silently get whichever block came last.
+- `draft` joined `update`'s and `create`'s default headers too (description stays `get`-only), so a
+  mutation's own printed row — the server's response to the write — confirms the resulting state
+  without a second command. `GetHeaders`' doc comment, README, SKILL.md and CLAUDE.md say so.
+- the `draft` comparator dropped its id tie-break, matching every other low-cardinality column
+  (state/comments/tasks/participants).
+- the seven parallel `TestUpdateProcess*Draft*/Ready*` tests became one table-driven
+  `TestUpdateProcessDraftState` (ordered flag slice, dotted-path PUT-body expectations, a PUT
+  response deliberately unlike the request so the printed-output assertion exercises decoding),
+  gaining the `--ready --add-reviewer` combination, the `--draft` counterparts, the `--ready=false`/
+  `--draft=false` values, and the key-absent GET body; the duplicate 404 test was replaced by a
+  dry-run subtest on `TestUpdateProcessGetAPIError`.
+- new `TestUpdateCmdRegistersDraftStateFlags` asserts the real `updateCmd` carries both flags and
+  cobra's mutual-exclusion annotation (deleting the registration used to leave the suite green
+  while every `bb pullrequest update` invocation nil-dereferenced), and
+  `TestPullRequestGetHeadersOnRealCommands` asserts the default column sets against the real
+  `getCmd`/`updateCmd`/`createCmd`/`listCmd`.
+- `testdata/pullrequests.json` gained an OPEN entry carrying `"draft": true` (Bitbucket cannot
+  produce a merged draft), the MERGED entry lost the key, and the absent-key decode case moved to
+  an inline literal that asserts its own premise.

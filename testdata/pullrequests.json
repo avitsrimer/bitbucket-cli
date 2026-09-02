@@ -4,11 +4,127 @@
       "comment_count": 0,
       "task_count": 0,
       "type": "pullrequest",
+      "id": 3,
+      "title": "Sort the links",
+      "description": "Work in progress, not ready for review yet.",
+      "state": "OPEN",
+      "draft": true,
+      "merge_commit": null,
+      "close_source_branch": false,
+      "author": {
+        "type": "app_user",
+        "links": {
+          "avatar": {
+            "href": "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/712020:9b210b18-797d-404e-a6a8-31f00569af8b/3076be80-e7af-4b62-a4b8-ed8fe3c3332e/128"
+          }
+        },
+        "created_on": "2023-10-31T08:58:32.098157+00:00",
+        "display_name": "gitflow",
+        "uuid": "{101398a7-7609-4eb5-ae20-92014abfbeb6}",
+        "account_id": "712020:9b210b18-797d-404e-a6a8-31f00569af8b",
+        "account_status": "active",
+        "kind": "repository_access_token"
+      },
+      "reason": "",
+      "created_on": "2023-10-31T12:41:07.204118+00:00",
+      "updated_on": "2023-10-31T12:41:07.204118+00:00",
+      "destination": {
+        "branch": {
+          "name": "dev"
+        },
+        "commit": {
+          "type": "commit",
+          "hash": "67a6aa42721a",
+          "links": {
+            "self": {
+              "href": "https://api.bitbucket.org/2.0/repositories/gildas_cherruel/gitflow-pr-sandbox/commit/67a6aa42721a"
+            },
+            "html": {
+              "href": "https://bitbucket.org/gildas_cherruel/gitflow-pr-sandbox/commits/67a6aa42721a"
+            }
+          }
+        },
+        "repository": {
+          "type": "repository",
+          "full_name": "gildas_cherruel/gitflow-pr-sandbox",
+          "links": {
+            "self": {
+              "href": "https://api.bitbucket.org/2.0/repositories/gildas_cherruel/gitflow-pr-sandbox"
+            },
+            "html": {
+              "href": "https://bitbucket.org/gildas_cherruel/gitflow-pr-sandbox"
+            },
+            "avatar": {
+              "href": "https://bytebucket.org/ravatar/%7Bf12769c1-7465-4a94-b265-8b1b04e07cb5%7D?ts=go"
+            }
+          },
+          "name": "gitflow-pr-sandbox",
+          "uuid": "{f12769c1-7465-4a94-b265-8b1b04e07cb5}"
+        }
+      },
+      "source": {
+        "branch": {
+          "name": "feature/sorting"
+        },
+        "commit": {
+          "type": "commit",
+          "hash": "9f1c0b7d2a34",
+          "links": {
+            "self": {
+              "href": "https://api.bitbucket.org/2.0/repositories/gildas_cherruel/gitflow-pr-sandbox/commit/9f1c0b7d2a34"
+            },
+            "html": {
+              "href": "https://bitbucket.org/gildas_cherruel/gitflow-pr-sandbox/commits/9f1c0b7d2a34"
+            }
+          }
+        },
+        "repository": {
+          "type": "repository",
+          "full_name": "gildas_cherruel/gitflow-pr-sandbox",
+          "links": {
+            "self": {
+              "href": "https://api.bitbucket.org/2.0/repositories/gildas_cherruel/gitflow-pr-sandbox"
+            },
+            "html": {
+              "href": "https://bitbucket.org/gildas_cherruel/gitflow-pr-sandbox"
+            },
+            "avatar": {
+              "href": "https://bytebucket.org/ravatar/%7Bf12769c1-7465-4a94-b265-8b1b04e07cb5%7D?ts=go"
+            }
+          },
+          "name": "gitflow-pr-sandbox",
+          "uuid": "{f12769c1-7465-4a94-b265-8b1b04e07cb5}"
+        }
+      },
+      "links": {
+        "self": {
+          "href": "https://api.bitbucket.org/2.0/repositories/gildas_cherruel/gitflow-pr-sandbox/pullrequests/3"
+        },
+        "html": {
+          "href": "https://bitbucket.org/gildas_cherruel/gitflow-pr-sandbox/pull-requests/3"
+        },
+        "comments": {
+          "href": "https://api.bitbucket.org/2.0/repositories/gildas_cherruel/gitflow-pr-sandbox/pullrequests/3/comments"
+        },
+        "activity": {
+          "href": "https://api.bitbucket.org/2.0/repositories/gildas_cherruel/gitflow-pr-sandbox/pullrequests/3/activity"
+        }
+      },
+      "summary": {
+        "type": "rendered",
+        "raw": "Work in progress, not ready for review yet.",
+        "markup": "markdown",
+        "html": "<p>Work in progress, not ready for review yet.</p>"
+      }
+    },
+    {
+      "comment_count": 0,
+      "task_count": 0,
+      "type": "pullrequest",
       "id": 2,
       "title": "Merge feature/links",
       "description": "Feature links. Do not delete the feature branch after the merge.",
       "state": "MERGED",
-      "draft": true,
       "merge_commit": {
         "type": "commit",
         "hash": "5663ada8560f",
@@ -330,6 +446,6 @@
     }
   ],
   "pagelen": 10,
-  "size": 2,
+  "size": 3,
   "page": 1
 }

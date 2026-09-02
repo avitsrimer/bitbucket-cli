@@ -80,14 +80,14 @@ func TestListProcessAuthorMode(t *testing.T) {
 			author:       "557058:11111111-2222-3333-4444-555555555555",
 			wantPath:     "/2.0/workspaces/acme/pullrequests/557058:11111111-2222-3333-4444-555555555555",
 			wantStates:   []string{"OPEN"},
-			wantPRsCount: 2,
+			wantPRsCount: 3,
 		},
 		{
 			name:         "braced uuid",
 			author:       "{11111111-1111-1111-1111-111111111111}",
 			wantPath:     "/2.0/workspaces/acme/pullrequests/%7B11111111-1111-1111-1111-111111111111%7D",
 			wantStates:   []string{"OPEN"},
-			wantPRsCount: 2,
+			wantPRsCount: 3,
 		},
 		{
 			name:         "repeated state",
@@ -95,7 +95,7 @@ func TestListProcessAuthorMode(t *testing.T) {
 			states:       []string{"merged", "declined"},
 			wantPath:     "/2.0/workspaces/acme/pullrequests/%7B11111111-1111-1111-1111-111111111111%7D",
 			wantStates:   []string{"MERGED", "DECLINED"},
-			wantPRsCount: 2,
+			wantPRsCount: 3,
 		},
 		{
 			name:         "query and source compose",
@@ -105,7 +105,7 @@ func TestListProcessAuthorMode(t *testing.T) {
 			wantPath:     "/2.0/workspaces/acme/pullrequests/%7B11111111-1111-1111-1111-111111111111%7D",
 			wantStates:   []string{"OPEN"},
 			wantQ:        `(updated_on > 2025-01-01) AND (source.branch.name="feature/x")`,
-			wantPRsCount: 2,
+			wantPRsCount: 3,
 		},
 	}
 
@@ -227,8 +227,8 @@ func TestListProcessMineResolvesCurrentUser(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &pullrequests); err != nil {
 		t.Fatalf("cannot unmarshal printed output %q: %v", stdout, err)
 	}
-	if len(pullrequests) != 2 {
-		t.Fatalf("expected 2 pullrequests, got %d", len(pullrequests))
+	if len(pullrequests) != 3 {
+		t.Fatalf("expected 3 pullrequests, got %d", len(pullrequests))
 	}
 }
 
@@ -385,8 +385,8 @@ func TestListProcessAuthorModeTableCarriesRepositoryColumn(t *testing.T) {
 	})
 
 	lines := strings.Split(strings.TrimSpace(stdout), "\n")
-	if len(lines) != 3 {
-		t.Fatalf("csv output = %q, want a header row and 2 data rows", stdout)
+	if len(lines) != 4 {
+		t.Fatalf("csv output = %q, want a header row and 3 data rows", stdout)
 	}
 	if !strings.Contains(strings.ToLower(lines[0]), "repository") {
 		t.Errorf("csv header = %q, want it to carry the repository column author mode adds by default", lines[0])

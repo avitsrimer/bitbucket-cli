@@ -1,6 +1,7 @@
 package pullrequest
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
+	"github.com/spf13/cobra"
 )
 
 // TestPullRequestGetRowCoversEveryColumn requires every column the shared columns table declares --
@@ -60,25 +62,44 @@ func TestPullRequestGetRowCoversEveryColumn(t *testing.T) {
 }
 
 // TestPullRequestColumnsSortByDraftOrdersNonDraftsFirst proves the "draft" comparator orders
-// non-draft pull requests before drafts and falls back to id within each group, so `--sort draft`
-// yields a deterministic order even though common.Sort is not a stable sort.
+// non-draft pull requests before drafts. Like every other low-cardinality comparator in the table
+// (state, comments, tasks, participants) it declares no tie-break, so the order within each group
+// is whatever common.Sort's unstable sort produces.
 func TestPullRequestColumnsSortByDraftOrdersNonDraftsFirst(t *testing.T) {
-	pullrequests := []PullRequest{
-		{ID: 4, Draft: true},
-		{ID: 3, Draft: false},
-		{ID: 1, Draft: true},
-		{ID: 2, Draft: false},
-	}
+	pullrequests := []PullRequest{{ID: 1, Draft: true}, {ID: 2, Draft: false}}
 
 	common.Sort(pullrequests, columns.SortBy("draft"))
 
-	want := []struct {
-		id    uint64
-		draft bool
-	}{{2, false}, {3, false}, {1, true}, {4, true}}
-	for i, w := range want {
-		if pullrequests[i].ID != w.id || pullrequests[i].Draft != w.draft {
-			t.Fatalf("position %d = {ID:%d Draft:%t}, want {ID:%d Draft:%t} (full order: %+v)", i, pullrequests[i].ID, pullrequests[i].Draft, w.id, w.draft, pullrequests)
-		}
+	if pullrequests[0].Draft || !pullrequests[1].Draft {
+		t.Fatalf("order = %+v, want the non-draft first", pullrequests)
+	}
+}
+
+// TestPullRequestGetHeadersOnRealCommands asserts the default column sets against the real
+// package-level commands, not hand-built stand-ins: GetHeaders branches on cmd.Name(), so renaming
+// a command's Use would otherwise drop draft (and, on get, description) from its default table with
+// the rest of the suite still green. update and create carry draft so the row each prints -- the
+// server's own response to the write -- confirms the resulting draft state; neither registers
+// --columns, so the default is the only way that column can appear there. merge also prints a
+// single row without registering --columns, but its response is always a non-draft, so it has no
+// draft default and is not asserted here.
+func TestPullRequestGetHeadersOnRealCommands(t *testing.T) {
+	tests := []struct {
+		name string
+		cmd  *cobra.Command
+		want []string
+	}{
+		{name: "get", cmd: getCmd, want: []string{"ID", "Title", "source", "destination", "state", "description", "draft"}},
+		{name: "update", cmd: updateCmd, want: []string{"ID", "Title", "source", "destination", "state", "draft"}},
+		{name: "create", cmd: createCmd, want: []string{"ID", "Title", "source", "destination", "state", "draft"}},
+		{name: "list", cmd: listCmd, want: []string{"ID", "Title", "source", "destination", "state"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := (PullRequest{}).GetHeaders(tt.cmd); !slices.Equal(got, tt.want) {
+				t.Errorf("%s default headers = %v, want %v", tt.cmd.Name(), got, tt.want)
+			}
+		})
 	}
 }

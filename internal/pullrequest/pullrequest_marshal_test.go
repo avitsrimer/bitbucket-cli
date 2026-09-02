@@ -57,8 +57,8 @@ func TestPullRequestMarshalIncludesCreatedOnAndUpdatedOnWhenSet(t *testing.T) {
 }
 
 // TestPullRequestDraftDecodesFromFixture proves the API's "draft" key is mapped onto
-// PullRequest.Draft: the fixture entry carrying "draft": true decodes to true, and an entry without
-// the key (the shape older API payloads have) decodes to false rather than failing.
+// PullRequest.Draft: the fixture's open draft entry (the only state Bitbucket allows a draft in)
+// decodes to true.
 func TestPullRequestDraftDecodesFromFixture(t *testing.T) {
 	fixture, err := os.ReadFile("../../testdata/pullrequests.json")
 	if err != nil {
@@ -75,19 +75,40 @@ func TestPullRequestDraftDecodesFromFixture(t *testing.T) {
 		byID[pr.ID] = pr
 	}
 
-	withKey, ok := byID[2]
+	draft, ok := byID[3]
 	if !ok {
-		t.Fatal("fixture has no pull request 2 (the entry carrying \"draft\": true)")
+		t.Fatal("fixture has no pull request 3 (the open entry carrying \"draft\": true)")
 	}
-	if !withKey.Draft {
-		t.Error("pull request 2 decoded with Draft = false, want true")
+	if !draft.Draft {
+		t.Error("pull request 3 decoded with Draft = false, want true")
 	}
-	withoutKey, ok := byID[1]
-	if !ok {
-		t.Fatal("fixture has no pull request 1 (the entry without a \"draft\" key)")
+	if draft.State != "OPEN" {
+		t.Errorf("pull request 3 state = %q, want OPEN: Bitbucket only allows drafts on open pull requests", draft.State)
 	}
-	if withoutKey.Draft {
-		t.Error("pull request 1 decoded with Draft = true, want false for an absent key")
+}
+
+// TestPullRequestDraftDecodesAbsentKeyAsFalse pins the decode of a payload with no "draft" key at
+// all (the shape an older API version, or a hand-built body, has): Draft is a plain bool, so the
+// absent key decodes to false rather than failing. The literal is inline, and its lack of a
+// "draft" key asserted directly, so the premise of the test cannot silently evaporate the way it
+// would if the case rode on a shared fixture entry someone later adds the key to.
+func TestPullRequestDraftDecodesAbsentKeyAsFalse(t *testing.T) {
+	const payload = `{"id":42,"title":"No draft key","state":"DECLINED"}`
+
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(payload), &raw); err != nil {
+		t.Fatalf("cannot unmarshal payload: %v", err)
+	}
+	if _, present := raw["draft"]; present {
+		t.Fatalf("payload %s carries a \"draft\" key, but this test is about an absent one", payload)
+	}
+
+	var target pullrequest.PullRequest
+	if err := json.Unmarshal([]byte(payload), &target); err != nil {
+		t.Fatalf("cannot unmarshal pullrequest: %v", err)
+	}
+	if target.Draft {
+		t.Error("Draft = true, want false for an absent \"draft\" key")
 	}
 }
 

@@ -143,10 +143,15 @@ positional or `--current`; given neither, it errors `argument profile is missing
   state) are NOT in the default columns on `get` OR `list`. Always add `--columns
   participants` (or `-o json`/`-o yaml`, which include the full participant objects
   regardless of `--columns`) when the user's request is about who has/hasn't approved.
-  `draft` (`true`/`false`) IS a default column on `get` but NOT on `list` — pass `--columns
-  draft` on `list` (and `--sort draft`, `list`-only, orders non-drafts before drafts); `-o
-  json`/`-o yaml` always carry the `draft` key on both. This is how to verify a draft state after
-  `create --draft` or `update --ready`/`--draft`: `bb pullrequest get <id> --columns id,draft`.
+  `draft` (`true`/`false`) IS a default column on `get`, `update` and `create`, but NOT on
+  `list` — pass `--columns draft` on `list` (and `--sort draft`, `list`-only, orders non-drafts
+  before drafts); `-o json`/`-o yaml` always carry the `draft` key on all of them. Because
+  `update`/`create` print the server's own response to the write, `create --draft` and `update
+  <id> --ready` already show the resulting draft state — no follow-up call is needed (and
+  `--columns` is not registered on `update`/`create`, nor on `merge`, so never pass it to any of
+  the three; `merge` prints a single row too, but its response is always a non-draft and carries
+  no `draft` column). To check a draft state at any other time: `bb pullrequest get <id> --columns
+  id,draft`.
 - `bb pullrequest create --title <t> --source <branch> [--destination <branch>] [--reviewer
   <user>]... [--description <text> | --description-file <path-or-->] [--draft]
   [--close-source-branch]` — `--title` and `--source` are required; `--destination` is
@@ -167,7 +172,9 @@ positional or `--current`; given neither, it errors `argument profile is missing
   (profile and repository resolution run first, and a repository lookup on a cache miss can still
   issue a GET). `--reviewer all` (exactly, and alone) adds every workspace member as a reviewer.
   The current user is excluded when identifiable; with a token that cannot read the user
-  identity, Bitbucket rejects the self-review server-side instead.
+  identity, Bitbucket rejects the self-review server-side instead. A pullrequest created with
+  `--draft` is promoted later with `bb pullrequest update <id> --ready` — never send the user to
+  the web UI for this.
 - `bb pullrequest update <id> [--title ...] [--description ... | --description-file ...]
   [--destination <branch>] [--close-source-branch] [--ready | --draft] [--add-reviewer <user>]...
   [--remove-reviewer <user>]...` (aliases `edit`) — `--ready` clears the pullrequest's draft
@@ -176,7 +183,11 @@ positional or `--current`; given neither, it errors `argument profile is missing
   in the same single PUT — `update <id> --ready --add-reviewer <user>` promotes and adds the
   reviewer in one call, so never split it into two invocations. Passing `--ready` on a
   pullrequest that is already ready (or `--draft` on a draft) still sends the update, like
-  `--close-source-branch`. `--add-reviewer` accepts the same `default`
+  `--close-source-branch`; both are ordinary booleans, so `--ready=false` means `--draft` and
+  `--draft=false` means `--ready`. `update` (including `--ready`/`--draft`) only works on OPEN
+  pullrequests — Bitbucket's API documents the update endpoint as mutating open pull requests
+  only, and rejects a merged/declined/superseded target server-side.
+  `--add-reviewer` accepts the same `default`
   and `all` sentinels as `create`'s `--reviewer`, but `default` only has to be the FIRST value
   here: `--add-reviewer default,bob` resolves the default reviewers AND still adds `bob`, unlike
   `create`'s `--reviewer default,bob` which discards `bob`. `all` must be the ONLY value on both
@@ -190,7 +201,9 @@ positional or `--current`; given neither, it errors `argument profile is missing
   actually does — always pass it explicitly for these). `merge` additionally has its own
   never-invoke-yourself rule below.
 - `bb pullrequest merge <id> [--message <text>] [--close-source-branch] [--merge-strategy
-  merge_commit|squash|fast_forward] [--async]`. `--async` returns a task id; poll it with `bb
+  merge_commit|squash|fast_forward] [--async]`. Per Bitbucket's own documentation a draft
+  pullrequest is NOT eligible for merging, manually or automatically: if a merge is refused
+  because the pullrequest is a draft, promote it with `bb pullrequest update <id> --ready` first. `--async` returns a task id; poll it with `bb
   pullrequest merge-status <id> --task-id <task-id>` (`<id>` optional here too, same fallback).
   `merge` always asks an interactive `Merge pullrequest <id>? [y/N]` confirmation and has **no
   `--force`** of any kind: piped/redirected stdin errors immediately, before any prompt is
