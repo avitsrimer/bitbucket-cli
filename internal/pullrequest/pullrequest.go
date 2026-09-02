@@ -33,6 +33,7 @@ type PullRequest struct {
 	State             string                  `json:"state"`
 	MergeCommit       *commit.CommitReference `json:"merge_commit,omitempty"`
 	CloseSourceBranch bool                    `json:"close_source_branch"`
+	Draft             bool                    `json:"draft"`
 	ClosedBy          user.User               `json:"closed_by"`
 	Author            user.User               `json:"author"`
 	Reviewers         []user.User             `json:"reviewers,omitempty"`
@@ -88,6 +89,14 @@ var columns = common.Columns[PullRequest]{
 	}},
 	{Name: "state", DefaultSorter: false, Compare: func(a, b PullRequest) bool {
 		return strings.ToLower(a.State) < strings.ToLower(b.State)
+	}},
+	// non-drafts sort before drafts; ties fall back to id so rows sharing a draft state keep a
+	// deterministic order under common.Sort's unstable sort.
+	{Name: "draft", DefaultSorter: false, Compare: func(a, b PullRequest) bool {
+		if a.Draft != b.Draft {
+			return !a.Draft && b.Draft
+		}
+		return a.ID < b.ID
 	}},
 	{Name: "author", DefaultSorter: false, Compare: func(a, b PullRequest) bool {
 		return strings.ToLower(a.Author.Name) < strings.ToLower(b.Author.Name)
@@ -156,6 +165,11 @@ func init() {
 // cmd.Name() distinguishes the two commands: getCmd's Use starts with "get", listCmd's with
 // "list".
 //
+// draft follows the same split: `get` shows it by default (a single-row table has room, and it is
+// the one place a caller who just ran `create --draft` or `update --ready` can confirm the state
+// took effect without -o json), while `list` keeps its default set narrow -- there the column is
+// reachable via an explicit `--columns draft` / `--sort draft`, and always present in -o json/yaml.
+//
 // participants is deliberately out of both defaults, on either command: a multi-reviewer PR's
 // "nickname:state" summary (see formatParticipants) is exactly the kind of unbounded, list-shaped
 // value the default column set otherwise avoids -- it stays reachable via an explicit
@@ -174,7 +188,7 @@ func (pullrequest PullRequest) GetHeaders(cmd *cobra.Command) []string {
 		defaults = []string{"ID", "Title", "repository", "source", "destination", "state"}
 	}
 	if cmd != nil && cmd.Name() == "get" {
-		defaults = append(defaults, "description")
+		defaults = append(defaults, "description", "draft")
 	}
 	return common.HeadersFromFlag(cmd, defaults...)
 }
@@ -201,6 +215,8 @@ func (pullrequest PullRequest) GetRow(headers []string) []string {
 			row = append(row, emptyCellIfBlank(pullrequest.Destination.repositoryFullName()))
 		case "state":
 			row = append(row, pullrequest.State)
+		case "draft":
+			row = append(row, strconv.FormatBool(pullrequest.Draft))
 		case "author":
 			row = append(row, pullrequest.Author.Name)
 		case "closed_by":

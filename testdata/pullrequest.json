@@ -19,6 +19,7 @@
         }
       },
       "close_source_branch": false,
+      "draft": false,
       "closed_by": {
         "display_name": "Gildas Cherruel",
         "links": {

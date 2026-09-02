@@ -28,6 +28,7 @@ func TestPullRequestGetRowCoversEveryColumn(t *testing.T) {
 		Author:       user.User{Name: "Jane Doe"},
 		ClosedBy:     user.User{Name: "John Doe"},
 		Reason:       "declined by reviewer",
+		Draft:        true,
 		CommentCount: 3,
 		TaskCount:    1,
 		Participants: []user.Participant{{User: user.User{Nickname: "jane_doe"}, State: "approved"}},
@@ -55,5 +56,29 @@ func TestPullRequestGetRowCoversEveryColumn(t *testing.T) {
 				t.Errorf("column %q hit GetRow's default arm instead of a real case", name)
 			}
 		})
+	}
+}
+
+// TestPullRequestColumnsSortByDraftOrdersNonDraftsFirst proves the "draft" comparator orders
+// non-draft pull requests before drafts and falls back to id within each group, so `--sort draft`
+// yields a deterministic order even though common.Sort is not a stable sort.
+func TestPullRequestColumnsSortByDraftOrdersNonDraftsFirst(t *testing.T) {
+	pullrequests := []PullRequest{
+		{ID: 4, Draft: true},
+		{ID: 3, Draft: false},
+		{ID: 1, Draft: true},
+		{ID: 2, Draft: false},
+	}
+
+	common.Sort(pullrequests, columns.SortBy("draft"))
+
+	want := []struct {
+		id    uint64
+		draft bool
+	}{{2, false}, {3, false}, {1, true}, {4, true}}
+	for i, w := range want {
+		if pullrequests[i].ID != w.id || pullrequests[i].Draft != w.draft {
+			t.Fatalf("position %d = {ID:%d Draft:%t}, want {ID:%d Draft:%t} (full order: %+v)", i, pullrequests[i].ID, pullrequests[i].Draft, w.id, w.draft, pullrequests)
+		}
 	}
 }

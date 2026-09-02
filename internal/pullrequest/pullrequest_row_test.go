@@ -22,13 +22,13 @@ func TestPullRequestGetHeadersDefault(t *testing.T) {
 // finding: GetHeaders is shared by `pullrequest list` and `pullrequest get`, and dropping
 // Description from the shared default column set (to keep the list view readable) left `get`
 // with no default table/csv/tsv path to a PR's body at all. `get`'s own command (Use starting
-// with "get") must include description in its defaults; `list`'s (or any other/nil command) must
-// not.
+// with "get") must include description -- and, for the same single-row reason, draft -- in its
+// defaults; `list`'s (or any other/nil command) must include neither.
 func TestPullRequestGetHeadersGetIncludesDescription(t *testing.T) {
 	target := pullrequest.PullRequest{}
 
 	getCmd := &cobra.Command{Use: "get [flags] <pullrequest-id>"}
-	assert.Equal(t, []string{"ID", "Title", "source", "destination", "state", "description"}, target.GetHeaders(getCmd))
+	assert.Equal(t, []string{"ID", "Title", "source", "destination", "state", "description", "draft"}, target.GetHeaders(getCmd))
 
 	listCmd := &cobra.Command{Use: "list"}
 	assert.Equal(t, []string{"ID", "Title", "source", "destination", "state"}, target.GetHeaders(listCmd))
@@ -85,7 +85,7 @@ func TestPullRequestGetHeadersAuthorMode(t *testing.T) {
 	// a command that never registered the flags at all (`pullrequest get`, and every other
 	// GetHeaders caller) is not author mode either
 	getCmd := &cobra.Command{Use: "get [flags] <pullrequest-id>"}
-	getDefaults := []string{"ID", "Title", "source", "destination", "state", "description"}
+	getDefaults := []string{"ID", "Title", "source", "destination", "state", "description", "draft"}
 	assert.Equal(t, getDefaults, pullrequest.PullRequest{}.GetHeaders(getCmd))
 	assert.Equal(t, repoDefaults, pullrequest.PullRequest{}.GetHeaders(&cobra.Command{Use: "list"}))
 	assert.Equal(t, repoDefaults, pullrequest.PullRequest{}.GetHeaders(nil))
@@ -125,6 +125,7 @@ func TestPullRequestGetRow(t *testing.T) {
 		Author:       user.User{Name: "Jane Doe"},
 		ClosedBy:     user.User{Name: "John Doe"},
 		Reason:       "declined by reviewer",
+		Draft:        true,
 		CommentCount: 3,
 		TaskCount:    1,
 		CreatedOn:    createdOn,
@@ -134,16 +135,37 @@ func TestPullRequestGetRow(t *testing.T) {
 	}
 
 	headers := []string{
-		"id", "title", "description", "source", "destination", "state",
+		"id", "title", "description", "source", "destination", "state", "draft",
 		"author", "closed by", "reason", "comments", "tasks", "created_on", "updated_on",
 	}
 	row := target.GetRow(headers)
 
 	assert.Equal(t, []string{
-		"42", "Add feature", "some description", "feature", "master", "OPEN",
+		"42", "Add feature", "some description", "feature", "master", "OPEN", "true",
 		"Jane Doe", "John Doe", "declined by reviewer", "3", "1",
 		"2024-01-02 03:04:05", "2024-06-07 08:09:10",
 	}, row)
+}
+
+// TestPullRequestGetRowDraft proves the "draft" column renders the boolean literally ("true"/
+// "false") rather than an empty cell for a non-draft, so a caller can tell "not a draft" from
+// "unknown" at a glance.
+func TestPullRequestGetRowDraft(t *testing.T) {
+	tests := []struct {
+		name  string
+		draft bool
+		want  string
+	}{
+		{name: "draft", draft: true, want: "true"},
+		{name: "ready", draft: false, want: "false"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			target := pullrequest.PullRequest{ID: 42, Draft: tt.draft}
+			assert.Equal(t, []string{tt.want}, target.GetRow([]string{"draft"}))
+		})
+	}
 }
 
 // TestPullRequestGetRowParticipants proves the "participants" column renders one
