@@ -258,7 +258,12 @@ $ bb pr list --state all
 > `--columns description`/`--columns participants` (or `--columns all`) to include them anyway on
 > whichever subcommand doesn't already. In table/csv/tsv, `participants` renders a compact
 > `nickname:state` summary per reviewer; `-o json`/`yaml` carry the full participant objects
-> (role, approval state, participation date) regardless of `--columns`.
+> (role, approval state, participation date) regardless of `--columns`. `draft` (`true`/`false`)
+> follows the same split for a different reason: it is a default column on `get`, where a single
+> row has room and it is the place to confirm a `create --draft`/`update --ready` took effect, but
+> not on `list`, whose default set stays narrow -- pass `--columns draft` there (and `--sort draft`,
+> `list`-only like every `--sort`, orders non-drafts before drafts). `-o json`/`yaml` always carry
+> the `draft` key on both commands.
 
 ### Environment variables
 
@@ -805,6 +810,10 @@ bb pullrequest create \
   --draft
 ```
 
+To promote the draft later, use `bb pullrequest update <id> --ready` (see below); to confirm the
+state took effect, `bb pullrequest get <id>` shows a `draft` column by default, and `-o json`/`yaml`
+always carry a `draft` key.
+
 Writing a markdown description on the command line means fighting shell quoting -- backticks and
 `$(...)` inside double quotes are a live command-substitution hazard. `--description-file` reads
 the description from a file instead, or from stdin with `-`, and is mutually exclusive with
@@ -862,6 +871,18 @@ sentinels exclude the current user when identifiable; with a token that cannot r
 identity, Bitbucket rejects the self-review server-side instead. `--remove-reviewer` does not
 resolve either word specially -- `--remove-reviewer default` or `--remove-reviewer all` only match
 a current reviewer literally named `default` or `all`.
+
+`--ready` takes a pull request out of draft (marks it ready for review) and `--draft` puts it back
+into draft. The two are mutually exclusive with each other, and either one combines with every
+other `update` flag in the same single request -- promoting a draft and adding its reviewers is one
+call, not two. Passing `--ready` on a pull request that is already ready (or `--draft` on one that
+is already a draft) still sends the update, exactly like `--close-source-branch` does:
+
+```bash
+bb pullrequest update 1 --ready
+bb pullrequest update 1 --ready --add-reviewer {userUUID} --title "My pull request"
+bb pullrequest update 1 --draft
+```
 
 You can `approve`or `unapprove` a pull request with the `bb pullrequest approve` or `bb pullrequest unapprove` command:
 
