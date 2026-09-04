@@ -56,7 +56,7 @@ func getProcess(cmd *cobra.Command, args []string) (err error) {
 			common.Verbose(cmd, "No profile is currently configured")
 			return nil
 		}
-		return Current.Print(ctx, cmd, Current)
+		return Current.Print(ctx, cmd, Current.displayPayload(cmd, Current))
 	}
 
 	if len(args) == 0 {
@@ -90,5 +90,5 @@ func getProcess(cmd *cobra.Command, args []string) (err error) {
 		profile.Default = true
 	}
 
-	return profile.Print(ctx, cmd, profile)
+	return profile.Print(ctx, cmd, profile.displayPayload(cmd, profile))
 }

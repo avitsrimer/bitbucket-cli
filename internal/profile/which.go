@@ -43,5 +43,5 @@ func whichProcess(cmd *cobra.Command, args []string) (err error) {
 		return nil
 	}
 
-	return profile.Print(ctx, cmd, Current)
+	return profile.Print(ctx, cmd, profile.displayPayload(cmd, Current))
 }

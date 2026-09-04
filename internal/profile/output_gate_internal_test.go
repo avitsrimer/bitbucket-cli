@@ -117,3 +117,81 @@ func TestMaskSecrets(t *testing.T) {
 		})
 	}
 }
+
+// TestDisplayPayload pins what the single-profile display commands hand to Print: a masked
+// forDisplay copy when the gate is closed, the very payload pointer they were given when it is
+// open, and in neither case a mutation of that payload.
+func TestDisplayPayload(t *testing.T) {
+	tests := []struct {
+		name          string
+		profileFormat string
+		explicit      string
+		wantMasked    bool
+	}{
+		{name: "profile configured json masks the payload", profileFormat: "json", wantMasked: true},
+		{name: "profile configured yaml masks the payload", profileFormat: "yaml", wantMasked: true},
+		{name: "explicit json passes the payload through", profileFormat: "json", explicit: "json", wantMasked: false},
+		{name: "explicit yaml passes the payload through", profileFormat: "table", explicit: "yaml", wantMasked: false},
+		{name: "profile configured table passes the payload through", profileFormat: "table", wantMasked: false},
+		{name: "profile configured csv passes the payload through", profileFormat: "csv", wantMasked: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("BB_OUTPUT_FORMAT", "")
+			cmd := newOutputFormatCmd(t, "", test.explicit)
+			// the receiver resolves the format, the payload is the profile being displayed:
+			// whichProcess prints the current profile through a receiver of its own.
+			receiver := Profile{Name: "receiver", OutputFormat: test.profileFormat}
+			payload := &Profile{Name: "displayed", Password: "plain-password", ClientSecret: "plain-client-secret", AccessToken: "plain-access-token"}
+
+			switch actual := receiver.displayPayload(cmd, payload).(type) {
+			case Profile:
+				if !test.wantMasked {
+					t.Fatalf("displayPayload() returned a masked copy, want the payload itself")
+				}
+				for _, secret := range []struct {
+					field string
+					value string
+				}{
+					{field: "Password", value: actual.Password},
+					{field: "ClientSecret", value: actual.ClientSecret},
+					{field: "AccessToken", value: actual.AccessToken},
+				} {
+					if secret.value != secretMask {
+						t.Errorf("displayPayload().%s = %q, want %q", secret.field, secret.value, secretMask)
+					}
+				}
+			case *Profile:
+				if test.wantMasked {
+					t.Fatalf("displayPayload() returned the payload itself, want a masked copy")
+				}
+				if actual != payload {
+					t.Errorf("displayPayload() returned %v, want the payload pointer itself", actual)
+				}
+			default:
+				t.Fatalf("displayPayload() returned a %T, want a Profile or a *Profile", actual)
+			}
+
+			if payload.Password != "plain-password" || payload.ClientSecret != "plain-client-secret" || payload.AccessToken != "plain-access-token" {
+				t.Errorf("displayPayload() mutated the payload: password %q, client secret %q, access token %q", payload.Password, payload.ClientSecret, payload.AccessToken)
+			}
+		})
+	}
+}
+
+// TestDisplayPayloadNilProfile covers the gate-closed path with nothing to mask: displayPayload
+// must hand the nil payload straight to Print rather than dereferencing it.
+func TestDisplayPayloadNilProfile(t *testing.T) {
+	t.Setenv("BB_OUTPUT_FORMAT", "")
+	cmd := newOutputFormatCmd(t, "", "")
+	receiver := Profile{Name: "receiver", OutputFormat: "json"}
+
+	actual, ok := receiver.displayPayload(cmd, nil).(*Profile)
+	if !ok {
+		t.Fatalf("displayPayload() returned a %T, want a *Profile", receiver.displayPayload(cmd, nil))
+	}
+	if actual != nil {
+		t.Errorf("displayPayload() = %v, want nil", actual)
+	}
+}

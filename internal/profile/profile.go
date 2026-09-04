@@ -573,6 +573,17 @@ func (profile Profile) maskSecrets(cmd *cobra.Command) bool {
 	}
 }
 
+// displayPayload returns the payload a single-profile display command must hand to Print for cmd:
+// a forDisplay copy of payload, with its secrets masked, when maskSecrets applies to cmd, and
+// payload itself otherwise. The receiver is the profile whose configured OutputFormat resolves
+// cmd's format, which is not necessarily the profile being displayed (see whichProcess).
+func (profile Profile) displayPayload(cmd *cobra.Command, payload *Profile) any {
+	if payload == nil || !profile.maskSecrets(cmd) {
+		return payload
+	}
+	return payload.forDisplay()
+}
+
 // Print prints the given payload to the console
 func (profile Profile) Print(context context.Context, cmd *cobra.Command, payload any) error {
 	switch profile.resolvedOutputFormat(cmd) {
