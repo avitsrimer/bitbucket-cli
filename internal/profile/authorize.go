@@ -1,6 +1,7 @@
 package profile
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -115,36 +116,66 @@ func authorizeProcess(cmd *cobra.Command, args []string) (err error) {
 	return nil
 }
 
-// openBrowser opens the specified URL in the default web browser
-func openBrowser(ctx context.Context, url url.URL) error {
-	var cmd string
-	var args []string
+// browserEnv describes the host properties that decide which launcher opens a URL. Passing it
+// explicitly is what makes browserCommand pure and its argv assertable on any host OS.
+type browserEnv struct {
+	goos            string
+	wsl             bool
+	interopDisabled bool
+	sshSession      bool
+}
 
-	switch runtime.GOOS {
+// browserCommand reports the launcher name and argv that open u on the host described by env.
+//
+// Only the WSL branch wraps the URL in double quotes: cmd.exe re-parses its command line, so the
+// quotes are consumed by that parsing. Every other branch is handed straight to the target process
+// as argv with no shell in between, where quotes would be literal characters in the argument.
+func browserCommand(env browserEnv, u url.URL) (name string, args []string, err error) {
+	switch env.goos {
 	case "linux":
-		cmd = "xdg-open"
-		if _, exists := os.LookupEnv("SSH_CONNECTION"); exists {
-			return errors.New("cannot open browser in SSH session")
+		name = "xdg-open"
+		if env.sshSession {
+			return "", nil, errors.New("cannot open browser in SSH session")
 		}
-		if common.IsWSL() {
-			// If the flag interop=true is not set in /etc/wsl.conf, return an error
-			if wslInteropDisabled() {
-				return errors.New("cannot open browser in WSL without interop enabled")
+		if env.wsl {
+			if env.interopDisabled {
+				return "", nil, errors.New("cannot open browser in WSL without interop enabled")
 			}
-			cmd = "cmd.exe"
-			args = append(args, "/C", "start")
+			return "cmd.exe", []string{"/C", "start", `"` + u.String() + `"`}, nil
 		}
 	case "windows":
-		cmd = "rundll32"
+		name = "rundll32"
 		args = append(args, "url.dll,FileProtocolHandler")
 	case "darwin":
-		cmd = "open"
+		name = "open"
 	default:
-		return errors.New("unsupported platform")
+		return "", nil, errors.New("unsupported platform")
 	}
 
-	args = append(args, `"`+url.String()+`"`)
-	if err := exec.CommandContext(ctx, cmd, args...).Start(); err != nil { //nolint:gosec // cmd is one of a fixed set of literals chosen from runtime.GOOS above, never external input
+	return name, append(args, u.String()), nil
+}
+
+// openBrowser opens the specified URL in the default web browser
+func openBrowser(ctx context.Context, url url.URL) error {
+	env := browserEnv{goos: runtime.GOOS, wsl: common.IsWSL()}
+	_, env.sshSession = os.LookupEnv("SSH_CONNECTION")
+	if env.wsl {
+		// reading /etc/wsl.conf only matters under WSL, so it stays behind that check
+		env.interopDisabled = wslInteropDisabled()
+	}
+
+	name, args, err := browserCommand(env, url)
+	if err != nil {
+		return err
+	}
+
+	var stderr bytes.Buffer
+	launch := exec.CommandContext(ctx, name, args...) //nolint:gosec // name is one of a fixed set of literals chosen from runtime.GOOS in browserCommand, never external input
+	launch.Stderr = &stderr
+	if err := launch.Run(); err != nil {
+		if message := strings.TrimSpace(stderr.String()); message != "" {
+			return fmt.Errorf("cannot open browser: %s", message)
+		}
 		return fmt.Errorf("cannot open browser: %w", err)
 	}
 	return nil
