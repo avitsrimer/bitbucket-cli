@@ -76,8 +76,10 @@ func authorizeProcess(cmd *cobra.Command, args []string) (err error) {
 		}
 	}()
 
-	// Open the browser to the Authorization Code Grant URL
-	common.Verbose(cmd, "Opening browser to authorize profile %s...", profile.Name)
+	// Open the browser to the Authorization Code Grant URL. Both writes are unconditional and go
+	// to stderr: the URL is the only way to complete the grant when no browser opens, so it must
+	// reach the user without --verbose, while stderr keeps stdout clean for any -o output.
+	fmt.Fprintf(cmd.ErrOrStderr(), "Opening browser to authorize profile %s...\n", profile.Name)
 	bitbucketAuthURL := url.URL{
 		Scheme: "https",
 		Host:   "bitbucket.org",
@@ -87,7 +89,7 @@ func authorizeProcess(cmd *cobra.Command, args []string) (err error) {
 			"client_id":     {profile.ClientID},
 		}.Encode(),
 	}
-	common.Verbose(cmd, "\nIf you are not redirected automatically, please open the following URL in your browser:\n%s\n", bitbucketAuthURL.String())
+	fmt.Fprintf(cmd.ErrOrStderr(), "\nIf you are not redirected automatically, please open the following URL in your browser:\n%s\n\n", bitbucketAuthURL.String())
 
 	err = openBrowser(ctx, bitbucketAuthURL)
 	if err != nil {
@@ -95,7 +97,9 @@ func authorizeProcess(cmd *cobra.Command, args []string) (err error) {
 		if cmd.Flag("stop-on-error").Value.String() == "true" {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "\nPlease open the following URL in your browser:\n%s\n", bitbucketAuthURL.String())
+		// the launch failed, so the manual URL is the only remaining way to finish the grant; it
+		// shares the stream the pre-launch guidance uses
+		fmt.Fprintf(cmd.ErrOrStderr(), "\nPlease open the following URL in your browser:\n%s\n", bitbucketAuthURL.String())
 	}
 
 	fmt.Fprintln(cmd.OutOrStdout(), "waiting for browser authorization...")
