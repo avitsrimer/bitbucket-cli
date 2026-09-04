@@ -87,15 +87,6 @@ func clearCachedFlags(t *testing.T, names ...string) {
 	}
 }
 
-// runSecretGateCommand drives the real profile command tree against configPath and returns its
-// stdout, clearing the cached --output flag first so args alone decide whether the format was
-// requested explicitly.
-func runSecretGateCommand(t *testing.T, configPath string, args ...string) string {
-	t.Helper()
-	clearCachedFlags(t, "output")
-	return runProfileCommand(t, configPath, args...)
-}
-
 // TestProfileDisplayCommandsMaskSecretsWhenFormatNotExplicit pins that none of the four profile
 // display paths may render a stored secret in cleartext when the json/yaml output format was
 // chosen by the profile's own outputFormat or by BB_OUTPUT_FORMAT rather than by an explicit
@@ -150,7 +141,7 @@ func TestProfileDisplayCommandsMaskSecretsWhenFormatNotExplicit(t *testing.T) {
 			t.Setenv("BB_OUTPUT_FORMAT", test.envOutputFormat)
 			configPath := writeSecretGateConfig(t, test.profileOutputFormat, true)
 
-			output := runSecretGateCommand(t, configPath, test.args...)
+			output := runProfileCommand(t, configPath, test.args...)
 
 			for _, secret := range gatedSecrets {
 				if strings.Contains(output, secret) {
@@ -164,9 +155,9 @@ func TestProfileDisplayCommandsMaskSecretsWhenFormatNotExplicit(t *testing.T) {
 	}
 }
 
-// TestProfileDisplayCommandsShowSecretsWithExplicitOutputFlag is the preserved-behavior
-// counterpart: an explicit -o json|yaml on the command line is the sanctioned scripting path for
-// retrieving a stored secret and must keep printing the real values.
+// TestProfileDisplayCommandsShowSecretsWithExplicitOutputFlag pins the other side of the gate: an
+// explicit -o json|yaml on the command line is the sanctioned scripting path for retrieving a
+// stored secret, so each of the three display paths must print the real values for it.
 func TestProfileDisplayCommandsShowSecretsWithExplicitOutputFlag(t *testing.T) {
 	commands := map[string][]string{
 		"list":  {"profile", "list"},
@@ -181,7 +172,7 @@ func TestProfileDisplayCommandsShowSecretsWithExplicitOutputFlag(t *testing.T) {
 				configPath := writeSecretGateConfig(t, "table", true)
 				args := append(append([]string{}, commands[command]...), "--output", format)
 
-				output := runSecretGateCommand(t, configPath, args...)
+				output := runProfileCommand(t, configPath, args...)
 
 				for _, secret := range gatedSecrets {
 					if !strings.Contains(output, secret) {
@@ -193,10 +184,10 @@ func TestProfileDisplayCommandsShowSecretsWithExplicitOutputFlag(t *testing.T) {
 	}
 }
 
-// TestProfileGetSingleProfileConfigReportsDefaultTrue is the second preserved-behavior guard:
-// `profile get <name>` marks the only profile of a single-profile config as the default one
-// (get.go's len(Profiles) == 1 adjustment), whichever way the json format was chosen. It guards
-// the ordering trap of masking before that adjustment runs.
+// TestProfileGetSingleProfileConfigReportsDefaultTrue pins that `profile get <name>` marks the
+// only profile of a single-profile config as the default one (get.go's len(Profiles) == 1
+// adjustment), whichever way the json format was chosen -- the printed payload is built after
+// that adjustment, so masking never renders it invisible.
 func TestProfileGetSingleProfileConfigReportsDefaultTrue(t *testing.T) {
 	tests := []struct {
 		name                string
@@ -220,7 +211,7 @@ func TestProfileGetSingleProfileConfigReportsDefaultTrue(t *testing.T) {
 			defer resetProfilesState()()
 			configPath := writeSecretGateConfig(t, test.profileOutputFormat, false)
 
-			output := runSecretGateCommand(t, configPath, test.args...)
+			output := runProfileCommand(t, configPath, test.args...)
 
 			if !strings.Contains(output, `"default": true`) {
 				t.Errorf("%v must report the only profile of a single-profile config as the default one:\n%s", test.args, output)
@@ -235,7 +226,7 @@ func TestProfileGetSingleProfileConfigReportsDefaultTrue(t *testing.T) {
 const gatedUpdatedDescription = "secret output gate updated description"
 
 // runSecretGateCommandKeepingState drives the real profile command tree against configPath
-// exactly like runSecretGateCommand, except that it leaves the package-level
+// exactly like runProfileCommand, except that it leaves the package-level
 // profile.Profiles/profile.Current collection alone instead of clearing it first, so an earlier
 // invocation's in-memory state is what this one operates on.
 func runSecretGateCommandKeepingState(t *testing.T, configPath string, args ...string) string {
@@ -400,7 +391,7 @@ func TestRowFormatsRedactAccessTokenPerValue(t *testing.T) {
 			t.Setenv("BB_OUTPUT_FORMAT", "")
 			configPath := writeTwoTokenGateConfig(t)
 
-			output := runSecretGateCommand(t, configPath, "profile", "list", "--columns", "name,accesstoken", "--output", format)
+			output := runProfileCommand(t, configPath, "profile", "list", "--columns", "name,accesstoken", "--output", format)
 
 			for _, token := range []string{firstGatedAccessToken, secondGatedAccessToken} {
 				if strings.Contains(output, token) {
@@ -454,12 +445,12 @@ func captureStderr(t *testing.T, fn func()) string {
 var dryRunCachedFlags = []string{"dry-run", "current"}
 
 // runDryRunCommand drives the real profile command tree against configPath like
-// runSecretGateCommand does, returning its stdout and its stderr separately so the dry-run line
-// can be asserted apart from whatever the command printed as output.
+// runProfileCommand does, returning its stdout and its stderr separately so the dry-run line can
+// be asserted apart from whatever the command printed as output.
 func runDryRunCommand(t *testing.T, configPath string, args ...string) (stdout, stderr string) {
 	t.Helper()
 	stderr = captureStderr(t, func() {
-		stdout = runSecretGateCommand(t, configPath, args...)
+		stdout = runProfileCommand(t, configPath, args...)
 	})
 	return stdout, stderr
 }

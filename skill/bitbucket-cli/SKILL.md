@@ -66,15 +66,17 @@ time. `--default-workspace` is also available on both, but only `profile update
 `read:workspace`); `profile create --default-workspace` stores whatever string you give it
 unvalidated, so a scoped-down token that lacks `read:workspace` can still set it at create time.
 `bb profile list`, `bb profile get` and `bb profile which` mask a profile's stored `password`,
-`clientSecret` and `accessToken` in every output format. Table/csv/tsv carry no `password` or
-`clientsecret` column at all, and render `accesstoken` (reachable via `--columns accesstoken`) as
-a per-value hash rather than the token. In json/yaml, each stored secret prints as `********`
-unless an EXPLICIT `-o json`/`-o yaml` was given on that command line — that explicit flag is the
-sanctioned way to read a secret back, and the only one: a profile-configured `outputFormat` or a
-`BB_OUTPUT_FORMAT` naming json/yaml masks just the same, and does not fetch a vault-stored secret
-either. This holds whatever the secret's provenance — the macOS Keychain, or plaintext in the
-config file from `--no-vault`. All four display commands (`bb profile list`, `bb profile get`,
-`bb profile get --current`, `bb profile which`) honour `--dry-run`.
+`clientSecret` and `accessToken` in every output format, and all of them honour `--dry-run`,
+`bb profile get --current` included. Table/csv/tsv carry no `password` or `clientsecret` column
+at all, and render `accesstoken` (reachable via `--columns accesstoken`) as a per-value hash
+rather than the token. In json/yaml, each stored secret prints as `********` unless an
+EXPLICIT `-o json`/`-o yaml` was given on that command line — a profile-configured `outputFormat`
+or a `BB_OUTPUT_FORMAT` naming json/yaml masks just the same. That explicit flag is the only way
+to read a secret back, and only on `bb profile list` and `bb profile get <profile-name>`, the two
+commands that fetch a vault-stored secret: on `bb profile get --current` and `bb profile which` a
+vault-backed secret never reaches the output in any format, while a secret held in plaintext in
+the config file (from `--no-vault`, or a vault write that fell back to plaintext) is in memory on
+all four and is what masking covers there.
 `bb profile get <profile-name>` requires either the name positional or `--current`; given
 neither, it errors `argument profile is missing`.
 

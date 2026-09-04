@@ -454,13 +454,15 @@ When you use a user/password, the password is stored in the vault of the operati
 > tokens stay distinguishable).
 >
 > In json/yaml, each stored secret prints as `********` unless an EXPLICIT `-o json` or `-o yaml`
-> is given on that command line. That explicit flag is the supported way to script retrieval of a
-> stored secret, and the only route that reveals one: it also gates the vault fetch, so an output
-> format arriving from a profile's own configured `outputformat` or from `BB_OUTPUT_FORMAT`
-> neither fetches a vault-stored secret nor prints one already held in memory. This holds
-> wherever the secret lives -- the OS vault, or plaintext in the config file for a profile created
-> with `--no-vault` (or one whose vault store failed at creation/update time and fell back to
-> plaintext).
+> is given on that command line -- a format arriving from a profile's own configured
+> `outputformat` or from `BB_OUTPUT_FORMAT` masks just the same. That explicit flag is the only
+> route that reveals a stored secret, and it is the supported way to script retrieving one on
+> `bb profile list` and `bb profile get <name>`, the two commands that also fetch a secret from
+> the OS vault. `bb profile get --current` and `bb profile which` never perform that fetch, so a
+> VAULT-backed profile's secret is absent from their output in every format; a secret kept in
+> plaintext in the config file (a profile created with `--no-vault`, or one whose vault store
+> failed at creation/update time and fell back to plaintext) is in memory on all four commands
+> and is what masking covers there.
 
 You can get the list of your profiles with the `bb profile list` command:
 
@@ -487,7 +489,8 @@ bb profile which
 ```
 
 All four of `bb profile list`, `bb profile get <name>`, `bb profile get --current` and
-`bb profile which` mask stored secrets the same way (see the note above) and honour `--dry-run`.
+`bb profile which` mask stored secrets and honour `--dry-run`; only the first two can reveal a
+stored secret, under an explicit `-o json`/`-o yaml` (see the note above).
 
 You can update a profile with the `bb profile update` command:
 
