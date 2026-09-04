@@ -534,8 +534,11 @@ func explicitJSONOrYAMLOutput(cmd *cobra.Command) bool {
 	}
 }
 
-// Print prints the given payload to the console
-func (profile Profile) Print(context context.Context, cmd *cobra.Command, payload any) error {
+// resolvedOutputFormat reports the output format Print actually renders payloads in for cmd:
+// cmd's own --output flag value (which also carries BB_OUTPUT_FORMAT as its default) wins over
+// the profile's configured OutputFormat, and an empty result means Print falls back to its table
+// default. It is the single copy of that precedence, shared by Print and maskSecrets.
+func (profile Profile) resolvedOutputFormat(cmd *cobra.Command) string {
 	outputFormat := profile.OutputFormat
 
 	// cmd.Flag("output").Value carries the --output flag's value, which also holds the
@@ -552,7 +555,27 @@ func (profile Profile) Print(context context.Context, cmd *cobra.Command, payloa
 		outputFormat = commandFormat
 		lgr.Printf("[DEBUG] command output format: %s (was: %s)", outputFormat, profile.OutputFormat)
 	}
-	switch outputFormat {
+	return outputFormat
+}
+
+// maskSecrets reports whether a payload printed for cmd must have its secret fields masked (see
+// forDisplay). Both halves are required: the resolved output format must be one that renders a
+// secret verbatim -- only json and yaml do, since table/csv/tsv already run the accesstoken cell
+// through redactWithHash, and feeding that a masked value would collapse the column to one
+// identical hash for every profile -- and no explicit -o/--output json|yaml may have opted in on
+// the command line, which is the sanctioned way to read a stored secret back.
+func (profile Profile) maskSecrets(cmd *cobra.Command) bool {
+	switch profile.resolvedOutputFormat(cmd) {
+	case "json", "yaml":
+		return !explicitJSONOrYAMLOutput(cmd)
+	default:
+		return false
+	}
+}
+
+// Print prints the given payload to the console
+func (profile Profile) Print(context context.Context, cmd *cobra.Command, payload any) error {
+	switch profile.resolvedOutputFormat(cmd) {
 	case "json":
 		return profile.printJSON(payload)
 	case "yaml":
