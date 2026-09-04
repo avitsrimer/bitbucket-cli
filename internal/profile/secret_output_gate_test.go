@@ -3,9 +3,11 @@ package profile_test
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 )
 
@@ -218,6 +220,199 @@ func TestProfileGetSingleProfileConfigReportsDefaultTrue(t *testing.T) {
 
 			if !strings.Contains(output, `"default": true`) {
 				t.Errorf("%v must report the only profile of a single-profile config as the default one:\n%s", test.args, output)
+			}
+		})
+	}
+}
+
+// gatedUpdatedDescription is the only field the persistence guard below changes, so the config
+// file a save writes after a gate-closed display can be compared against a control save that ran
+// no display command at all.
+const gatedUpdatedDescription = "secret output gate updated description"
+
+// runSecretGateCommandKeepingState drives the real profile command tree against configPath
+// exactly like runSecretGateCommand, except that it leaves the package-level
+// profile.Profiles/profile.Current collection alone instead of clearing it first, so an earlier
+// invocation's in-memory state is what this one operates on.
+func runSecretGateCommandKeepingState(t *testing.T, configPath string, args ...string) string {
+	t.Helper()
+	clearCachedOutputFlag(t)
+
+	root := newTestRootCommand()
+	root.AddCommand(profile.Command)
+	if err := root.PersistentFlags().Set("config", configPath); err != nil {
+		t.Fatalf("cannot set config flag: %v", err)
+	}
+	if err := common.Initialize(root); err != nil {
+		t.Fatalf("cannot initialize config: %v", err)
+	}
+	root.SetArgs(args)
+
+	return captureStdout(t, func() {
+		if err := root.Execute(); err != nil {
+			t.Fatalf("profile command %v failed: %v", args, err)
+		}
+	})
+}
+
+// runSecretGateSequence runs each invocation in order against configPath and returns their
+// stdout. Only the first starts from a cleared Profiles/Current collection; every later one
+// reuses the in-memory state its predecessor left behind, since profiles.Load is a no-op while
+// the collection is populated and the config path is unchanged. That sharing is the whole point:
+// reloading from disk between a display command and a save would reload the plaintext secrets
+// too, hiding a secretMask the display path had left reachable from Profiles -- the exact
+// corruption Profile.MarshalYAML being shared with profileForSave makes possible.
+func runSecretGateSequence(t *testing.T, configPath string, invocations ...[]string) []string {
+	t.Helper()
+	profile.Profiles = nil
+	profile.Current = nil
+
+	outputs := make([]string, 0, len(invocations))
+	for _, args := range invocations {
+		outputs = append(outputs, runSecretGateCommandKeepingState(t, configPath, args...))
+	}
+	return outputs
+}
+
+// readSecretGateConfig returns the raw bytes of the config file at path as a string.
+func readSecretGateConfig(t *testing.T, path string) string {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("cannot read the saved config: %v", err)
+	}
+	return string(content)
+}
+
+// TestGateClosedDisplayThenSaveKeepsPlaintextSecretsInConfigFile is the persistence guard: a
+// gate-closed display command must not leave a masked profile reachable from the package-level
+// Profiles collection, because Profile.MarshalYAML is shared with the persistence path
+// (profileForSave embeds Profile to inherit it, and saveProfilesConfig marshals through it), so a
+// secretMask reachable from Profiles would overwrite a real credential the very next time any
+// command saves.
+//
+// The save is driven through the production path -- `profile update <name> --description ...`,
+// which calls saveProfilesConfig -- because saveProfilesConfig is unexported and this test
+// package is external. Each case's config is additionally compared byte-for-byte against a
+// control save that ran no display command at all, so a secret merely blanked (rather than
+// masked) is caught too.
+func TestGateClosedDisplayThenSaveKeepsPlaintextSecretsInConfigFile(t *testing.T) {
+	updateArgs := []string{"profile", "update", gatedProfileName, "--description", gatedUpdatedDescription}
+
+	controlPath := writeSecretGateConfig(t, "json", true)
+	func() {
+		defer resetProfilesState()()
+		runSecretGateSequence(t, controlPath, updateArgs)
+	}()
+	control := readSecretGateConfig(t, controlPath)
+
+	tests := []struct {
+		name        string
+		displayArgs []string
+	}{
+		{
+			name:        "list then save",
+			displayArgs: []string{"profile", "list"},
+		},
+		{
+			name:        "get then save",
+			displayArgs: []string{"profile", "get", gatedProfileName},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			defer resetProfilesState()()
+			configPath := writeSecretGateConfig(t, "json", true)
+
+			outputs := runSecretGateSequence(t, configPath, test.displayArgs, updateArgs)
+
+			// the display command must really have been gate-closed, otherwise the rest of this
+			// case would prove nothing about masking reaching the config file
+			if !strings.Contains(outputs[0], displaySecretMask) {
+				t.Fatalf("%v was expected to print masked secrets, so the save below is guarded against a real mask:\n%s", test.displayArgs, outputs[0])
+			}
+
+			saved := readSecretGateConfig(t, configPath)
+			for _, secret := range gatedSecrets {
+				if !strings.Contains(saved, secret) {
+					t.Errorf("the config saved after %v no longer holds the plaintext secret %s:\n%s", test.displayArgs, secret, saved)
+				}
+			}
+			if strings.Contains(saved, displaySecretMask) {
+				t.Errorf("the config saved after %v holds %s, overwriting a real credential:\n%s", test.displayArgs, displaySecretMask, saved)
+			}
+			if !strings.Contains(saved, gatedUpdatedDescription) {
+				t.Errorf("the config saved after %v did not record the updated description:\n%s", test.displayArgs, saved)
+			}
+			if saved != control {
+				t.Errorf("the config saved after %v differs from a save with no display command before it:\ngot:\n%s\nwant:\n%s", test.displayArgs, saved, control)
+			}
+		})
+	}
+}
+
+// the two profiles writeTwoTokenGateConfig writes, carrying DIFFERENT plaintext access tokens so
+// the row-based output formats can be checked for per-value redaction.
+const (
+	firstTokenProfileName  = "secret-gate-token-profile-a"
+	secondTokenProfileName = "secret-gate-token-profile-b"
+	firstGatedAccessToken  = "PLAINTEXT-ACCESS-TOKEN-a1b2c3"
+	secondGatedAccessToken = "PLAINTEXT-ACCESS-TOKEN-d4e5f6"
+)
+
+// redactedHashPattern matches one redactWithHash result, "REDACTED-" followed by the first ten
+// hex digits of the value's sha256.
+var redactedHashPattern = regexp.MustCompile(`REDACTED-[0-9a-f]{10}`)
+
+// writeTwoTokenGateConfig writes a plain-YAML config file holding two profiles whose only
+// difference that matters here is their plaintext access token, returning the file's path.
+func writeTwoTokenGateConfig(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config-cli.yml")
+	content := "profiles:\n" +
+		"    - name: " + firstTokenProfileName + "\n      default: true\n      accesstoken: " + firstGatedAccessToken + "\n" +
+		"    - name: " + secondTokenProfileName + "\n      accesstoken: " + secondGatedAccessToken + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("cannot write test config: %v", err)
+	}
+	return path
+}
+
+// TestRowFormatsRedactAccessTokenPerValue guards the row-based output formats (table, csv and
+// tsv, which all share GetRow) against being handed a masked profile: GetRow renders the
+// accesstoken cell as redactWithHash(profile.AccessToken), so feeding it secretMask would
+// collapse the column to one identical REDACTED-<hash> for every profile, destroying the very
+// property redactWithHash exists for -- repeated values stay distinguishable, distinct ones stay
+// distinct.
+//
+// display_mask_test.go's assertions cannot catch that: they only check that a REDACTED- prefix is
+// present, which one constant hash shared by every profile would satisfy. This test asserts
+// DISTINCTNESS across two profiles carrying different tokens instead.
+func TestRowFormatsRedactAccessTokenPerValue(t *testing.T) {
+	for _, format := range []string{"table", "csv", "tsv"} {
+		t.Run(format, func(t *testing.T) {
+			defer resetProfilesState()()
+			t.Setenv("BB_OUTPUT_FORMAT", "")
+			configPath := writeTwoTokenGateConfig(t)
+
+			output := runSecretGateCommand(t, configPath, "profile", "list", "--columns", "name,accesstoken", "--output", format)
+
+			for _, token := range []string{firstGatedAccessToken, secondGatedAccessToken} {
+				if strings.Contains(output, token) {
+					t.Errorf("%s output rendered the raw access token %s:\n%s", format, token, output)
+				}
+			}
+			if strings.Contains(output, displaySecretMask) {
+				t.Errorf("%s output masked the accesstoken column with %s instead of redacting each value on its own:\n%s", format, displaySecretMask, output)
+			}
+
+			hashes := redactedHashPattern.FindAllString(output, -1)
+			if len(hashes) != 2 {
+				t.Fatalf("%s output must carry one REDACTED-<hash> accesstoken cell per profile, got %d:\n%s", format, len(hashes), output)
+			}
+			if hashes[0] == hashes[1] {
+				t.Errorf("%s output redacted two different access tokens to the same %s, so the accesstoken column no longer distinguishes values:\n%s", format, hashes[0], output)
 			}
 		})
 	}
