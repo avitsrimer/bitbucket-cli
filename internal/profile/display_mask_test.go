@@ -63,9 +63,13 @@ func writeLiveTokenConfig(t *testing.T) string {
 // runProfileCommand executes profile.Command with args against configPath, returning captured
 // stdout. It forces profile.Profiles/profile.Current back to nil and re-runs common.Initialize
 // before every call, mirroring TestProfileCreateAndDeletePersistAcrossReloads' "force a fresh
-// reload from disk" step, so one call's in-memory state never leaks into the next.
+// reload from disk" step, so one call's in-memory state never leaks into the next. It also clears
+// the --output flag cobra caches on the profile command singletons (see clearCachedFlags), so
+// every call decides the flag's value and Changed bit from its own args alone, in whatever order
+// the tests of this package happen to run.
 func runProfileCommand(t *testing.T, configPath string, args ...string) string {
 	t.Helper()
+	clearCachedFlags(t, "output")
 	profile.Profiles = nil
 	profile.Current = nil
 
@@ -89,12 +93,10 @@ func runProfileCommand(t *testing.T, configPath string, args ...string) string {
 // TestProfileListTableMasksAccessTokenColumn proves `bb profile list --columns accesstoken`
 // renders the masked (redactWithHash) form in table output, never the raw token -- the FR-7 fix.
 //
-// --output table is passed explicitly rather than relying on the empty-flag default: listCmd is
-// a package-level singleton reused by every test in this file (and beyond) driven through its
-// OWN, freshly built root command each time, but cobra's Command.parentsPflags is cached on the
-// singleton itself the first time flag merging runs and is never invalidated for a later call's
-// different root -- so an explicit --output on some other test using listCmd earlier in this
-// (alphabetically ordered) suite run can otherwise leak into this one's unset default.
+// --output table is passed explicitly rather than leaving the flag unset, because an unset
+// --output lets BB_OUTPUT_FORMAT pick the format (see Profile.resolvedOutputFormat): a developer
+// running the suite with that variable set in their own environment would otherwise get a
+// different format here.
 func (suite *ProfileSuite) TestProfileListTableMasksAccessTokenColumn() {
 	defer resetProfilesState()()
 	configPath := writeLiveTokenConfig(suite.T())

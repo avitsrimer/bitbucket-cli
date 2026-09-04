@@ -63,9 +63,13 @@ type Profile struct {
 	// on the command line or already present in the config file). Profile.forSave blanks out
 	// exactly the fields this marks before a Profile is persisted, so a secret fetched from the
 	// vault to authorize one command is never written back to the config file in plain text --
-	// for any of the three secrets, on every path that saves a Profile. Display paths (profile
-	// get/list -o yaml/json) marshal the Profile directly and show the secret, since the user
-	// explicitly asked LoadSecrets to populate it for display.
+	// for any of the three secrets, on every path that saves a Profile. Display paths (`profile
+	// list`, `profile get`, `profile which`) show a secret only when an explicit -o/--output json
+	// or yaml opted in (see explicitJSONOrYAMLOutput and maskSecrets); every other json/yaml route
+	// prints secretMask. That same flag gates the LoadSecrets calls that populate a vault-stored
+	// secret, which only `profile list` and `profile get <name>` make -- `profile get --current`
+	// and `profile which` never fetch from the vault, so a vault-backed secret is absent from
+	// their output in every format.
 	vault vaultProvenance `json:"-" yaml:"-"`
 }
 
@@ -240,10 +244,13 @@ func CurrentOrFromCommand(ctx context.Context, cmd *cobra.Command, what string) 
 // leak that would happen if GetRow ever rendered it in cleartext. It remains available on demand
 // via --columns accesstoken, but GetRow renders it through redactWithHash rather than in
 // cleartext (see GetRow's "accesstoken" case), and the same masking applies to csv/tsv output,
-// which shares GetRow. This is a separate mechanism from forDisplay's secretMask, which only
-// covers confirmation output after a mutation (`profile create`/`profile update`); `profile
-// get`/`profile list` intentionally still show the real secret (see MarshalJSON's doc comment)
-// when -o/--output json or yaml is given EXPLICITLY on the command line. ClientSecret and
+// which shares GetRow. This is a separate mechanism from forDisplay's secretMask, which covers
+// confirmation output after a mutation (`profile update`) and the json/yaml payload of the four
+// display paths (`profile list`, `profile get <name>`, `profile get --current`, `profile which`).
+// All four mask the secrets they hold unless -o/--output json or yaml is given EXPLICITLY on the
+// command line (see MarshalJSON's doc comment); only `profile list` and `profile get <name>` also
+// fetch a vault-stored secret for that explicit flag, so on `profile get --current` and `profile
+// which` a vault-backed secret is absent from the output in every format. ClientSecret and
 // Password carry the same table-leak risk in principle but have no column defined at all -- there
 // is no --columns value that reaches either field.
 func (profile Profile) GetHeaders(cmd *cobra.Command) []string {
@@ -513,14 +520,16 @@ func (profile Profile) String() string {
 }
 
 // explicitJSONOrYAMLOutput reports whether cmd's own -o/--output flag was set explicitly on the
-// command line to "json" or "yaml". It is deliberately narrower than Print's own outputFormat
+// command line to "json" or "yaml". It is the single opt-in for reading a stored secret back, and
+// it gates two things: the LoadSecrets calls in list.go/get.go that fetch a secret from the vault
+// to display it, and -- through maskSecrets -- whether a printed payload keeps its secrets or has
+// them replaced by secretMask. It is deliberately narrower than Print's own outputFormat
 // resolution (cmd's --output > BB_OUTPUT_FORMAT > the profile's own configured OutputFormat):
-// list.go/get.go use it to gate LoadSecrets, and neither BB_OUTPUT_FORMAT nor a profile's
-// OutputFormat may trigger secret loading on their own -- see the doc comments on GetHeaders,
-// MarshalJSON, and forDisplay for why. cmd.Flag("output").Changed (not just a non-empty value) is
-// what makes this narrower: a profile configured with outputFormat: json still leaves the flag's
-// own Value at cobra's own zero default and Changed false, so it is never mistaken for an explicit
-// -o json/yaml on the command line.
+// neither BB_OUTPUT_FORMAT nor a profile's OutputFormat may reveal a secret on their own -- see
+// the doc comments on GetHeaders, MarshalJSON, and forDisplay for why. cmd.Flag("output").Changed
+// (not just a non-empty value) is what makes this narrower: a profile configured with
+// outputFormat: json still leaves the flag's own Value at cobra's own zero default and Changed
+// false, so it is never mistaken for an explicit -o json/yaml on the command line.
 func explicitJSONOrYAMLOutput(cmd *cobra.Command) bool {
 	flag := cmd.Flag("output")
 	if flag == nil || !flag.Changed {
@@ -534,8 +543,11 @@ func explicitJSONOrYAMLOutput(cmd *cobra.Command) bool {
 	}
 }
 
-// Print prints the given payload to the console
-func (profile Profile) Print(context context.Context, cmd *cobra.Command, payload any) error {
+// resolvedOutputFormat reports the output format Print actually renders payloads in for cmd:
+// cmd's own --output flag value (which also carries BB_OUTPUT_FORMAT as its default) wins over
+// the profile's configured OutputFormat, and an empty result means Print falls back to its table
+// default. It is the single copy of that precedence, shared by Print and maskSecrets.
+func (profile Profile) resolvedOutputFormat(cmd *cobra.Command) string {
 	outputFormat := profile.OutputFormat
 
 	// cmd.Flag("output").Value carries the --output flag's value, which also holds the
@@ -552,7 +564,38 @@ func (profile Profile) Print(context context.Context, cmd *cobra.Command, payloa
 		outputFormat = commandFormat
 		lgr.Printf("[DEBUG] command output format: %s (was: %s)", outputFormat, profile.OutputFormat)
 	}
-	switch outputFormat {
+	return outputFormat
+}
+
+// maskSecrets reports whether a payload printed for cmd must have its secret fields masked (see
+// forDisplay). Both halves are required: the resolved output format must be one that renders a
+// secret verbatim -- only json and yaml do, since table/csv/tsv already run the accesstoken cell
+// through redactWithHash, and feeding that a masked value would collapse the column to one
+// identical hash for every profile -- and no explicit -o/--output json|yaml may have opted in on
+// the command line, which is the sanctioned way to read a stored secret back.
+func (profile Profile) maskSecrets(cmd *cobra.Command) bool {
+	switch profile.resolvedOutputFormat(cmd) {
+	case "json", "yaml":
+		return !explicitJSONOrYAMLOutput(cmd)
+	default:
+		return false
+	}
+}
+
+// displayPayload returns the payload a single-profile display command must hand to Print for cmd:
+// a forDisplay copy of payload, with its secrets masked, when maskSecrets applies to cmd, and
+// payload itself otherwise. The receiver is the profile whose configured OutputFormat resolves
+// cmd's format, which is not necessarily the profile being displayed (see whichProcess).
+func (profile Profile) displayPayload(cmd *cobra.Command, payload *Profile) any {
+	if payload == nil || !profile.maskSecrets(cmd) {
+		return payload
+	}
+	return payload.forDisplay()
+}
+
+// Print prints the given payload to the console
+func (profile Profile) Print(context context.Context, cmd *cobra.Command, payload any) error {
+	switch profile.resolvedOutputFormat(cmd) {
 	case "json":
 		return profile.printJSON(payload)
 	case "yaml":
@@ -773,16 +816,17 @@ func (profile *Profile) Validate() error {
 // This is a display-only encoding, reached only from `profile get`/`profile list -o json` (see
 // Profile.printJSON): unlike MarshalYAML it has no persistence counterpart to worry about, since
 // nothing in this codebase persists a Profile as JSON -- config files are YAML (Config.Save), and
-// the only other json.Marshal call in this package serializes a Token, not a Profile. It always
-// shows every field, including any secret LoadSecrets populated from the vault for display. This
-// is a deliberate exception to GetRow's table/csv/tsv masking (see GetHeaders' doc comment): an
-// EXPLICIT -o/--output json or yaml on the command line (see explicitJSONOrYAMLOutput, gating the
-// list.go/get.go LoadSecrets calls that populate the secret this then marshals) is the documented
-// scripting path for retrieving a stored secret on request, and masking here would defeat that
-// purpose. A profile merely configured with `outputFormat: json/yaml` does NOT reach this path
-// with a populated secret on its own -- list.go/get.go never call LoadSecrets for it, so the
-// field this marshals is simply whatever was already in memory (usually empty), never the vault's
-// value fetched for the occasion.
+// the only other json.Marshal call in this package serializes a Token, not a Profile. It renders
+// every field of whatever Profile value it is handed, secrets included, and takes no part in
+// deciding whether a secret may be shown: that decision belongs to the caller, which masks its
+// payload before it gets here (displayPayload/forDisplay, gated by maskSecrets). So what a
+// display command prints carries a real secret only when an EXPLICIT -o/--output json or yaml on
+// the command line opted in (see explicitJSONOrYAMLOutput, which gates both that masking and the
+// list.go/get.go LoadSecrets calls) -- the documented scripting path for retrieving a stored
+// secret on request, which masking here would defeat. Every other route to json output, a
+// profile's configured `outputFormat` and BB_OUTPUT_FORMAT among them, hands this marshaler a
+// forDisplay copy whose secrets are already secretMask. Table/csv/tsv output redacts the
+// accesstoken cell by a separate mechanism in every format (see GetHeaders' doc comment).
 //
 // implements json.Marshaler
 func (profile Profile) MarshalJSON() ([]byte, error) {
@@ -837,12 +881,17 @@ func (profile *Profile) UnmarshalJSON(data []byte) error {
 //
 // This is the *display* encoding, reached whenever a Profile (or a slice of them) is marshaled
 // directly: `profile get`/`profile list -o yaml`, and any other code that calls yaml.Marshal on a
-// Profile it already holds. It shows exactly what the caller has in memory, including any secret
-// LoadSecrets populated from the vault for display -- which list.go/get.go only do when -o/--output
-// json or yaml was given EXPLICITLY on the command line (see explicitJSONOrYAMLOutput), never for a
-// profile merely configured with `outputFormat: yaml`. Callers that instead need the *persistence*
-// encoding (never writing a vault-loaded secret back to the config file) must marshal
-// Profile.forSave()'s result instead; see saveProfilesConfig.
+// Profile it already holds. It shows exactly what the caller hands it, secrets included, and
+// decides nothing about whether a secret may be shown: on the display path the commands mask
+// their payload first (displayPayload/forDisplay, gated by maskSecrets), so a real secret reaches
+// this marshaler from there only when an EXPLICIT -o/--output json or yaml was given on the
+// command line (see explicitJSONOrYAMLOutput), which is also what gates the list.go/get.go
+// LoadSecrets calls -- a profile merely configured with `outputFormat: yaml` gets secretMask. The
+// persistence path masks nothing and involves no -o at all: profileForSave embeds Profile to
+// inherit this marshaler, so every save writes a config-file secret out in full (Profile.forSave
+// blanks only the vault-provenance ones). Callers that need that *persistence* encoding (never
+// writing a vault-loaded secret back to the config file) must marshal Profile.forSave()'s result
+// instead; see saveProfilesConfig.
 //
 // It rewrites one field on top of the default struct encoding, working directly on the resulting
 // mapping node: yaml.v3 has no field-shadowing equivalent to encoding/json's anonymous struct
@@ -902,14 +951,15 @@ const secretMask = "********"
 // forDisplay returns a copy of profile with all three secret fields (Password, ClientSecret,
 // AccessToken) unconditionally replaced by secretMask when set, regardless of their provenance
 // (freshly given on the command line/stdin/prompt, or loaded from the vault). Unlike forSave,
-// which only blanks vault-provenance secrets for persistence, this masks every secret every time:
-// it is for confirmation output after a mutation (`profile update`), where the point is confirming
-// the mutation happened, not echoing a secret the caller went out of their way to keep out of
-// shell history/scrollback via --password-stdin/--access-token-stdin. `profile get`/`profile list`
-// intentionally still show the real secret on request (see MarshalJSON's doc comment) when
-// -o/--output json or yaml is given EXPLICITLY on the command line; forDisplay is deliberately not
-// used there. Table/csv/tsv output masks AccessToken through a separate mechanism instead (GetRow's
-// redactWithHash case, see GetHeaders' doc comment), not through forDisplay/secretMask.
+// which only blanks vault-provenance secrets for persistence, this masks every secret every time.
+// It backs two kinds of output. One is confirmation output after a mutation (`profile update`),
+// where the point is confirming the mutation happened, not echoing a secret the caller went out of
+// their way to keep out of shell history/scrollback via --password-stdin/--access-token-stdin. The
+// other is the json/yaml payload of a display command (`profile get`/`profile list`/`profile
+// which`) whenever maskSecrets applies, i.e. unless an EXPLICIT -o/--output json or yaml on the
+// command line asked for the stored secret (see MarshalJSON's doc comment). Table/csv/tsv output
+// masks AccessToken through a separate mechanism instead (GetRow's redactWithHash case, see
+// GetHeaders' doc comment), not through forDisplay/secretMask.
 func (profile Profile) forDisplay() Profile {
 	displayed := profile
 	if displayed.Password != "" {

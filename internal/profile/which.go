@@ -43,5 +43,9 @@ func whichProcess(cmd *cobra.Command, args []string) (err error) {
 		return nil
 	}
 
-	return profile.Print(ctx, cmd, Current)
+	if !common.WhatIf(cmd, "Showing current profile name") {
+		return nil
+	}
+
+	return profile.Print(ctx, cmd, profile.displayPayload(cmd, Current))
 }

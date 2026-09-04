@@ -445,23 +445,24 @@ When you use a user/password, the password is stored in the vault of the operati
 > the username embedded in the clone URL.
 
 > [!NOTE]
-> `bb profile list`/`bb profile get` mask the access token in table/csv/tsv output (a masked
-> placeholder even under the explicit `--columns accesstoken`). For json/yaml output, the
-> EXPLICIT `-o json`/`-o yaml` gate on that command line only controls whether the command
-> *fetches* a vault-provenance secret to show it -- that's the supported way to script retrieval
-> of a token stored in the vault. It does not gate secrets by any other route: a secret that is
-> already sitting in memory for another reason renders in ANY json/yaml output regardless of how
-> that format was chosen (an explicit `-o`, a profile-configured `outputformat`, or
-> `BB_OUTPUT_FORMAT`). That's the case for a profile created with `--no-vault` (its secret lives
-> in plaintext in the config file and loads into memory the moment the profile is read, with no
-> vault fetch involved) and for a profile whose vault store failed at creation/update time and
-> fell back to plaintext -- for those, a bare `bb profile list`/`bb profile get` combined with a
-> profile-configured `outputformat: json`/`yaml` or `BB_OUTPUT_FORMAT=json`/`yaml` renders the
-> secret in full even with no `-o` flag on the command line at all. `bb profile get --current`
-> skips the vault fetch too, so a VAULT-backed profile's secret stays absent from `--current`
-> output -- but the same plaintext-secret profiles above render in full there as well, since
-> their secret is already in memory with no vault fetch needed. `client-secret` and `password`
-> have no `--columns` value at all, so they never appear in table/csv/tsv output regardless.
+> `bb profile list`, `bb profile get` and `bb profile which` mask a profile's stored password,
+> client secret and access token in every output format.
+>
+> In table/csv/tsv, `client-secret` and `password` have no `--columns` value at all, so they never
+> appear; the access token appears only under the explicit `--columns accesstoken`, and renders as
+> a redaction hash rather than the token (a hash of the value, so two profiles holding different
+> tokens stay distinguishable).
+>
+> In json/yaml, each stored secret prints as `********` unless an EXPLICIT `-o json` or `-o yaml`
+> is given on that command line -- a format arriving from a profile's own configured
+> `outputformat` or from `BB_OUTPUT_FORMAT` masks just the same. That explicit flag is the only
+> route that reveals a stored secret, and it is the supported way to script retrieving one on
+> `bb profile list` and `bb profile get <name>`, the two commands that also fetch a secret from
+> the OS vault. `bb profile get --current` and `bb profile which` never perform that fetch, so a
+> VAULT-backed profile's secret is absent from their output in every format; a secret kept in
+> plaintext in the config file (a profile created with `--no-vault`, or one whose vault store
+> failed at creation/update time and fell back to plaintext) is in memory on all four commands
+> and is what masking covers there.
 
 You can get the list of your profiles with the `bb profile list` command:
 
@@ -475,7 +476,7 @@ You can get the details of a profile with the `bb profile get` or `bb profile sh
 bb profile get myprofile
 ```
 
-You can ge the details of the current profile:
+You can get the details of the current profile:
 
 ```bash
 bb profile get --current
@@ -486,6 +487,10 @@ Or:
 ```bash
 bb profile which
 ```
+
+All four of `bb profile list`, `bb profile get <name>`, `bb profile get --current` and
+`bb profile which` mask stored secrets and honour `--dry-run`; only the first two can reveal a
+stored secret, under an explicit `-o json`/`-o yaml` (see the note above).
 
 You can update a profile with the `bb profile update` command:
 
