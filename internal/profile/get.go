@@ -84,8 +84,10 @@ func getProcess(cmd *cobra.Command, args []string) (err error) {
 			fmt.Fprintln(os.Stderr, "Profile", profile.Name, "is not valid:", err)
 		}
 	}
-	// LoadSecrets is only called when -o/--output json or yaml was given EXPLICITLY on the command
-	// line (see explicitJSONOrYAMLOutput's doc comment on the list.go call site for why).
+	// the vault fetch here and the masking displayPayload applies below share one opt-in: an
+	// explicit -o/--output json or yaml on the command line (see explicitJSONOrYAMLOutput, and the
+	// list.go call site for the full rationale). Without it, a secret already in memory prints as
+	// secretMask, so a profile-configured outputFormat or a BB_OUTPUT_FORMAT reveals nothing.
 	if explicitJSONOrYAMLOutput(cmd) {
 		_ = profile.LoadSecrets(ctx)
 	}

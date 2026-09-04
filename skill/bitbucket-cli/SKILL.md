@@ -65,21 +65,18 @@ time. `--default-workspace` is also available on both, but only `profile update
 --default-workspace` validates the value against the workspace list (which needs
 `read:workspace`); `profile create --default-workspace` stores whatever string you give it
 unvalidated, so a scoped-down token that lacks `read:workspace` can still set it at create time.
-`bb profile list`/`bb profile get` mask stored secrets in table/csv/tsv output unconditionally.
-For json/yaml output, the EXPLICIT `-o json`/`-o yaml` gate on that command line only controls
-whether the command *fetches* a vault-provenance secret to show it — a secret that is already
-sitting in memory for another reason renders in ANY json/yaml output regardless of how that
-format was chosen (an explicit `-o`, a profile-configured `outputFormat`, or `BB_OUTPUT_FORMAT`).
-That's the case for a profile created with `--no-vault` (its secret lives in plaintext in the
-config file and loads into memory the moment the profile is read, with no vault fetch involved)
-and for a profile whose vault store failed at creation/update time and fell back to plaintext.
-`bb profile get --current` skips the json/yaml secret gate entirely — it never calls the vault
-fetch, so a VAULT-backed profile's secret stays absent from `--current` output no matter the
-format. That does NOT make `--current` safe in general: a profile whose secret lives in the
-config file (`--no-vault`, or a vault store that failed and fell back to plaintext) already has
-that secret in memory with no vault fetch needed, so it renders in full in any json/yaml
-output, `--current` included. `bb profile get <profile-name>` requires either the name
-positional or `--current`; given neither, it errors `argument profile is missing`.
+`bb profile list`, `bb profile get` and `bb profile which` mask a profile's stored `password`,
+`clientSecret` and `accessToken` in every output format. Table/csv/tsv carry no `password` or
+`clientsecret` column at all, and render `accesstoken` (reachable via `--columns accesstoken`) as
+a per-value hash rather than the token. In json/yaml, each stored secret prints as `********`
+unless an EXPLICIT `-o json`/`-o yaml` was given on that command line — that explicit flag is the
+sanctioned way to read a secret back, and the only one: a profile-configured `outputFormat` or a
+`BB_OUTPUT_FORMAT` naming json/yaml masks just the same, and does not fetch a vault-stored secret
+either. This holds whatever the secret's provenance — the macOS Keychain, or plaintext in the
+config file from `--no-vault`. All four display commands (`bb profile list`, `bb profile get`,
+`bb profile get --current`, `bb profile which`) honour `--dry-run`.
+`bb profile get <profile-name>` requires either the name positional or `--current`; given
+neither, it errors `argument profile is missing`.
 
 ## Workspaces, repositories, branches, commits
 
