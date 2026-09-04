@@ -466,8 +466,7 @@ func runDryRunCommand(t *testing.T, configPath string, args ...string) (stdout, 
 
 // TestProfileDisplayCommandsHonorDryRun pins that all four profile display paths stop at
 // common.WhatIf's gate: --dry-run must report what would be shown on stderr and print no profile
-// at all. `list` and `get <name>` are the preserved-behavior cases, `get --current` and `which`
-// the ones that used to run to completion.
+// at all.
 func TestProfileDisplayCommandsHonorDryRun(t *testing.T) {
 	tests := []struct {
 		name     string
