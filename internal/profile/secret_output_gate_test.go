@@ -1,6 +1,7 @@
 package profile_test
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -61,25 +62,28 @@ func writeSecretGateConfig(t *testing.T, outputFormat string, markDefault bool) 
 	return path
 }
 
-// clearCachedOutputFlag resets the --output flag every profile subcommand resolves, so a test
-// relying on the flag being unset really sees it unset. cobra caches a subcommand's merged
-// flag set (and its parents' persistent flags) on the package-level command singleton the first
-// time flag parsing runs, and never invalidates it for a later run built around a different root
-// command -- so both the value and the Changed bit an earlier explicit `--output json` set
-// survive into every subsequent run in the same test binary. Calling InheritedFlags() first is
-// what forces cobra to build that merged set, since Flags() alone does not.
-func clearCachedOutputFlag(t *testing.T) {
+// clearCachedFlags resets each named flag back to its zero value on every profile subcommand
+// that resolves it, so a test relying on a flag being unset really sees it unset. cobra caches a
+// subcommand's merged flag set (and its parents' persistent flags) on the package-level command
+// singleton the first time flag parsing runs, and never invalidates it for a later run built
+// around a different root command -- so both the value and the Changed bit an earlier explicit
+// `--output json` or `--dry-run` set survive into every subsequent run in the same test binary.
+// Calling InheritedFlags() first is what forces cobra to build that merged set, since Flags()
+// alone does not.
+func clearCachedFlags(t *testing.T, names ...string) {
 	t.Helper()
 	for _, sub := range profile.Command.Commands() {
 		sub.InheritedFlags()
-		flag := sub.Flags().Lookup("output")
-		if flag == nil {
-			continue
+		for _, name := range names {
+			flag := sub.Flags().Lookup(name)
+			if flag == nil {
+				continue
+			}
+			if err := flag.Value.Set(flag.DefValue); err != nil {
+				t.Fatalf("cannot reset the %s flag of %s: %v", name, sub.Name(), err)
+			}
+			flag.Changed = false
 		}
-		if err := flag.Value.Set(""); err != nil {
-			t.Fatalf("cannot reset the output flag of %s: %v", sub.Name(), err)
-		}
-		flag.Changed = false
 	}
 }
 
@@ -88,7 +92,7 @@ func clearCachedOutputFlag(t *testing.T) {
 // requested explicitly.
 func runSecretGateCommand(t *testing.T, configPath string, args ...string) string {
 	t.Helper()
-	clearCachedOutputFlag(t)
+	clearCachedFlags(t, "output")
 	return runProfileCommand(t, configPath, args...)
 }
 
@@ -236,7 +240,7 @@ const gatedUpdatedDescription = "secret output gate updated description"
 // invocation's in-memory state is what this one operates on.
 func runSecretGateCommandKeepingState(t *testing.T, configPath string, args ...string) string {
 	t.Helper()
-	clearCachedOutputFlag(t)
+	clearCachedFlags(t, "output")
 
 	root := newTestRootCommand()
 	root.AddCommand(profile.Command)
@@ -413,6 +417,103 @@ func TestRowFormatsRedactAccessTokenPerValue(t *testing.T) {
 			}
 			if hashes[0] == hashes[1] {
 				t.Errorf("%s output redacted two different access tokens to the same %s, so the accesstoken column no longer distinguishes values:\n%s", format, hashes[0], output)
+			}
+		})
+	}
+}
+
+// captureStderr redirects os.Stderr for the duration of fn and returns what was written. It is
+// the stderr counterpart of display_mask_test.go's captureStdout, needed because common.WhatIf
+// writes its "Dry run: ..." line straight to os.Stderr rather than to cmd.ErrOrStderr(), so
+// neither a stdout capture nor cmd.SetErr can observe it.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("cannot create pipe: %v", err)
+	}
+	original := os.Stderr
+	os.Stderr = w
+	defer func() { os.Stderr = original }()
+
+	captured := make(chan string, 1)
+	go func() {
+		data, _ := io.ReadAll(r)
+		captured <- string(data)
+	}()
+
+	fn()
+
+	_ = w.Close()
+	return <-captured
+}
+
+// dryRunCachedFlags names the flags a --dry-run case sets on the profile command singletons and
+// which therefore have to be reset once the case is over, since cobra keeps the value visible to
+// every later run in the same test binary (see clearCachedFlags).
+var dryRunCachedFlags = []string{"dry-run", "current"}
+
+// runDryRunCommand drives the real profile command tree against configPath like
+// runSecretGateCommand does, returning its stdout and its stderr separately so the dry-run line
+// can be asserted apart from whatever the command printed as output.
+func runDryRunCommand(t *testing.T, configPath string, args ...string) (stdout, stderr string) {
+	t.Helper()
+	stderr = captureStderr(t, func() {
+		stdout = runSecretGateCommand(t, configPath, args...)
+	})
+	return stdout, stderr
+}
+
+// TestProfileDisplayCommandsHonorDryRun pins that all four profile display paths stop at
+// common.WhatIf's gate: --dry-run must report what would be shown on stderr and print no profile
+// at all. `list` and `get <name>` are the preserved-behavior cases, `get --current` and `which`
+// the ones that used to run to completion.
+func TestProfileDisplayCommandsHonorDryRun(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		wantLine string
+	}{
+		{
+			name:     "list",
+			args:     []string{"profile", "list", "--dry-run"},
+			wantLine: "Dry run: Showing profiles",
+		},
+		{
+			name:     "get by name",
+			args:     []string{"profile", "get", gatedProfileName, "--dry-run"},
+			wantLine: "Dry run: Showing profile " + gatedProfileName,
+		},
+		{
+			name:     "get current",
+			args:     []string{"profile", "get", "--current", "--dry-run"},
+			wantLine: "Dry run: Showing current profile",
+		},
+		{
+			name:     "which",
+			args:     []string{"profile", "which", "--dry-run"},
+			wantLine: "Dry run: Showing current profile name",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			defer resetProfilesState()()
+			defer clearCachedFlags(t, dryRunCachedFlags...)
+			t.Setenv("BB_OUTPUT_FORMAT", "")
+			configPath := writeSecretGateConfig(t, "table", true)
+
+			stdout, stderr := runDryRunCommand(t, configPath, test.args...)
+
+			// the trailing newline makes the match exact, so "Showing current profile" cannot
+			// pass a case expecting "Showing current profile name"
+			if !strings.Contains(stderr, test.wantLine+"\n") {
+				t.Errorf("%v did not report %q on stderr:\n%s", test.args, test.wantLine, stderr)
+			}
+			for _, printed := range []string{gatedProfileName, gatedUser, "|"} {
+				if strings.Contains(stdout, printed) {
+					t.Errorf("%v printed %q on stdout instead of stopping at the dry-run gate:\n%s", test.args, printed, stdout)
+				}
 			}
 		})
 	}
