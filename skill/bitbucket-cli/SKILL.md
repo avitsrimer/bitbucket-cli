@@ -52,7 +52,9 @@ same-shape conflicts are — stick to exactly one of the three shapes below:
   only, also pass `--callback-port <port>` at create time (a profile created without it cannot
   authorize: `bb profile authorize` errors "profile <name> does not support Authorization Code
   Grant" if `--callback-port` was never set), then run `bb profile authorize <profile-name>` to
-  complete the browser-based flow.
+  complete the browser-based flow. That command prints the authorization URL and opens it in a
+  browser; if no browser can be launched it still prints the URL for the user to open by hand
+  (with `--stop-on-error` it returns the launch failure as an error instead).
 
 `--password`/`--access-token`/`--client-secret` each has a `-stdin` twin; the three `-stdin`
 flags are mutually exclusive with each other and with their own non-stdin flag. Prefer the

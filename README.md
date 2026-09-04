@@ -397,7 +397,10 @@ Once the profile is created in `bb`, for an [OAuth 2.0 with Authorization Code G
 bb profile authorize myprofile
 ```
 
-You can also use the `--verbose` to get some information about the authorization process.
+The command prints the authorization URL and opens it in your default browser. If no browser can
+be launched, the URL it printed is still there to open by hand; with `--stop-on-error` the launch
+failure is reported as an error instead. Add `--verbose` for extra detail about the authorization
+process.
 
 Profiles support the following authentications:
 
