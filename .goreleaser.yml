@@ -25,6 +25,12 @@ homebrew_casks:
       name: homebrew-apps
       branch: main
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    # cask token, deliberately NOT "bb": homebrew/cask ships its own `bb` cask, and an official
+    # tap wins over a third-party one for the same token — `brew upgrade` silently replaced this
+    # tool with that app (they even share /opt/homebrew/Caskroom/bb). The installed command is
+    # still `bb`; only the cask is addressed as bitbucket-cli.
+    name: bitbucket-cli
+    binaries: [bb]
     directory: Casks
     homepage: "https://github.com/avitsrimer/bitbucket-cli"
     description: "Command-line interface to manage Bitbucket pull requests, profiles, and users"
