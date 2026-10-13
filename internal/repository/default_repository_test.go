@@ -119,12 +119,12 @@ func remoteSection(name, url string) string {
 }
 
 // TestGetRepositoryNameGitHubRemoteFallsThroughToProfileDefault reproduces FR-12's core scenario:
-// the current checkout's remote is GitHub (or any non-bitbucket.org host), which
+// the current checkout's remote is GitHub (or any non-Bitbucket host), which
 // remote.GetRemote already rejects -- this proves that rejection is treated as "no remote", not
 // an error the caller must handle specially, and the chain falls through cleanly to the profile
 // default instead of erroring out.
 func TestGetRepositoryNameGitHubRemoteFallsThroughToProfileDefault(t *testing.T) {
-	chdirToFakeGitConfig(t, "[remote \"origin\"]\n\turl = git@github.com:someorg/somerepo.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n")
+	chdirToFakeGitConfig(t, remoteSection("origin", "git@github.com:someorg/somerepo.git"))
 	cmd := newRepositoryNameCmd(t)
 	profile.Current = &profile.Profile{Name: "p", DefaultRepository: "acme/from-profile"}
 

@@ -24,7 +24,7 @@ func TestGetWorkspaceNameFallsBackToBitbucketRemote(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			chdirToFakeGitConfig(t, "[remote \"origin\"]\n\turl = "+tt.url+"\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n")
+			chdirToFakeGitConfig(t, remoteSection("origin", tt.url))
 
 			oldCurrent := profile.Current
 			profile.Current = &profile.Profile{Name: "p", DefaultWorkspace: "should-not-be-used"}

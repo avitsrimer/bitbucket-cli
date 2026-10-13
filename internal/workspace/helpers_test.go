@@ -164,3 +164,8 @@ func chdirToFakeGitConfig(t *testing.T, config string) {
 		}
 	})
 }
+
+// remoteSection renders a git config section for a remote with the given name and url.
+func remoteSection(name, url string) string {
+	return "[remote \"" + name + "\"]\n\turl = " + url + "\n\tfetch = +refs/heads/*:refs/remotes/" + name + "/*\n"
+}

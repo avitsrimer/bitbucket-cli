@@ -194,8 +194,8 @@ func TestRemoteRedactedURLSSHShortFormUnchanged(t *testing.T) {
 	}
 }
 
-// remoteConfig renders a git config payload carrying a single remote with the given name and url.
-func remoteConfig(name, url string) string {
+// remoteSection renders a git config section for a remote with the given name and url.
+func remoteSection(name, url string) string {
 	return "[remote \"" + name + "\"]\n\turl = " + url + "\n\tfetch = +refs/heads/*:refs/remotes/" + name + "/*\n"
 }
 
@@ -233,7 +233,7 @@ func TestGetRemoteFromReaderAcceptsBitbucketHosts(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			for _, name := range []string{"origin", ""} {
-				r, err := remote.GetRemoteFromReader(context.Background(), strings.NewReader(remoteConfig("origin", tt.url)), name)
+				r, err := remote.GetRemoteFromReader(context.Background(), strings.NewReader(remoteSection("origin", tt.url)), name)
 				require.NoError(t, err, "remote name %q", name)
 				assert.Equal(t, tt.url, r.URL)
 				assert.Equal(t, "+refs/heads/*:refs/remotes/origin/*", r.Fetch)
@@ -266,12 +266,12 @@ func TestGetRemoteFromReaderRejectsNonBitbucketHosts(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Run("named", func(t *testing.T) {
-				_, err := remote.GetRemoteFromReader(context.Background(), strings.NewReader(remoteConfig("origin", tt.url)), "origin")
+				_, err := remote.GetRemoteFromReader(context.Background(), strings.NewReader(remoteSection("origin", tt.url)), "origin")
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "argument remote is invalid")
 			})
 			t.Run("unnamed", func(t *testing.T) {
-				_, err := remote.GetRemoteFromReader(context.Background(), strings.NewReader(remoteConfig("origin", tt.url)), "")
+				_, err := remote.GetRemoteFromReader(context.Background(), strings.NewReader(remoteSection("origin", tt.url)), "")
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "no remote found")
 			})
@@ -280,7 +280,7 @@ func TestGetRemoteFromReaderRejectsNonBitbucketHosts(t *testing.T) {
 }
 
 func TestGetRemoteFromReaderUnnamedSkipsNonBitbucketRemote(t *testing.T) {
-	payload := remoteConfig("github", "git@github.com:me/bitbucket-cli.git") + remoteConfig("work", "git@bitbucket-work:ws/repo.git")
+	payload := remoteSection("github", "git@github.com:me/bitbucket-cli.git") + remoteSection("work", "git@bitbucket-work:ws/repo.git")
 	r, err := remote.GetRemoteFromReader(context.Background(), strings.NewReader(payload), "")
 	require.NoError(t, err)
 	assert.Equal(t, "git@bitbucket-work:ws/repo.git", r.URL)
