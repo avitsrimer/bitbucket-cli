@@ -47,7 +47,7 @@ func GetRemoteFromGitConfig(context context.Context, name string) (remote *Remot
 //
 // - If the name is empty, it gets the first bitbucket remote in the reader
 //
-// - If the remote URL's host is not a Bitbucket host (see isBitbucketHost), it returns an error
+// - If the remote URL's host is not a Bitbucket host (see isBitbucketRemote), it returns an error
 func GetRemoteFromReader(context context.Context, reader io.Reader, name string) (remote *Remote, err error) {
 	if name == "" {
 		sections, sectionsErr := common.GetGitSectionsMatching(context, reader, regexp.MustCompile("remote \".*\""))
@@ -59,7 +59,7 @@ func GetRemoteFromReader(context context.Context, reader io.Reader, name string)
 		}
 		for _, section := range sections {
 			url := section.Key("url").String()
-			if isBitbucketHost(remoteHost(url)) {
+			if isBitbucketRemote(url) {
 				return &Remote{
 					URL:   url,
 					Fetch: section.Key("fetch").String(),
@@ -73,7 +73,7 @@ func GetRemoteFromReader(context context.Context, reader io.Reader, name string)
 		return nil, fmt.Errorf("cannot read git config: %w", err)
 	}
 	url := section.Key("url").String()
-	if !isBitbucketHost(remoteHost(url)) {
+	if !isBitbucketRemote(url) {
 		return nil, fmt.Errorf("argument remote is invalid (value: %s)", name)
 	}
 	return &Remote{
@@ -82,34 +82,37 @@ func GetRemoteFromReader(context context.Context, reader io.Reader, name string)
 	}, nil
 }
 
-// remoteHost returns the lower-cased host of a git remote URL, or "" when there is none.
+// splitRemoteURL splits a git remote URL into its lower-cased host and its path, telling if it
+// has either form.
 //
-// It understands the URL form scheme://[user[:password]@]host[:port]/path and the scp-like form
-// [user@]host:path. Like git itself, an scp-like candidate whose host part contains a "/" is a
-// local path, which has no host.
-func remoteHost(rawURL string) string {
+// It understands the URL form scheme://[user[:password]@]host[:port]/path, whose path is kept
+// escaped, and the scp-like form [user@]host:path, whose path is the text after the first ":".
+// Like git itself, an scp-like candidate whose host part contains a "/" is a local path, which is
+// neither form.
+func splitRemoteURL(rawURL string) (host, remotePath string, ok bool) {
 	if strings.Contains(rawURL, "://") {
 		parsed, err := url.Parse(rawURL)
 		if err != nil {
-			return ""
+			return "", "", false
 		}
-		return strings.ToLower(parsed.Hostname())
+		return strings.ToLower(parsed.Hostname()), parsed.EscapedPath(), true
 	}
-	host, _, found := strings.Cut(rawURL, ":")
+	host, remotePath, found := strings.Cut(rawURL, ":")
 	if !found || strings.Contains(host, "/") {
-		return ""
+		return "", "", false
 	}
 	if at := strings.LastIndex(host, "@"); at >= 0 {
 		host = host[at+1:]
 	}
-	return strings.ToLower(host)
+	return strings.ToLower(host), remotePath, true
 }
 
-// isBitbucketHost tells if a lower-cased remote host designates Bitbucket: bitbucket.org itself,
-// one of its subdomains (e.g. altssh.bitbucket.org), or an ssh Host alias starting with
-// "bitbucket" (e.g. bitbucket-work).
-func isBitbucketHost(host string) bool {
-	return host == "bitbucket.org" || strings.HasSuffix(host, ".bitbucket.org") || strings.HasPrefix(host, "bitbucket")
+// isBitbucketRemote tells if a git remote URL's host designates Bitbucket: a host starting with
+// "bitbucket" (bitbucket.org itself, or an ssh Host alias such as bitbucket-work) or a subdomain
+// of bitbucket.org (e.g. altssh.bitbucket.org).
+func isBitbucketRemote(rawURL string) bool {
+	host, _, ok := splitRemoteURL(rawURL)
+	return ok && (strings.HasPrefix(host, "bitbucket") || strings.HasSuffix(host, ".bitbucket.org"))
 }
 
 // GetRemote gets the remote from the command flags or the git configuration
@@ -134,24 +137,20 @@ func GetRemote(context context.Context, cmd *cobra.Command) (remote *Remote, err
 
 // RepositoryName gets the full repository name from the remote URL (without the .git extension)
 //
-// The URL form scheme://[user[:password]@]host[:port]/path yields its path, the scp-like form
-// [user@]host:path yields the text after the first ":". Surrounding "/" are trimmed before the
-// ".git" suffix, so "ws/repo.git/" gives "ws/repo". A URL in neither form is returned unchanged.
+// The name is the last two segments of the remote's path (see splitRemoteURL), the shape of a
+// Bitbucket Cloud workspace/repository, with surrounding "/" trimmed before the ".git" suffix, so
+// "ws/repo.git/" gives "ws/repo" and "/scm/ws/repo.git" gives "ws/repo". A URL in neither form is
+// returned unchanged.
 func (remote Remote) RepositoryName() string {
-	var repositoryPath string
-	if strings.Contains(remote.URL, "://") {
-		parsed, err := url.Parse(remote.URL)
-		if err != nil {
-			return remote.URL
-		}
-		repositoryPath = parsed.Path
-	} else {
-		var found bool
-		if _, repositoryPath, found = strings.Cut(remote.URL, ":"); !found {
-			return remote.URL
-		}
+	_, remotePath, ok := splitRemoteURL(remote.URL)
+	if !ok {
+		return remote.URL
 	}
-	return strings.TrimSuffix(strings.Trim(repositoryPath, "/"), ".git")
+	segments := strings.Split(strings.TrimSuffix(strings.Trim(remotePath, "/"), ".git"), "/")
+	if len(segments) > 2 {
+		segments = segments[len(segments)-2:]
+	}
+	return strings.Join(segments, "/")
 }
 
 // WorkspaceName gets the workspace name from the remote URL

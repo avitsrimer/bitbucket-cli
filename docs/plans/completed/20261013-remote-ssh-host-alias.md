@@ -148,6 +148,11 @@ Must-reject (named lookup errors with "argument remote is invalid"; unnamed look
   through an ssh Host alias starting with `bitbucket` (e.g. `git@bitbucket-work:ws/repo.git`) is detected too;
   grep `CLAUDE.md` for remote-detection wording and fix only what is now wrong; sync tests stay green
 - [x] move this plan to `docs/plans/completed/` (`git add -f` — docs/plans/* is gitignored)
+  ➕ code review follow-up: `RepositoryName` keeps the last two path segments (and the escaped path), restoring the
+  pre-change result for a `://` remote with an extra leading segment (`https://bitbucket.org/scm/ws/repo.git` →
+  `ws/repo`, not `scm/ws/repo`) and for an escaped segment (`ws/a%2Fb.git` → `ws/a%2Fb`); host and path extraction share
+  one `splitRemoteURL` helper. README.md now defines a "Bitbucket git remote" and, like SKILL.md, notes that detection
+  is by host name only (a self-hosted `bitbucket*` host is picked up; `--workspace`/`--repository` override it).
 
 ## Post-Completion
 - none (no external systems).
