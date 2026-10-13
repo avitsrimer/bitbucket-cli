@@ -31,7 +31,7 @@ func getValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]strin
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	ids, err := prcommon.GetPullRequestIDsWithState(cmd.Context(), cmd, "ALL")
+	ids, err := prcommon.CompletePullRequestIDsWithState(cmd.Context(), cmd, "ALL")
 	if err != nil {
 		cobra.CompErrorln(err.Error())
 		return []string{}, cobra.ShellCompDirectiveError

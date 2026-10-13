@@ -35,7 +35,7 @@ func mergeStatusValidArgs(cmd *cobra.Command, args []string, toComplete string) 
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	ids, err := prcommon.GetPullRequestIDsWithState(cmd.Context(), cmd, "OPEN")
+	ids, err := prcommon.CompletePullRequestIDsWithState(cmd.Context(), cmd, "OPEN")
 	if err != nil {
 		cobra.CompErrorln(err.Error())
 		return []string{}, cobra.ShellCompDirectiveError

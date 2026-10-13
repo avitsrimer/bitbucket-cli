@@ -17,17 +17,9 @@ type PullRequestID struct {
 	ID int `json:"id"`
 }
 
-// GetPullRequestIDsWithState gets the pullrequest Ids for completion for a given state
-func GetPullRequestIDsWithState(context context.Context, cmd *cobra.Command, state string) (ids []string, err error) {
-	repository, err := repository.GetRepository(cmd.Context(), cmd)
-	if err != nil {
-		return []string{}, fmt.Errorf("cannot get repository: %w", err)
-	}
-	return GetPullRequestIDsFromRepositoryWithState(context, cmd, repository, state)
-}
-
-// GetPullRequestIDsFromRepositoryWithState gets the pullrequest Ids for completion for a given
-// state and repository.
+// GetPullRequestIDsFromRepositoryWithState gets the ids of every pullrequest in the given state
+// of repository, following every page; GetPullRequestIDFromArgs uses it to resolve an omitted
+// pullrequest-id argument. Shell completion uses the bounded CompletePullRequestIDsWithState instead.
 //
 // This uses GetAllUnbounded, not GetAll: cmd here is frequently the very command whose own
 // --limit flag is meant to bound a *different*, later query (e.g. `pr commits`/`pr activities`
@@ -50,20 +42,6 @@ func GetPullRequestIDsFromRepositoryWithState(context context.Context, cmd *cobr
 	ids = common.Map(pullrequests, func(pullrequest PullRequestID) string { return strconv.Itoa(pullrequest.ID) })
 	common.Sort(ids, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
 	return ids, nil
-}
-
-// GetPullRequestIDs gets the IDs of the pullrequests
-//
-// First only the open pullrequests are fetched, if none are found, all pullrequests are fetched
-func GetPullRequestIDs(context context.Context, cmd *cobra.Command) (ids []string, err error) {
-	ids, err = GetPullRequestIDsWithState(context, cmd, "OPEN")
-	if err != nil {
-		return []string{}, err
-	}
-	if len(ids) > 0 {
-		return ids, nil
-	}
-	return GetPullRequestIDsWithState(context, cmd, "ALL")
 }
 
 // completionLimit is the number of pullrequest ids a shell completion offers per state: the
@@ -112,14 +90,14 @@ func CompletePullRequestIDs(ctx context.Context, cmd *cobra.Command) ([]string, 
 
 // PullRequestIDValidArgs is the ValidArgsFunction shared by every comment/task subcommand whose
 // only positional is <pullrequest-id> (create, list, and the len(args)==0 case of delete):
-// completes open pullrequest ids via GetPullRequestIDs, offering nothing once the positional is
-// already filled.
+// completes pullrequest ids via the bounded CompletePullRequestIDs, offering nothing once the
+// positional is already filled.
 func PullRequestIDValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	if len(args) != 0 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	ids, err := GetPullRequestIDs(cmd.Context(), cmd)
+	ids, err := CompletePullRequestIDs(cmd.Context(), cmd)
 	if err != nil {
 		return []string{}, cobra.ShellCompDirectiveNoFileComp
 	}

@@ -43,14 +43,14 @@ func newActionCommand(spec actionSpec) *cobra.Command {
 	return cmd
 }
 
-// openPullRequestIDsCompletion completes <pullrequest-id> from the open pullrequests of the
-// current repository.
+// openPullRequestIDsCompletion completes <pullrequest-id> from the most recently updated open
+// pullrequests of the current repository.
 func openPullRequestIDsCompletion(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	if len(args) != 0 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	ids, err := prcommon.GetPullRequestIDsWithState(cmd.Context(), cmd, "OPEN")
+	ids, err := prcommon.CompletePullRequestIDsWithState(cmd.Context(), cmd, "OPEN")
 	if err != nil {
 		cobra.CompErrorln(err.Error())
 		return []string{}, cobra.ShellCompDirectiveError

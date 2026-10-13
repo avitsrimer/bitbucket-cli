@@ -25,102 +25,6 @@ func setupTest(t *testing.T, handler http.HandlerFunc) *cobra.Command {
 	return testutil.SetupProfile(t, "prcommon-test", handler)
 }
 
-func TestGetPullRequestIDsWithStateSuccess(t *testing.T) {
-	var requests []*http.Request
-	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
-		requests = append(requests, r)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"values":[{"id":42},{"id":7}]}`))
-	})
-
-	ids, err := GetPullRequestIDsWithState(context.Background(), cmd, "OPEN")
-	if err != nil {
-		t.Fatalf("GetPullRequestIDsWithState() error = %v", err)
-	}
-	want := []string{"42", "7"}
-	if !slices.Equal(ids, want) {
-		t.Errorf("ids = %v, want %v", ids, want)
-	}
-	if len(requests) != 1 {
-		t.Fatalf("expected exactly 1 request, got %d", len(requests))
-	}
-	wantPath := "/2.0/repositories/" + testutil.FixtureRepositoryFlag + "/pullrequests"
-	if requests[0].URL.Path != wantPath || requests[0].URL.Query().Get("state") != "OPEN" {
-		t.Errorf("request = %s?%s, want path %s with state=OPEN", requests[0].URL.Path, requests[0].URL.RawQuery, wantPath)
-	}
-}
-
-func TestGetPullRequestIDsWithStateAPIError(t *testing.T) {
-	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(`{"type":"error","error":{"message":"boom"}}`))
-	})
-
-	_, err := GetPullRequestIDsWithState(context.Background(), cmd, "OPEN")
-	if err == nil {
-		t.Fatal("GetPullRequestIDsWithState() expected an error, got nil")
-	}
-	if !strings.Contains(err.Error(), "boom") {
-		t.Errorf("error = %q, want it to contain the BitBucket error message", err.Error())
-	}
-}
-
-func TestGetPullRequestIDsFallsBackToAllWhenNoneOpen(t *testing.T) {
-	var openCalled, allCalled bool
-	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Query().Get("state") {
-		case "OPEN":
-			openCalled = true
-			_, _ = w.Write([]byte(`{"values":[]}`))
-		case "ALL":
-			allCalled = true
-			_, _ = w.Write([]byte(`{"values":[{"id":5}]}`))
-		default:
-			t.Errorf("unexpected state query: %s", r.URL.Query().Get("state"))
-		}
-	})
-
-	ids, err := GetPullRequestIDs(context.Background(), cmd)
-	if err != nil {
-		t.Fatalf("GetPullRequestIDs() error = %v", err)
-	}
-	if !openCalled || !allCalled {
-		t.Errorf("expected both OPEN and ALL to be queried, got openCalled=%v allCalled=%v", openCalled, allCalled)
-	}
-	want := []string{"5"}
-	if !slices.Equal(ids, want) {
-		t.Errorf("ids = %v, want %v", ids, want)
-	}
-}
-
-func TestGetPullRequestIDsReturnsOpenWithoutFallback(t *testing.T) {
-	var allCalled bool
-	cmd := setupTest(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Query().Get("state") {
-		case "OPEN":
-			_, _ = w.Write([]byte(`{"values":[{"id":1}]}`))
-		case "ALL":
-			allCalled = true
-			_, _ = w.Write([]byte(`{"values":[{"id":1},{"id":2}]}`))
-		}
-	})
-
-	ids, err := GetPullRequestIDs(context.Background(), cmd)
-	if err != nil {
-		t.Fatalf("GetPullRequestIDs() error = %v", err)
-	}
-	if allCalled {
-		t.Error("expected ALL not to be queried when OPEN already returned results")
-	}
-	want := []string{"1"}
-	if !slices.Equal(ids, want) {
-		t.Errorf("ids = %v, want %v", ids, want)
-	}
-}
-
 // pagedHandler answers every pullrequests request with the given ids and a "next" link, so a test
 // can assert completion never follows it. requests records each request in order.
 func pagedHandler(requests *[]*http.Request, idsByState map[string]string) http.HandlerFunc {
@@ -269,4 +173,79 @@ func TestCompletePullRequestIDsAPIError(t *testing.T) {
 			}
 		})
 	}
+}
+
+// finitePagedHandler serves each state's ids over two pages linked by "next" (page 1 -> 2), so an
+// unbounded enumeration terminates and shows up as two requests for that state.
+func finitePagedHandler(requests *[]*http.Request, idsByState map[string]string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		*requests = append(*requests, r)
+		w.Header().Set("Content-Type", "application/json")
+		state := r.URL.Query().Get("state")
+		if r.URL.Query().Get("page") == "2" {
+			_, _ = w.Write([]byte(`{"values":[]}`))
+			return
+		}
+		next := "http://" + r.Host + r.URL.Path + "?state=" + state + "&page=2"
+		_, _ = w.Write([]byte(`{"values":[` + idsByState[state] + `],"next":"` + next + `"}`))
+	}
+}
+
+func TestPullRequestIDValidArgsIsBounded(t *testing.T) {
+	tests := []struct {
+		name       string
+		idsByState map[string]string
+		wantStates []string
+		wantIDs    []string
+	}{
+		{
+			name:       "open pull requests",
+			idsByState: map[string]string{"OPEN": `{"id":42},{"id":7}`},
+			wantStates: []string{"OPEN"},
+			wantIDs:    []string{"42", "7"},
+		},
+		{
+			name:       "falls back to bounded all when none open",
+			idsByState: map[string]string{"ALL": `{"id":5},{"id":3}`},
+			wantStates: []string{"OPEN", "ALL"},
+			wantIDs:    []string{"3", "5"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var requests []*http.Request
+			cmd := setupTest(t, finitePagedHandler(&requests, tt.idsByState))
+			if err := cmd.Flags().Set("page-length", "10"); err != nil {
+				t.Fatalf("cannot set page-length flag: %v", err)
+			}
+
+			ids, directive := PullRequestIDValidArgs(cmd, nil, "")
+			if directive != cobra.ShellCompDirectiveNoFileComp {
+				t.Errorf("directive = %v, want %v", directive, cobra.ShellCompDirectiveNoFileComp)
+			}
+			if !slices.Equal(ids, tt.wantIDs) {
+				t.Errorf("ids = %v, want %v", ids, tt.wantIDs)
+			}
+			if len(requests) != len(tt.wantStates) {
+				queries := make([]string, 0, len(requests))
+				for _, r := range requests {
+					queries = append(queries, r.URL.RawQuery)
+				}
+				t.Fatalf("got %d requests %q, want one bounded request per state %v", len(requests), queries, tt.wantStates)
+			}
+			for i, state := range tt.wantStates {
+				assertBoundedRequest(t, requests[i], state)
+			}
+		})
+	}
+
+	t.Run("no request once the positional is filled", func(t *testing.T) {
+		cmd := setupTest(t, func(http.ResponseWriter, *http.Request) {
+			t.Error("no HTTP request expected")
+		})
+		ids, directive := PullRequestIDValidArgs(cmd, []string{"42"}, "")
+		if ids != nil || directive != cobra.ShellCompDirectiveNoFileComp {
+			t.Errorf("got (%v, %v), want (nil, %v)", ids, directive, cobra.ShellCompDirectiveNoFileComp)
+		}
+	})
 }
