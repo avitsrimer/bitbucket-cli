@@ -20,10 +20,9 @@ type pullRequestReference struct {
 // PullRequestID: the wire shape (a nested {"pullrequest":{"type":"pullrequest","id":N}} object)
 // comes for free from encoding/json's normal struct tags, with no custom Marshal/Unmarshal needed to
 // fold it in or out. TargetBranch and PullRequestIDs are carried only by a merge-queue target
-// ("pipeline_merge_queue_ref_target"), whose RefName is the queue ref (e.g.
-// "bitbucket-merge-queue-62") and whose TargetBranch is the branch the queued pull requests merge
-// into. Both are omitempty, so every other shape marshals without them -- and an empty
-// "pullrequest_ids": [] from the server renders as an absent key under -o json.
+// ("pipeline_merge_queue_ref_target"), whose RefName is merely the queue ref. Under -o json both are
+// omitempty, so every other shape marshals without them and an empty "pullrequest_ids": [] from the
+// server renders as an absent key; -o yaml renders their zero values, as for every other Target field.
 type Target struct {
 	Type           string                  `json:"type"`
 	RefType        string                  `json:"ref_type,omitempty"`

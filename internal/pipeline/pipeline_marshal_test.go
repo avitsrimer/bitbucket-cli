@@ -67,6 +67,30 @@ func TestPipelineMarshalUnmarshalRoundTrip(t *testing.T) {
 	assert.JSONEq(t, string(expected), string(data))
 }
 
+// TestTargetUnmarshalEmptyPullRequestIDsMarshalsAbsent proves an empty "pullrequest_ids": [] from
+// the server re-marshals as an absent key rather than an empty list.
+func TestTargetUnmarshalEmptyPullRequestIDsMarshalsAbsent(t *testing.T) {
+	var target Target
+	if err := json.Unmarshal([]byte(`{"type":"pipeline_merge_queue_ref_target","ref_name":"bitbucket-merge-queue-62","target_branch":"master","pullrequest_ids":[]}`), &target); err != nil {
+		t.Fatalf("cannot unmarshal target: %v", err)
+	}
+
+	data, err := json.Marshal(target)
+	if err != nil {
+		t.Fatalf("cannot marshal target: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("cannot unmarshal marshaled target: %v", err)
+	}
+	if _, present := got["pullrequest_ids"]; present {
+		t.Errorf("got pullrequest_ids key %v, want it absent", got["pullrequest_ids"])
+	}
+	if got["target_branch"] != "master" {
+		t.Errorf("target_branch = %v, want master", got["target_branch"])
+	}
+}
+
 // TestPipelineUnmarshalPullRequestTarget proves a pull-request-shaped target unmarshals into the
 // flat Target correctly: Source/Destination/Commit come straight from the top-level fields, and
 // PullRequest is the nested "pullrequest" object (only its id is kept -- see Target's doc
@@ -99,7 +123,7 @@ func TestPipelineUnmarshalPullRequestTarget(t *testing.T) {
 
 // TestPipelineUnmarshalMergeQueueTarget proves a merge-queue-shaped target decodes every field it
 // carries into the flat Target, reports target_branch (not the queue ref) as its destination, and
-// re-marshals byte-for-byte (structurally) so target_branch/pullrequest_ids survive -o json.
+// re-marshals to structurally equal JSON so target_branch/pullrequest_ids survive -o json.
 func TestPipelineUnmarshalMergeQueueTarget(t *testing.T) {
 	expected := loadTestData(t, "pipeline-merge-queue.json")
 
@@ -116,7 +140,7 @@ func TestPipelineUnmarshalMergeQueueTarget(t *testing.T) {
 	assert.Equal(t, "branch", p.Target.RefType)
 	assert.Equal(t, "bitbucket-merge-queue-62", p.Target.RefName)
 	assert.Equal(t, "master", p.Target.TargetBranch)
-	assert.Equal(t, []uint64{62}, p.Target.PullRequestIDs)
+	assert.Equal(t, []uint64{62, 63}, p.Target.PullRequestIDs)
 	if assert.NotNil(t, p.Target.Commit) {
 		assert.Equal(t, "abcdef1234567890abcdef1234567890abcdef12", p.Target.Commit.Hash)
 	}
@@ -194,6 +218,9 @@ func TestTargetGetDestination(t *testing.T) {
 		{"pull request target uses Destination", Target{Destination: "main"}, "main"},
 		{"commit target has no destination", Target{}, ""},
 		{"merge queue target uses TargetBranch", Target{RefName: "bitbucket-merge-queue-62", TargetBranch: "master"}, "master"},
+		{"TargetBranch beats Destination", Target{TargetBranch: "master", Destination: "develop"}, "master"},
+		{"RefName beats Destination", Target{RefName: "main", Destination: "develop"}, "main"},
+		{"merge queue target without target_branch falls back to the queue ref", Target{Type: "pipeline_merge_queue_ref_target", RefName: "bitbucket-merge-queue-62"}, "bitbucket-merge-queue-62"},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {

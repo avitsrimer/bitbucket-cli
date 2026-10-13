@@ -20,7 +20,8 @@
     "ref_name": "bitbucket-merge-queue-62",
     "target_branch": "master",
     "pullrequest_ids": [
-      62
+      62,
+      63
     ],
     "commit": {
       "type": "commit",

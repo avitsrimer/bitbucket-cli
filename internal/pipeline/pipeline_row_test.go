@@ -6,6 +6,7 @@ import (
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestPipelineGetHeadersDefault(t *testing.T) {
@@ -56,9 +57,9 @@ func TestPipelineGetRowCoversEveryColumn(t *testing.T) {
 // TestPipelineGetRowMergeQueueBranch proves a merge-queue pipeline's branch column renders the
 // real destination branch (target_branch), not the queue ref it ran on.
 func TestPipelineGetRowMergeQueueBranch(t *testing.T) {
-	target := Pipeline{Target: Target{Type: "pipeline_merge_queue_ref_target", RefName: "bitbucket-merge-queue-62", TargetBranch: "master"}}
+	p := Pipeline{Target: Target{Type: "pipeline_merge_queue_ref_target", RefName: "bitbucket-merge-queue-62", TargetBranch: "master"}}
 
-	row := target.GetRow([]string{"branch"})
+	row := p.GetRow([]string{"branch"})
 	if len(row) != 1 || row[0] != "master" {
 		t.Errorf("GetRow([branch]) = %v, want [\"master\"]", row)
 	}
@@ -80,10 +81,7 @@ func TestPipelineSortByBranchUsesMergeQueueTargetBranch(t *testing.T) {
 	for _, p := range pipelines {
 		got = append(got, p.BuildNumber)
 	}
-	want := []uint64{3, 2, 1}
-	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
-		t.Errorf("sorted build numbers = %v, want %v", got, want)
-	}
+	assert.Equal(t, []uint64{3, 2, 1}, got, "sorted build numbers")
 }
 
 func TestPipelineGetRowUnknownColumnFillsPlaceholder(t *testing.T) {
