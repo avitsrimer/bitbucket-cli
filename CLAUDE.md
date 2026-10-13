@@ -103,8 +103,9 @@ internal/profile/         # profile CRUD, OAuth2 authorize flow, HTTP client (ne
                            # enough" or "still readable".
 internal/pullrequest/     # pullrequest command tree + shared action helper
   /comment, /task, /common # subcommand packages; /common (prcommon) holds shared getters
-                           # (GetPullRequestIDs, PullRequestIDValidArgs), ExistsPullRequest, and
-                           # the preflight-aware DeleteSubResources
+                           # (CompletePullRequestIDs/CompletePullRequestIDsWithState -- bounded,
+                           # single-request PR-id shell completion -- and PullRequestIDValidArgs),
+                           # ExistsPullRequest, and the preflight-aware DeleteSubResources
 internal/user/            # bb user get/me
 internal/workspace/       # bb workspace get/list/members
 internal/repository/      # bb repo(sitory) get/list/clone
