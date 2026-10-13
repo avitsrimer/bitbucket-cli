@@ -5,25 +5,24 @@ import (
 	"slices"
 	"testing"
 
-	prcommon "github.com/avitsrimer/bitbucket-cli/internal/pullrequest/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
 	"github.com/spf13/cobra"
 )
 
-// TestValidArgsCompletesPullRequestIDsForArg0 proves every comment subcommand's
-// ValidArgsFunction completes open pullrequest ids for the first (now positional) argument.
+// TestValidArgsCompletesPullRequestIDsForArg0 proves the ValidArgsFunction wired on every comment
+// subcommand completes open pullrequest ids for the first (now positional) argument.
 func TestValidArgsCompletesPullRequestIDsForArg0(t *testing.T) {
 	tests := []struct {
 		name        string
 		validArgsFn func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective)
 	}{
-		{"create", prcommon.PullRequestIDValidArgs},
-		{"get", pullRequestAndCommentIDValidArgs},
-		{"list", prcommon.PullRequestIDValidArgs},
-		{"update", pullRequestAndCommentIDValidArgs},
-		{"delete", deleteValidArgs},
-		{"reopen", pullRequestAndCommentIDValidArgs},
-		{"resolve", pullRequestAndCommentIDValidArgs},
+		{"create", createCmd.ValidArgsFunction},
+		{"get", getCmd.ValidArgsFunction},
+		{"list", listCmd.ValidArgsFunction},
+		{"update", updateCmd.ValidArgsFunction},
+		{"delete", deleteCmd.ValidArgsFunction},
+		{"reopen", reopenCmd.ValidArgsFunction},
+		{"resolve", resolveCmd.ValidArgsFunction},
 	}
 
 	for _, tt := range tests {

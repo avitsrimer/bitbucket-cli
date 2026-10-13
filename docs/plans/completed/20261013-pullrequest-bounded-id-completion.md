@@ -192,3 +192,9 @@
 - ⚠️ `--debug` emits nothing under `__complete` (logger initialised before flags are parsed) — pre-existing, out
   of scope; request shape is asserted by unit tests instead.
 - Gates: build, vet, gofmt, `go test -race ./...`, golangci-lint v2.12.2 (0 issues), cross-build — all green.
+- ➕ Review follow-up: the 8 per-command PR-id ValidArgsFunctions collapsed into one
+  `pullRequestIDsCompletion(state)` factory (`openPullRequestIDsCompletion`/`allPullRequestIDsCompletion`
+  in `action.go`); the completion query is built with `url.Values` after `GetPath("pullrequests")`;
+  completion tests now drive each real command's wired `ValidArgsFunction` and cover the error paths,
+  resolution failures, prefix filtering, and the no-fallback-after-OPEN-error rule. README states that
+  completion ignores both `--limit` and `--page-length`.
