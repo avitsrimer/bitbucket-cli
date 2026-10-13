@@ -5,7 +5,6 @@ import (
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
-	prcommon "github.com/avitsrimer/bitbucket-cli/internal/pullrequest/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
@@ -16,7 +15,7 @@ var getCmd = &cobra.Command{
 	Aliases:           []string{"show", "info", "display"},
 	Short:             "get a pullrequest by its <pullrequest-id>.",
 	Args:              cobra.ExactArgs(1),
-	ValidArgsFunction: getValidArgs,
+	ValidArgsFunction: allPullRequestIDsCompletion,
 	RunE:              getProcess,
 }
 
@@ -24,19 +23,6 @@ func init() {
 	Command.AddCommand(getCmd)
 
 	common.RegisterColumnsFlag(getCmd, columns)
-}
-
-func getValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) != 0 {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-
-	ids, err := prcommon.GetPullRequestIDsWithState(cmd.Context(), cmd, "ALL")
-	if err != nil {
-		cobra.CompErrorln(err.Error())
-		return []string{}, cobra.ShellCompDirectiveError
-	}
-	return common.FilterValidArgs(ids, args, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
 func getProcess(cmd *cobra.Command, args []string) error {

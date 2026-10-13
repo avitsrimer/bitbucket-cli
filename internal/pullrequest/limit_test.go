@@ -2,6 +2,7 @@ package pullrequest
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -45,5 +46,44 @@ func TestGetPullRequestIDFromArgsIgnoresAmbientLimitFlag(t *testing.T) {
 	}
 	if openRequests != 1 {
 		t.Errorf("open pull requests queried %d times, want exactly 1", openRequests)
+	}
+}
+
+// TestGetPullRequestIDFromArgsPagesThroughAllOpen guards the unbounded id-resolution path against
+// the bounded completion getters: with open pull requests spread over two pages and --limit 1 on
+// cmd, GetPullRequestIDFromArgs still follows "next" and lists the ids of both pages.
+func TestGetPullRequestIDFromArgsPagesThroughAllOpen(t *testing.T) {
+	var pages []string
+	cmd := setupTestNamed(t, "id-resolution-pages", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("state") != "OPEN" {
+			t.Errorf("unexpected state query: %q", r.URL.Query().Get("state"))
+			return
+		}
+		pages = append(pages, r.URL.Query().Get("page"))
+		if r.URL.Query().Get("page") == "2" {
+			_, _ = w.Write([]byte(`{"values":[{"id":3}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"values":[{"id":1},{"id":2}],"next":"http://` + r.Host + r.URL.Path + `?state=OPEN&page=2"}`))
+	}, false)
+	if err := cmd.Flags().Set("limit", "1"); err != nil {
+		t.Fatalf("cannot set limit flag: %v", err)
+	}
+
+	repo, err := repository.GetRepository(cmd.Context(), cmd)
+	if err != nil {
+		t.Fatalf("cannot get repository: %v", err)
+	}
+
+	_, err = GetPullRequestIDFromArgs(cmd.Context(), cmd, repo, nil)
+	if err == nil {
+		t.Fatal("GetPullRequestIDFromArgs() expected an error for 3 open pull requests, got nil")
+	}
+	if want := "too many open pullrequests, specify one: 1, 2, 3"; !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), want)
+	}
+	if !slices.Equal(pages, []string{"", "2"}) {
+		t.Errorf("requested pages = %q, want both pages", pages)
 	}
 }

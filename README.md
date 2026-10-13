@@ -181,7 +181,7 @@ Please refer to the [Bitbucket API documentation](https://developer.atlassian.co
 bb pullrequest list --page-length 25
 ```
 
-`list` commands also support the `--limit` flag to cap the *total* number of items retrieved across every page (unlike `--page-length`, which only sizes each individual request). Shell-completion lookups (e.g. completing a pull request ID) deliberately ignore `--limit` on the same command, since a completion candidate list must never be truncated by a flag meant to bound a different, unrelated listing.
+`list` commands also support the `--limit` flag to cap the *total* number of items retrieved across every page (unlike `--page-length`, which only sizes each individual request). Shell-completion lookups (e.g. completing a pull request ID) ignore both `--limit` and `--page-length` on the same command, since those flags bound a different, unrelated listing. Pull request ID completion instead always makes a single request of 50 and offers at most the 50 most recently updated pull requests (open ones; every state for `get`/`update`, and for `comment`/`task` when none is open); an ID it does not offer can still be typed out.
 
 ```bash
 bb pullrequest list --limit 10

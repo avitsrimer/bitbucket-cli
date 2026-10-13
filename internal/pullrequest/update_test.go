@@ -79,7 +79,7 @@ func TestUpdateValidArgsListsAllPullRequestIDs(t *testing.T) {
 		_, _ = w.Write([]byte(`{"values":[{"id":42},{"id":7}]}`))
 	}, false)
 
-	ids, directive := updateValidArgs(cmd, nil, "")
+	ids, directive := updateCmd.ValidArgsFunction(cmd, nil, "")
 	if directive != cobra.ShellCompDirectiveNoFileComp {
 		t.Errorf("directive = %v, want %v", directive, cobra.ShellCompDirectiveNoFileComp)
 	}
@@ -96,7 +96,7 @@ func TestUpdateValidArgsReturnsNoCompletionsWhenArgAlreadyProvided(t *testing.T)
 		t.Error("no HTTP request expected")
 	}, false)
 
-	ids, directive := updateValidArgs(cmd, []string{"42"}, "")
+	ids, directive := updateCmd.ValidArgsFunction(cmd, []string{"42"}, "")
 	if ids != nil {
 		t.Errorf("ids = %v, want nil", ids)
 	}

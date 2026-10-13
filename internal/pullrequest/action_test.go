@@ -293,7 +293,7 @@ func TestOpenPullRequestIDsCompletion(t *testing.T) {
 	})
 }
 
-// mergeProcess/mergeValidArgs read the package-level mergeOptions var (bound to mergeCmd's
+// mergeProcess reads the package-level mergeOptions var (bound to mergeCmd's
 // flags), so tests mutate and restore it directly rather than going through cmd.Flags().
 func withMergeOptions(t *testing.T, mutate func()) {
 	t.Helper()
@@ -307,7 +307,7 @@ func TestMergeValidArgsDelegatesToSharedCompletion(t *testing.T) {
 		t.Error("no HTTP request expected")
 	}, false)
 
-	ids, directive := mergeValidArgs(cmd, []string{"42"}, "")
+	ids, directive := mergeCmd.ValidArgsFunction(cmd, []string{"42"}, "")
 	if ids != nil {
 		t.Errorf("ids = %v, want nil", ids)
 	}
