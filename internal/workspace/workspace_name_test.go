@@ -10,6 +10,40 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// TestGetWorkspaceNameFallsBackToBitbucketRemote proves the second rung: with no --workspace flag,
+// the workspace of a Bitbucket git remote in the current checkout -- bitbucket.org or an ssh Host
+// alias -- wins over any profile default.
+func TestGetWorkspaceNameFallsBackToBitbucketRemote(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{name: "bitbucket.org", url: "git@bitbucket.org:acme/from-remote.git"},
+		{name: "ssh host alias", url: "git@bitbucket-work:acme/from-remote.git"},
+		{name: "bare ssh host alias", url: "bitbucket-work:acme/from-remote.git"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chdirToFakeGitConfig(t, "[remote \"origin\"]\n\turl = "+tt.url+"\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n")
+
+			oldCurrent := profile.Current
+			profile.Current = &profile.Profile{Name: "p", DefaultWorkspace: "should-not-be-used"}
+			t.Cleanup(func() { profile.Current = oldCurrent })
+
+			cmd := &cobra.Command{Use: "test"}
+			cmd.Flags().String("workspace", "", "")
+
+			name, err := GetWorkspaceName(t.Context(), cmd)
+			if err != nil {
+				t.Fatalf("GetWorkspaceName() error = %v", err)
+			}
+			if name != "acme" {
+				t.Errorf("GetWorkspaceName() = %q, want %q", name, "acme")
+			}
+		})
+	}
+}
+
 // TestGetWorkspaceNameErrorNamesAllThreeWaysWhenEveryRungFails proves that when the flag, the git
 // remote, and the profile default all come up empty, the error names every way to supply the
 // value instead of a bare "argument workspace is missing", mirroring the repository package's
