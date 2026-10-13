@@ -45,7 +45,7 @@ inherited from upstream (`repository`, `project`, `workspace`, `issue`, `pipelin
 deliberately. **New top-level command groups are out of scope** for this fork; contributions
 should extend the existing command trees (new subcommands, flags, or columns), not reintroduce a
 removed resource or add a new one. `bb install-skill` is the one sanctioned exception: it ships
-the embedded Claude Code skill (`skill/bitbucket-cli/`), not a Bitbucket resource, so it doesn't
+the embedded Claude Code skill (`plugins/bitbucket-cli/skills/bitbucket-cli/`), not a Bitbucket resource, so it doesn't
 reintroduce anything upstream removed. Packages now live under `internal/` (Go 1.26 minimum), not
 `cmd/`.
 * **Resources and commands:**  

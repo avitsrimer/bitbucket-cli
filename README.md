@@ -50,7 +50,7 @@ The supported surface is:
 - **Artifacts** — `bb artifact` → `list`, `download`
 - **Users** — `bb user` → `get`, `me`
 - **Authentication** — `bb profile` (including API tokens stored in the macOS Keychain, see [Profiles](#profiles)) and `bb completion`
-- **Agent skill** — `bb install-skill` (see [Agent skill](#agent-skill))
+- **Agent skill** — Claude Code plugin marketplace, or `bb install-skill` (see [Agent skill](#agent-skill))
 
 ## Installation
 
@@ -60,8 +60,11 @@ This fork releases macOS (darwin/arm64) binaries only.
 
 ```bash
 brew tap avitsrimer/apps
-brew install --cask bb
+brew install --cask bitbucket-cli
 ```
+
+The cask is named `bitbucket-cli` (homebrew/cask ships an unrelated `bb` cask that would win over
+the tap); the installed command is still `bb`.
 
 ### Go
 
@@ -1376,8 +1379,31 @@ bb completion zsh > "$(brew --prefix)/share/zsh/site-functions/_bb"
 
 ### Agent skill
 
-`bb install-skill [--to <dir>]` writes an embedded [Claude Code](https://claude.com/claude-code)
-skill to `<to>/skills/bitbucket-cli`, defaulting `--to` to `$CLAUDE_CONFIG_DIR` when that
+The `bitbucket-cli` [Claude Code](https://claude.com/claude-code) skill ships two ways, from the
+same source (`plugins/bitbucket-cli/skills/bitbucket-cli/` in this repository). Either way the
+`bb` binary itself must be installed separately.
+
+**As a Claude Code plugin** (updates through Claude Code). This repository is a plugin
+marketplace named `avitsrimer-bitbucket-cli`:
+
+```bash
+/plugin install bitbucket-cli --marketplace avitsrimer/bitbucket-cli
+```
+
+or, in two steps (also from a shell with `claude plugin ...`):
+
+```bash
+/plugin marketplace add avitsrimer/bitbucket-cli
+/plugin install bitbucket-cli@avitsrimer-bitbucket-cli
+```
+
+The plugin carries no version number, so every commit to `master` is an update: run
+`claude plugin update bitbucket-cli@avitsrimer-bitbucket-cli` (or enable auto-update for the
+marketplace in `/plugin`). The skill can therefore describe flags a `bb` release you installed
+earlier does not have yet; upgrade `bb` if it does.
+
+**Without the plugin system**, `bb install-skill [--to <dir>]` writes the copy of the plugin's
+skill embedded in the binary to `<to>/skills/bitbucket-cli`, defaulting `--to` to `$CLAUDE_CONFIG_DIR` when that
 environment variable is set, or `~/.claude` otherwise. The skill teaches an agent
 the full command surface documented in this README — profile setup, pull request/comment/task
 management, pipeline triggering and log inspection, repository/workspace/commit/branch reads, and
@@ -1424,7 +1450,7 @@ This fork diverges from [gildas/bitbucket-cli](https://github.com/gildas/bitbuck
 ways that break existing scripts and installs:
 
 - **Install source moved.** The Homebrew tap is now `avitsrimer/apps` (`brew tap avitsrimer/apps
-  && brew install --cask bb`), not `gildas/tap/bitbucket-cli`; the snap/chocolatey/scoop packages
+  && brew install --cask bitbucket-cli`), not `gildas/tap/bitbucket-cli`; the snap/chocolatey/scoop packages
   are gone. `go install` now targets
   `github.com/avitsrimer/bitbucket-cli/cmd/bb@latest` — the module path changed along with it.
 - **Six command groups restored, narrower than upstream**: `repository`/`repo` (`get`, `list`,

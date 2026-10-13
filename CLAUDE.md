@@ -16,7 +16,8 @@ create/delete/fork/update, no `get --forks`), `bb workspace` (`get`, `list`, `me
 no permission administration), `bb commit`/`bb branch` (read-only: `commit
 get/list/diff/patch`, `branch list`), `bb artifact` (`list`, `download` — no
 upload/delete, no `--progress`), and `bb install-skill` (writes the embedded
-`skill/bitbucket-cli/` Claude skill to `<to>/skills/bitbucket-cli`). `draft` is a `PullRequest`
+`plugins/bitbucket-cli/skills/bitbucket-cli/` Claude skill to `<to>/skills/bitbucket-cli`; the
+same directory is published as a Claude Code plugin, see Layout). `draft` is a `PullRequest`
 field surfaced as a column: it sits in the defaults of `get`, `update` and `create` (on the latter
 two the printed row is the server's own response to the write, which is what makes those mutations
 self-confirming) but not in `list`'s — `merge` prints a single row without `--columns` too, but its
@@ -117,17 +118,30 @@ internal/pipeline/        # bb pipeline get/list/trigger/stop
   /step                   # bb pipeline step get/list/logs/report/cases
 internal/artifact/        # bb artifact list/download
 internal/cmd/install_skill.go # bb install-skill: writes skill.Files to <to>/skills/bitbucket-cli
-skill/                    # embed.go (package skill, //go:embed bitbucket-cli, Files embed.FS)
-                           # + bitbucket-cli/SKILL.md, the Claude skill bb install-skill writes.
-                           # Lives at the repo root, not under internal/ (no import cycle is
-                           # possible either way -- skill has no dependency on internal/cmd to
-                           # cycle back through). The real constraints are go:embed's own-
-                           # package-directory rule (the embedded tree must sit under skill's own
-                           # directory) and internal/'s visibility rule, which would otherwise
-                           # confine the package to importers inside this module. SKILL.md is
-                           # documentation shipped inside the binary: update it in the same PR as
-                           # any change to a documented command/flag, or it goes stale silently
-                           # (a sync-guard test in internal/cmd catches a renamed/removed command
+embed.go                  # package bitbucketcli at the module root: //go:embed of
+                           # plugins/bitbucket-cli/skills/bitbucket-cli, exposed as SkillFiles
+                           # (fs.Sub-rooted so paths read "bitbucket-cli/SKILL.md"), which
+                           # bb install-skill writes. It sits at the root because go:embed only
+                           # reaches files at or below its own package directory, and putting it
+                           # inside plugins/ would ship a .go file in every plugin install;
+                           # internal/'s visibility rule is not a factor (only this module
+                           # imports it). embed_test.go pins the marketplace/plugin manifests and
+                           # that the embedded tree equals the plugin's skill tree file for file.
+.claude-plugin/marketplace.json
+                           # Claude Code plugin marketplace "avitsrimer-bitbucket-cli" (repo-scoped
+                           # on purpose: a user registers one marketplace per name, so the bare
+                           # "avitsrimer" stays free for a cross-repo catalog). One plugin entry,
+                           # source ./plugins/bitbucket-cli. `make plugin-validate` runs
+                           # `claude plugin validate .` (local only; CI has no claude CLI).
+plugins/bitbucket-cli/    # the plugin: .claude-plugin/plugin.json + skills/bitbucket-cli/SKILL.md.
+                           # Neither manifest sets "version", deliberately: Claude Code then
+                           # versions the plugin by commit SHA, so every merge to master is an
+                           # update (the validator warns about the missing version; that warning
+                           # is expected). Keep this directory plugin-only -- it is what gets
+                           # copied into users' plugin caches. SKILL.md is documentation shipped
+                           # in both the plugin and the binary: update it in the same PR as any
+                           # change to a documented command/flag, or it goes stale silently (a
+                           # sync-guard test in internal/cmd catches a renamed/removed command
                            # path, but not a changed flag or behavior description).
 internal/testutil/        # shared test harness (profile/fixture setup); imports
                            # common, profile, repository, user, and workspace, so an internal
