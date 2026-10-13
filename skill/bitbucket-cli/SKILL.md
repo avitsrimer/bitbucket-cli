@@ -116,7 +116,8 @@ neither, it errors `argument profile is missing`.
   repository-scoped listing above. Use this for "my open PRs" or "what has X got open" rather
   than looping over `bb repo list`. No repository is resolved at all, so it works from any
   directory (including a non-Bitbucket checkout) as long as the workspace resolves via
-  `--workspace` > Bitbucket git remote > profile `--default-workspace`. Passing `--repository`
+  `--workspace` > Bitbucket git remote (an ssh Host alias starting with `bitbucket`, e.g.
+  `git@bitbucket-work:ws/repo.git`, counts too) > profile `--default-workspace`. Passing `--repository`
   explicitly is rejected with an error rather than silently ignored. `--author` and `--mine` are
   mutually exclusive with each other and with `--commit`; `--state`/`--query`/`--source`/
   `--destination` all still apply and compose exactly as above.
@@ -374,8 +375,9 @@ build-time output).
     still fail with a real error from that resolution. To validate inputs without side effects,
     prefer running the real read command (reads are safe) over read+`--dry-run`.
 - **Workspace/repository resolution** for every command follows the same order: the
-  `--workspace`/`--repository` flag, then a Bitbucket git remote in the current directory,
-  then the profile's `--default-workspace`/`--default-repository`. `--repository` (or
+  `--workspace`/`--repository` flag, then a Bitbucket git remote in the current directory
+  (a remote through an ssh Host alias whose name starts with `bitbucket`, e.g.
+  `git@bitbucket-work:ws/repo.git`, is detected too), then the profile's `--default-workspace`/`--default-repository`. `--repository` (or
   `--default-repository`) may itself be `workspace/repository`, which overrides whatever
   `--workspace` would otherwise resolve to. If all three rungs are empty the error names all
   three ways to supply the value.
