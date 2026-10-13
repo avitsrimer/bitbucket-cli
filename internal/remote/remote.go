@@ -47,7 +47,7 @@ func GetRemoteFromGitConfig(context context.Context, name string) (remote *Remot
 //
 // - If the name is empty, it gets the first bitbucket remote in the reader
 //
-// - If the remote URL does not contain "bitbucket.org", it returns an error
+// - If the remote URL's host is not a Bitbucket host (see isBitbucketHost), it returns an error
 func GetRemoteFromReader(context context.Context, reader io.Reader, name string) (remote *Remote, err error) {
 	if name == "" {
 		sections, sectionsErr := common.GetGitSectionsMatching(context, reader, regexp.MustCompile("remote \".*\""))
@@ -59,7 +59,7 @@ func GetRemoteFromReader(context context.Context, reader io.Reader, name string)
 		}
 		for _, section := range sections {
 			url := section.Key("url").String()
-			if strings.Contains(url, "bitbucket.org") {
+			if isBitbucketHost(remoteHost(url)) {
 				return &Remote{
 					URL:   url,
 					Fetch: section.Key("fetch").String(),
@@ -73,13 +73,43 @@ func GetRemoteFromReader(context context.Context, reader io.Reader, name string)
 		return nil, fmt.Errorf("cannot read git config: %w", err)
 	}
 	url := section.Key("url").String()
-	if !strings.Contains(url, "bitbucket.org") {
+	if !isBitbucketHost(remoteHost(url)) {
 		return nil, fmt.Errorf("argument remote is invalid (value: %s)", name)
 	}
 	return &Remote{
 		URL:   url,
 		Fetch: section.Key("fetch").String(),
 	}, nil
+}
+
+// remoteHost returns the lower-cased host of a git remote URL, or "" when there is none.
+//
+// It understands the URL form scheme://[user[:password]@]host[:port]/path and the scp-like form
+// [user@]host:path. Like git itself, an scp-like candidate whose host part contains a "/" is a
+// local path, which has no host.
+func remoteHost(rawURL string) string {
+	if strings.Contains(rawURL, "://") {
+		parsed, err := url.Parse(rawURL)
+		if err != nil {
+			return ""
+		}
+		return strings.ToLower(parsed.Hostname())
+	}
+	host, _, found := strings.Cut(rawURL, ":")
+	if !found || strings.Contains(host, "/") {
+		return ""
+	}
+	if at := strings.LastIndex(host, "@"); at >= 0 {
+		host = host[at+1:]
+	}
+	return strings.ToLower(host)
+}
+
+// isBitbucketHost tells if a lower-cased remote host designates Bitbucket: bitbucket.org itself,
+// one of its subdomains (e.g. altssh.bitbucket.org), or an ssh Host alias starting with
+// "bitbucket" (e.g. bitbucket-work).
+func isBitbucketHost(host string) bool {
+	return host == "bitbucket.org" || strings.HasSuffix(host, ".bitbucket.org") || strings.HasPrefix(host, "bitbucket")
 }
 
 // GetRemote gets the remote from the command flags or the git configuration

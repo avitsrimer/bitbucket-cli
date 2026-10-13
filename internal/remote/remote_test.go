@@ -193,3 +193,80 @@ func TestRemoteRedactedURLSSHShortFormUnchanged(t *testing.T) {
 		t.Errorf("RedactedURL() = %q, want it unchanged as %q", got, target.URL)
 	}
 }
+
+// remoteConfig renders a git config payload carrying a single remote with the given name and url.
+func remoteConfig(name, url string) string {
+	return "[remote \"" + name + "\"]\n\turl = " + url + "\n\tfetch = +refs/heads/*:refs/remotes/" + name + "/*\n"
+}
+
+func TestGetRemoteFromReaderAcceptsBitbucketHosts(t *testing.T) {
+	tests := []string{
+		"git@bitbucket.org:ws/repo.git",
+		"git@bitbucket.org:ws/repo",
+		"bitbucket.org:ws/repo.git",
+		"https://bitbucket.org/ws/repo.git",
+		"https://user@bitbucket.org/ws/repo.git",
+		"https://user:secret@bitbucket.org/ws/repo.git",
+		"ssh://git@bitbucket.org/ws/repo.git",
+		"ssh://git@bitbucket.org:22/ws/repo.git",
+		"git@bitbucket-work:ws/repo.git",
+		"bitbucket-work:ws/repo.git",
+		"ssh://git@bitbucket-work/ws/repo.git",
+		"git@BitBucket-Work:ws/repo.git",
+		"git@altssh.bitbucket.org:ws/repo.git",
+		"ssh://git@bitbucket-work:22/ws/repo.git",
+		"http://bitbucket.org/ws/repo.git",
+		"git+ssh://git@bitbucket-work/ws/repo.git",
+		"git@bitbucket-work:ws/repo.git/",
+	}
+	for _, url := range tests {
+		t.Run(url, func(t *testing.T) {
+			t.Run("named", func(t *testing.T) {
+				r, err := remote.GetRemoteFromReader(context.Background(), strings.NewReader(remoteConfig("origin", url)), "origin")
+				require.NoError(t, err)
+				assert.Equal(t, url, r.URL)
+			})
+			t.Run("unnamed", func(t *testing.T) {
+				r, err := remote.GetRemoteFromReader(context.Background(), strings.NewReader(remoteConfig("origin", url)), "")
+				require.NoError(t, err)
+				assert.Equal(t, url, r.URL)
+			})
+		})
+	}
+}
+
+func TestGetRemoteFromReaderRejectsNonBitbucketHosts(t *testing.T) {
+	tests := []string{
+		"git@github.com:me/bitbucket-cli.git",
+		"https://github.com/bitbucket/repo.git",
+		"https://github.com/me/bitbucket.org.git",
+		"git@gitlab.com:bitbucket/x.git",
+		"github.com:bitbucket/x",
+		"https://evil.com/@bitbucket/x.git",
+		"../bitbucket-x/repo",
+		"/srv/bitbucket:repo",
+		"bitbucket-mirror/x:y",
+		"",
+	}
+	for _, url := range tests {
+		t.Run(url, func(t *testing.T) {
+			t.Run("named", func(t *testing.T) {
+				_, err := remote.GetRemoteFromReader(context.Background(), strings.NewReader(remoteConfig("origin", url)), "origin")
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "argument remote is invalid")
+			})
+			t.Run("unnamed", func(t *testing.T) {
+				_, err := remote.GetRemoteFromReader(context.Background(), strings.NewReader(remoteConfig("origin", url)), "")
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "no remote found")
+			})
+		})
+	}
+}
+
+func TestGetRemoteFromReaderUnnamedSkipsNonBitbucketRemote(t *testing.T) {
+	payload := remoteConfig("github", "git@github.com:me/bitbucket-cli.git") + remoteConfig("work", "git@bitbucket-work:ws/repo.git")
+	r, err := remote.GetRemoteFromReader(context.Background(), strings.NewReader(payload), "")
+	require.NoError(t, err)
+	assert.Equal(t, "git@bitbucket-work:ws/repo.git", r.URL)
+}
