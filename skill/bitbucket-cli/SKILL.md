@@ -117,7 +117,8 @@ neither, it errors `argument profile is missing`.
   than looping over `bb repo list`. No repository is resolved at all, so it works from any
   directory (including a non-Bitbucket checkout) as long as the workspace resolves via
   `--workspace` > Bitbucket git remote (an ssh Host alias starting with `bitbucket`, e.g.
-  `git@bitbucket-work:ws/repo.git`, counts too) > profile `--default-workspace`. Passing
+  `git@bitbucket-work:ws/repo.git`, counts too; detection goes by host name only, so a
+  self-hosted `bitbucket*` server is picked up as well) > profile `--default-workspace`. Passing
   `--repository` explicitly is rejected with an error rather than silently ignored. `--author`
   and `--mine` are mutually exclusive with each other and with `--commit`;
   `--state`/`--query`/`--source`/`--destination` all still apply and compose exactly as above.
