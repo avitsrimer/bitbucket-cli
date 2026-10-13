@@ -133,26 +133,25 @@ func GetRemote(context context.Context, cmd *cobra.Command) (remote *Remote, err
 }
 
 // RepositoryName gets the full repository name from the remote URL (without the .git extension)
+//
+// The URL form scheme://[user[:password]@]host[:port]/path yields its path, the scp-like form
+// [user@]host:path yields the text after the first ":". Surrounding "/" are trimmed before the
+// ".git" suffix, so "ws/repo.git/" gives "ws/repo". A URL in neither form is returned unchanged.
 func (remote Remote) RepositoryName() string {
-	switch {
-	case strings.HasPrefix(remote.URL, "bitbucket.org:"):
-		if strings.HasSuffix(remote.URL, ".git") {
-			return remote.URL[strings.Index(remote.URL, ":")+1 : len(remote.URL)-4]
+	var repositoryPath string
+	if strings.Contains(remote.URL, "://") {
+		parsed, err := url.Parse(remote.URL)
+		if err != nil {
+			return remote.URL
 		}
-		return remote.URL[strings.Index(remote.URL, ":")+1:]
-	case strings.HasPrefix(remote.URL, "git@"):
-		if strings.HasSuffix(remote.URL, ".git") {
-			return remote.URL[strings.LastIndex(remote.URL, ":")+1 : len(remote.URL)-4]
+		repositoryPath = parsed.Path
+	} else {
+		var found bool
+		if _, repositoryPath, found = strings.Cut(remote.URL, ":"); !found {
+			return remote.URL
 		}
-		return remote.URL[strings.LastIndex(remote.URL, ":")+1:]
-	case strings.HasPrefix(remote.URL, "https://"), strings.HasPrefix(remote.URL, "ssh://"):
-		previousToLastSlash := strings.LastIndex(remote.URL[:strings.LastIndex(remote.URL, "/")], "/")
-		if strings.HasSuffix(remote.URL, ".git") {
-			return remote.URL[previousToLastSlash+1 : len(remote.URL)-4]
-		}
-		return remote.URL[previousToLastSlash+1:]
 	}
-	return remote.URL
+	return strings.TrimSuffix(strings.Trim(repositoryPath, "/"), ".git")
 }
 
 // WorkspaceName gets the workspace name from the remote URL

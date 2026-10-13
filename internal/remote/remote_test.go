@@ -270,3 +270,38 @@ func TestGetRemoteFromReaderUnnamedSkipsNonBitbucketRemote(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "git@bitbucket-work:ws/repo.git", r.URL)
 }
+
+func TestRemoteNamesForBitbucketHosts(t *testing.T) {
+	tests := []struct {
+		url        string
+		repository string
+		workspace  string
+	}{
+		{url: "git@bitbucket.org:ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{url: "git@bitbucket.org:ws/repo", repository: "ws/repo", workspace: "ws"},
+		{url: "bitbucket.org:ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{url: "https://bitbucket.org/ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{url: "https://user@bitbucket.org/ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{url: "https://user:secret@bitbucket.org/ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{url: "ssh://git@bitbucket.org/ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{url: "ssh://git@bitbucket.org:22/ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{url: "git@bitbucket-work:ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{url: "bitbucket-work:ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{url: "ssh://git@bitbucket-work/ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{url: "git@BitBucket-Work:ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{url: "git@altssh.bitbucket.org:ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{url: "ssh://git@bitbucket-work:22/ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{url: "http://bitbucket.org/ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{url: "git+ssh://git@bitbucket-work/ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{url: "git@bitbucket-work:ws/repo.git/", repository: "ws/repo", workspace: "ws"},
+		{url: "https://bitbucket.org/ws/repo/", repository: "ws/repo", workspace: "ws"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.url, func(t *testing.T) {
+			r, err := remote.GetRemoteFromReader(context.Background(), strings.NewReader(remoteConfig("origin", tt.url)), "origin")
+			require.NoError(t, err)
+			assert.Equal(t, tt.repository, r.RepositoryName())
+			assert.Equal(t, tt.workspace, r.WorkspaceName())
+		})
+	}
+}

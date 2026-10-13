@@ -232,8 +232,9 @@ func (repository Repository) String() string {
 // GetRepositoryName gets the repository name the user already supplied, with no API call: the
 // --repository flag, a Bitbucket git remote, or the profile's default repository, in that order.
 //
-// remote.GetRemote already rejects a remote whose URL is not bitbucket.org (see
-// remote.GetRemoteFromReader/GetRemoteFromGitConfig), so a checkout whose "origin" points at
+// remote.GetRemote already rejects a remote whose host is not a Bitbucket host -- bitbucket.org,
+// one of its subdomains, or an ssh Host alias starting with "bitbucket" (see
+// remote.GetRemoteFromReader/GetRemoteFromGitConfig) -- so a checkout whose "origin" points at
 // GitHub or any other non-Bitbucket host falls through to the profile default here exactly like a
 // checkout with no remote configured at all -- there is no separate Bitbucket-detection step to
 // add on top of it.
