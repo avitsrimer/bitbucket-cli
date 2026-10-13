@@ -40,6 +40,35 @@ func TestGetProcessSuccess(t *testing.T) {
 	}
 }
 
+// TestGetProcessTableShowsMergeQueueTargetBranch proves a merge-queue pipeline's Branch cell in
+// --output table is its target_branch, not the queue ref it ran on.
+func TestGetProcessTableShowsMergeQueueTargetBranch(t *testing.T) {
+	fixture := loadTestData(t, "pipeline-merge-queue.json")
+	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(fixture)
+	}, false)
+	if err := cmd.Flags().Set("output", "table"); err != nil {
+		t.Fatalf("cannot set output flag: %v", err)
+	}
+	if err := cmd.Flags().Set("columns", "branch"); err != nil {
+		t.Fatalf("cannot set columns flag: %v", err)
+	}
+
+	stdout := testutil.CaptureStdout(t, func() {
+		if err := getProcess(cmd, []string{"42"}); err != nil {
+			t.Fatalf("getProcess() error = %v", err)
+		}
+	})
+
+	if !strings.Contains(stdout, "| master |") {
+		t.Errorf("table output = %q, want a Branch cell of master", stdout)
+	}
+	if strings.Contains(stdout, "bitbucket-merge-queue-62") {
+		t.Errorf("table output = %q, want no queue ref in it", stdout)
+	}
+}
+
 func TestGetProcessAPIError(t *testing.T) {
 	cmd := setupTest(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -12,27 +12,37 @@ type pullRequestReference struct {
 	ID   uint64 `json:"id"`
 }
 
-// Target represents the target of a pipeline: a branch/tag reference, a bare commit reference, or
-// a pull-request reference. BitBucket sends one shape or another depending on "type"; rather than
-// a Target interface with a registry and three separate structs, every field any shape can carry
-// is flattened into this one struct, with fields the current "type" doesn't use left at their zero
-// value. PullRequest is a plain nested field rather than a flattened PullRequestID: the wire shape
-// (a nested {"pullrequest":{"type":"pullrequest","id":N}} object) comes for free from encoding/
-// json's normal struct tags, with no custom Marshal/Unmarshal needed to fold it in or out.
+// Target represents the target of a pipeline: a branch/tag reference, a bare commit reference, a
+// pull-request reference, or a merge-queue reference. BitBucket sends one shape or another depending
+// on "type"; rather than a Target interface with a registry and four separate structs, every field
+// any shape can carry is flattened into this one struct, with fields the current "type" doesn't use
+// left at their zero value. PullRequest is a plain nested field rather than a flattened
+// PullRequestID: the wire shape (a nested {"pullrequest":{"type":"pullrequest","id":N}} object)
+// comes for free from encoding/json's normal struct tags, with no custom Marshal/Unmarshal needed to
+// fold it in or out. TargetBranch and PullRequestIDs are carried only by a merge-queue target
+// ("pipeline_merge_queue_ref_target"), whose RefName is merely the queue ref. Under -o json both are
+// omitempty, so every other shape marshals without them and an empty "pullrequest_ids": [] from the
+// server renders as an absent key; -o yaml renders their zero values, as for every other Target field.
 type Target struct {
-	Type        string                  `json:"type"`
-	RefType     string                  `json:"ref_type,omitempty"`
-	RefName     string                  `json:"ref_name,omitempty"`
-	Selector    *common.Selector        `json:"selector,omitempty"`
-	Commit      *commit.CommitReference `json:"commit,omitempty"`
-	Source      string                  `json:"source,omitempty"`
-	Destination string                  `json:"destination,omitempty"`
-	PullRequest *pullRequestReference   `json:"pullrequest,omitempty"`
+	Type           string                  `json:"type"`
+	RefType        string                  `json:"ref_type,omitempty"`
+	RefName        string                  `json:"ref_name,omitempty"`
+	TargetBranch   string                  `json:"target_branch,omitempty"`
+	PullRequestIDs []uint64                `json:"pullrequest_ids,omitempty"`
+	Selector       *common.Selector        `json:"selector,omitempty"`
+	Commit         *commit.CommitReference `json:"commit,omitempty"`
+	Source         string                  `json:"source,omitempty"`
+	Destination    string                  `json:"destination,omitempty"`
+	PullRequest    *pullRequestReference   `json:"pullrequest,omitempty"`
 }
 
-// GetDestination returns the target's destination branch/tag name: RefName for a plain reference
+// GetDestination returns the target's destination branch/tag name: TargetBranch for a merge-queue
+// target (its RefName is only the queue ref the pipeline ran on), RefName for a plain reference
 // target, Destination for a pull-request target, or "" for a bare commit target.
 func (target Target) GetDestination() string {
+	if target.TargetBranch != "" {
+		return target.TargetBranch
+	}
 	if target.RefName != "" {
 		return target.RefName
 	}

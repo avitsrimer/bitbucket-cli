@@ -6,6 +6,7 @@ import (
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestPipelineGetHeadersDefault(t *testing.T) {
@@ -51,6 +52,36 @@ func TestPipelineGetRowCoversEveryColumn(t *testing.T) {
 			t.Errorf("column %q hit GetRow's default arm instead of a real case", name)
 		}
 	}
+}
+
+// TestPipelineGetRowMergeQueueBranch proves a merge-queue pipeline's branch column renders the
+// real destination branch (target_branch), not the queue ref it ran on.
+func TestPipelineGetRowMergeQueueBranch(t *testing.T) {
+	p := Pipeline{Target: Target{Type: "pipeline_merge_queue_ref_target", RefName: "bitbucket-merge-queue-62", TargetBranch: "master"}}
+
+	row := p.GetRow([]string{"branch"})
+	if len(row) != 1 || row[0] != "master" {
+		t.Errorf("GetRow([branch]) = %v, want [\"master\"]", row)
+	}
+}
+
+// TestPipelineSortByBranchUsesMergeQueueTargetBranch proves --sort branch orders a merge-queue
+// pipeline by its target_branch: sorted by "master" it lands between "develop" and "release";
+// sorted by its queue ref "bitbucket-merge-queue-62" it would come first.
+func TestPipelineSortByBranchUsesMergeQueueTargetBranch(t *testing.T) {
+	pipelines := Pipelines{
+		{BuildNumber: 1, Target: Target{RefName: "release"}},
+		{BuildNumber: 2, Target: Target{RefName: "bitbucket-merge-queue-62", TargetBranch: "master"}},
+		{BuildNumber: 3, Target: Target{RefName: "develop"}},
+	}
+
+	common.Sort(pipelines, columns.SortBy("branch"))
+
+	got := make([]uint64, 0, len(pipelines))
+	for _, p := range pipelines {
+		got = append(got, p.BuildNumber)
+	}
+	assert.Equal(t, []uint64{3, 2, 1}, got, "sorted build numbers")
 }
 
 func TestPipelineGetRowUnknownColumnFillsPlaceholder(t *testing.T) {

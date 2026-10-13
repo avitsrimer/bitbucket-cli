@@ -290,6 +290,7 @@ func TestTriggerProcessPullRequestTarget(t *testing.T) {
 	if sent.Target.Type != "pipeline_pullrequest_target" || sent.Target.PullRequest == nil || sent.Target.PullRequest.ID != 62 {
 		t.Errorf("target = %+v, want type pipeline_pullrequest_target with pull request id 62", sent.Target)
 	}
+	assertSentTargetOmitsMergeQueueKeys(t, body)
 }
 
 // TestTriggerProcessCommitPinsBranchTarget pins the payload shape --commit produces on a branch
@@ -322,6 +323,7 @@ func TestTriggerProcessCommitPinsBranchTarget(t *testing.T) {
 	if sent.Target.Commit == nil || sent.Target.Commit.Hash != "abc1234" {
 		t.Errorf("target.Commit = %+v, want a commit reference pinning hash abc1234", sent.Target.Commit)
 	}
+	assertSentTargetOmitsMergeQueueKeys(t, body)
 }
 
 // TestTriggerProcessPatternSelectsCustomPipeline proves --pattern is restored and wired: it is the
@@ -573,4 +575,19 @@ func TestTriggerProcessDryRunRedactsVariableValues(t *testing.T) {
 	if strings.Contains(stdout, secretValue) {
 		t.Errorf("dry-run stdout leaked the variable value: %q", stdout)
 	}
+}
+
+// assertSentTargetOmitsMergeQueueKeys decodes a raw trigger POST body and requires its "target"
+// object to carry neither target_branch nor pullrequest_ids.
+func assertSentTargetOmitsMergeQueueKeys(t *testing.T, body []byte) {
+	t.Helper()
+	var raw map[string]any
+	if err := json.Unmarshal(body, &raw); err != nil {
+		t.Fatalf("cannot unmarshal POST body: %v", err)
+	}
+	target, ok := raw["target"].(map[string]any)
+	if !ok {
+		t.Fatalf("POST body target = %v, want an object", raw["target"])
+	}
+	assertMergeQueueKeysAbsent(t, target)
 }
