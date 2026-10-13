@@ -114,6 +114,35 @@ func stageSkillTree(skillsDir string) (staged string, err error) {
 	return staged, nil
 }
 
+// writeSkillTree copies the tree rooted at root in fsys into target, which must already exist:
+// every directory below root is created at dirMode and every file is written at 0o600.
+func writeSkillTree(fsys fs.FS, root, target string) error {
+	err := fs.WalkDir(fsys, root, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		dst := filepath.Join(target, filepath.FromSlash(path[len(root):]))
+		if d.IsDir() {
+			if mkErr := os.MkdirAll(dst, dirMode); mkErr != nil {
+				return fmt.Errorf("create dir %s: %w", dst, mkErr)
+			}
+			return chmodDir(dst)
+		}
+		data, readErr := fs.ReadFile(fsys, path)
+		if readErr != nil {
+			return fmt.Errorf("read embedded %s: %w", path, readErr)
+		}
+		if writeErr := os.WriteFile(dst, data, 0o600); writeErr != nil {
+			return fmt.Errorf("write %s: %w", dst, writeErr)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("install skill: %w", err)
+	}
+	return nil
+}
+
 // installSkillProcess resolves --to (defaulting to $CLAUDE_CONFIG_DIR or os.UserHomeDir()/.claude),
 // then writes the embedded skill tree to <to>/skills/bitbucket-cli, replacing any existing content
 // there so re-installs are idempotent.
@@ -150,32 +179,8 @@ func installSkillProcess(cmd *cobra.Command, _ []string) error {
 	}
 	defer func() { _ = os.RemoveAll(staged) }() // no-op once the rename below has moved staged to dest
 
-	err = fs.WalkDir(bitbucketcli.SkillFiles, skillName, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		rel := path[len(skillName):]
-		target := filepath.Join(staged, filepath.FromSlash(rel))
-		if d.IsDir() {
-			if mkErr := os.MkdirAll(target, dirMode); mkErr != nil {
-				return fmt.Errorf("create dir %s: %w", target, mkErr)
-			}
-			if chmodErr := chmodDir(target); chmodErr != nil {
-				return chmodErr
-			}
-			return nil
-		}
-		data, readErr := fs.ReadFile(bitbucketcli.SkillFiles, path)
-		if readErr != nil {
-			return fmt.Errorf("read embedded %s: %w", path, readErr)
-		}
-		if writeErr := os.WriteFile(target, data, 0o600); writeErr != nil {
-			return fmt.Errorf("write %s: %w", target, writeErr)
-		}
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("install skill: %w", err)
+	if err := writeSkillTree(bitbucketcli.SkillFiles, skillName, staged); err != nil {
+		return err
 	}
 
 	if err := os.RemoveAll(dest); err != nil {

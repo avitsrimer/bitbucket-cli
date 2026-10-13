@@ -22,7 +22,8 @@ interactively and has no automation bypass.
 > `clone` — read-only, no create/delete/fork/update), `bb workspace` (`get`, `list`, `members` —
 > no permission administration), `bb commit`/`bb branch` (read-only: `commit get/list/diff/patch`,
 > `branch list`), `bb artifact` (`list`, `download` — no upload/delete), and `bb install-skill`
-> (writes an embedded Claude Code skill teaching an agent this whole surface — see [Agent
+> (writes an embedded Claude Code skill teaching an agent this whole surface; the same skill also
+> ships as a Claude Code plugin from this repository's marketplace — see [Agent
 > skill](#agent-skill)). Every other command group inherited from upstream — `issue`, `tag`,
 > `project`, `gpg-key`, `ssh-key`, `cache`,
 > `remote`, `component` — remains **removed** from this fork, as does every admin/destructive verb
@@ -1384,18 +1385,24 @@ same source (`plugins/bitbucket-cli/skills/bitbucket-cli/` in this repository). 
 `bb` binary itself must be installed separately.
 
 **As a Claude Code plugin** (updates through Claude Code). This repository is a plugin
-marketplace named `avitsrimer-bitbucket-cli`:
+marketplace named `avitsrimer-bitbucket-cli`. Inside Claude Code, add the marketplace and install
+the plugin:
 
-```bash
-/plugin install bitbucket-cli --marketplace avitsrimer/bitbucket-cli
-```
-
-or, in two steps (also from a shell with `claude plugin ...`):
-
-```bash
+```text
 /plugin marketplace add avitsrimer/bitbucket-cli
 /plugin install bitbucket-cli@avitsrimer-bitbucket-cli
 ```
+
+From a shell, `claude plugin install` does both in one step:
+
+```bash
+claude plugin install bitbucket-cli --marketplace avitsrimer/bitbucket-cli
+```
+
+Use one route, not both. If you ran `bb install-skill` before switching to the plugin, delete the
+copy it wrote (`rm -rf ~/.claude/skills/bitbucket-cli`, or the same path under
+`$CLAUDE_CONFIG_DIR`); otherwise Claude Code loads it as a second, possibly older skill next to the
+plugin's `bitbucket-cli:bitbucket-cli`.
 
 The plugin carries no version number, so every commit to `master` is an update: run
 `claude plugin update bitbucket-cli@avitsrimer-bitbucket-cli` (or enable auto-update for the

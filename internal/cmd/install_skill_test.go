@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"testing/fstest"
 
 	bitbucketcli "github.com/avitsrimer/bitbucket-cli"
 	"github.com/spf13/cobra"
@@ -103,6 +104,44 @@ func assertEmbeddedFilesLandByteIdentical(t *testing.T, dest string) {
 	})
 	require.NoError(t, err)
 	require.NotZero(t, fileCount, "expected fs.WalkDir to find at least one embedded file under %s", root)
+}
+
+func TestWriteSkillTreeNested(t *testing.T) {
+	fsys := fstest.MapFS{
+		"skill/SKILL.md":                {Data: []byte("top")},
+		"skill/references/guide.md":     {Data: []byte("guide")},
+		"skill/references/deep/note.md": {Data: []byte("note")},
+		"other/ignored.md":              {Data: []byte("outside the root")},
+	}
+	tests := []struct {
+		rel  string
+		want string
+	}{
+		{rel: "SKILL.md", want: "top"},
+		{rel: filepath.Join("references", "guide.md"), want: "guide"},
+		{rel: filepath.Join("references", "deep", "note.md"), want: "note"},
+	}
+
+	target := t.TempDir()
+	require.NoError(t, writeSkillTree(fsys, "skill", target))
+
+	for _, tc := range tests {
+		t.Run(tc.rel, func(t *testing.T) {
+			path := filepath.Join(target, tc.rel)
+			got, err := os.ReadFile(path)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, string(got))
+			info, err := os.Stat(path)
+			require.NoError(t, err)
+			assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+		})
+	}
+	for _, dir := range []string{"references", filepath.Join("references", "deep")} {
+		info, err := os.Stat(filepath.Join(target, dir))
+		require.NoError(t, err)
+		assert.Equalf(t, os.FileMode(dirMode), info.Mode().Perm(), "%s should be 0o750", dir)
+	}
+	assert.NoFileExists(t, filepath.Join(target, "ignored.md"))
 }
 
 func TestInstallSkillOverwritesStaleDestination(t *testing.T) {

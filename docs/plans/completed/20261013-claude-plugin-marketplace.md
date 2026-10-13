@@ -57,7 +57,7 @@ embed_test.go                                       # moved from skill/embed_tes
   (`skill.Files.ReadFile` → `fs.ReadFile`). `fs.Sub` on a literal, known-good prefix cannot fail at runtime,
   but its error is still checked (panic in a package-level init with a clear message), never ignored.
 - The `skill/` package is deleted; the "leading . or _ is skipped by go:embed" doc note moves to `embed.go`.
-- `make plugin-validate` runs `claude plugin validate . --strict` locally. CI does not run it (no `claude` on the
+- `make plugin-validate` runs `claude plugin validate .` locally (not `--strict`, see Task 2). CI does not run it (no `claude` on the
   runners); the Go manifest test covers the structural invariants there.
 
 ## Technical Details

@@ -70,7 +70,8 @@ If you add JSON paylods in the tests, make sure to add them in the `testdata` di
 Please ensure that the payloads are anonymized enough and do not contain any sensitive information.  
 You can run all tests with `make test`.
 * **CI gate**:  
-Every Pull Request must pass `go test -race ./...` and `golangci-lint run` (pinned to the version `.github/workflows/ci.yml` uses) before it can merge — this is the same gate CI enforces, so running both locally first avoids a red PR.
+Every Pull Request must pass `go test -race ./...` and `golangci-lint run` (pinned to the version `.github/workflows/ci.yml` uses) before it can merge — this is the same gate CI enforces, so running both locally first avoids a red PR.  
+If you change `.claude-plugin/` or `plugins/`, also run `make plugin-validate` (needs the `claude` CLI on `PATH`; CI does not run it).
 
 ---
 
