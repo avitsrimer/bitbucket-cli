@@ -66,6 +66,50 @@ func GetPullRequestIDs(context context.Context, cmd *cobra.Command) (ids []strin
 	return GetPullRequestIDsWithState(context, cmd, "ALL")
 }
 
+// completionLimit is the number of pullrequest ids a shell completion offers per state: the
+// pullrequests endpoint's maximum page length, fetched in a single request.
+const completionLimit = 50
+
+// CompletePullRequestIDsWithState gets the ids of the most recently updated pullrequests in the
+// given state for shell completion, using exactly one request of at most completionLimit entries.
+// It never follows the "next" link and ignores cmd's --page-length/--limit flags, so a Tab press
+// costs one API call regardless of how many pullrequests the repository holds.
+func CompletePullRequestIDsWithState(ctx context.Context, cmd *cobra.Command, state string) ([]string, error) {
+	repo, err := repository.GetRepository(ctx, cmd)
+	if err != nil {
+		return []string{}, fmt.Errorf("cannot get repository: %w", err)
+	}
+	currentProfile, err := profile.GetProfileFromCommand(ctx, cmd)
+	if err != nil {
+		return []string{}, fmt.Errorf("cannot get profile: %w", err)
+	}
+
+	lgr.Printf("[DEBUG] getting up to %d %s pullrequests for completion", completionLimit, state)
+	var page profile.PaginatedResources[PullRequestID]
+	uripath := repo.GetPath("pullrequests?state=" + state + "&sort=-updated_on&pagelen=" + strconv.Itoa(completionLimit))
+	if err := currentProfile.Get(ctx, uripath, &page); err != nil {
+		lgr.Printf("[ERROR] failed to get %s pullrequests: %v", state, err)
+		return []string{}, fmt.Errorf("cannot get %s pullrequests: %w", state, err)
+	}
+
+	ids := common.Map(page.Values, func(pullrequest PullRequestID) string { return strconv.Itoa(pullrequest.ID) })
+	common.Sort(ids, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
+	return ids, nil
+}
+
+// CompletePullRequestIDs gets pullrequest ids for shell completion: the bounded open ones, or,
+// only when none is open, the bounded most recently updated ones of any state.
+func CompletePullRequestIDs(ctx context.Context, cmd *cobra.Command) ([]string, error) {
+	ids, err := CompletePullRequestIDsWithState(ctx, cmd, "OPEN")
+	if err != nil {
+		return []string{}, err
+	}
+	if len(ids) > 0 {
+		return ids, nil
+	}
+	return CompletePullRequestIDsWithState(ctx, cmd, "ALL")
+}
+
 // PullRequestIDValidArgs is the ValidArgsFunction shared by every comment/task subcommand whose
 // only positional is <pullrequest-id> (create, list, and the len(args)==0 case of delete):
 // completes open pullrequest ids via GetPullRequestIDs, offering nothing once the positional is
