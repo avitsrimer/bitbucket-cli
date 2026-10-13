@@ -80,28 +80,51 @@ func TestGetRepositoryNameFlagWins(t *testing.T) {
 }
 
 // TestGetRepositoryNameFallsBackToBitbucketRemote proves the second rung: with no --repository
-// flag, a Bitbucket git remote in the current checkout wins over any profile default.
+// flag, a Bitbucket git remote in the current checkout wins over any profile default -- whether
+// its host is bitbucket.org or an ssh Host alias, and whether it is "origin" or, behind a
+// non-Bitbucket "origin", the first Bitbucket remote found.
 func TestGetRepositoryNameFallsBackToBitbucketRemote(t *testing.T) {
-	chdirToFakeGitConfig(t, "[remote \"origin\"]\n\turl = git@bitbucket.org:acme/from-remote.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n")
-	cmd := newRepositoryNameCmd(t)
-	profile.Current = &profile.Profile{Name: "p", DefaultRepository: "should-not-be-used"}
-
-	name, err := GetRepositoryName(t.Context(), cmd)
-	if err != nil {
-		t.Fatalf("GetRepositoryName() error = %v", err)
+	tests := []struct {
+		name   string
+		config string
+	}{
+		{name: "bitbucket.org origin", config: remoteSection("origin", "git@bitbucket.org:acme/from-remote.git")},
+		{name: "ssh host alias origin", config: remoteSection("origin", "git@bitbucket-work:acme/from-remote.git")},
+		{name: "bare ssh host alias origin", config: remoteSection("origin", "bitbucket-work:acme/from-remote.git")},
+		{
+			name:   "github origin then ssh host alias",
+			config: remoteSection("origin", "git@github.com:someorg/somerepo.git") + remoteSection("work", "git@bitbucket-work:acme/from-remote.git"),
+		},
 	}
-	if name != "acme/from-remote" {
-		t.Errorf("GetRepositoryName() = %q, want %q", name, "acme/from-remote")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chdirToFakeGitConfig(t, tt.config)
+			cmd := newRepositoryNameCmd(t)
+			profile.Current = &profile.Profile{Name: "p", DefaultRepository: "should-not-be-used"}
+
+			name, err := GetRepositoryName(t.Context(), cmd)
+			if err != nil {
+				t.Fatalf("GetRepositoryName() error = %v", err)
+			}
+			if name != "acme/from-remote" {
+				t.Errorf("GetRepositoryName() = %q, want %q", name, "acme/from-remote")
+			}
+		})
 	}
 }
 
+// remoteSection renders a git config section for a remote with the given name and url.
+func remoteSection(name, url string) string {
+	return "[remote \"" + name + "\"]\n\turl = " + url + "\n\tfetch = +refs/heads/*:refs/remotes/" + name + "/*\n"
+}
+
 // TestGetRepositoryNameGitHubRemoteFallsThroughToProfileDefault reproduces FR-12's core scenario:
-// the current checkout's remote is GitHub (or any non-bitbucket.org host), which
+// the current checkout's remote is GitHub (or any non-Bitbucket host), which
 // remote.GetRemote already rejects -- this proves that rejection is treated as "no remote", not
 // an error the caller must handle specially, and the chain falls through cleanly to the profile
 // default instead of erroring out.
 func TestGetRepositoryNameGitHubRemoteFallsThroughToProfileDefault(t *testing.T) {
-	chdirToFakeGitConfig(t, "[remote \"origin\"]\n\turl = git@github.com:someorg/somerepo.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n")
+	chdirToFakeGitConfig(t, remoteSection("origin", "git@github.com:someorg/somerepo.git"))
 	cmd := newRepositoryNameCmd(t)
 	profile.Current = &profile.Profile{Name: "p", DefaultRepository: "acme/from-profile"}
 

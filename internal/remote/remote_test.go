@@ -193,3 +193,111 @@ func TestRemoteRedactedURLSSHShortFormUnchanged(t *testing.T) {
 		t.Errorf("RedactedURL() = %q, want it unchanged as %q", got, target.URL)
 	}
 }
+
+// remoteSection renders a git config section for a remote with the given name and url.
+func remoteSection(name, url string) string {
+	return "[remote \"" + name + "\"]\n\turl = " + url + "\n\tfetch = +refs/heads/*:refs/remotes/" + name + "/*\n"
+}
+
+func TestGetRemoteFromReaderAcceptsBitbucketHosts(t *testing.T) {
+	tests := []struct {
+		name       string
+		url        string
+		repository string
+		workspace  string
+	}{
+		{name: "scp form", url: "git@bitbucket.org:ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{name: "scp form without .git", url: "git@bitbucket.org:ws/repo", repository: "ws/repo", workspace: "ws"},
+		{name: "scp form without user", url: "bitbucket.org:ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{name: "https", url: "https://bitbucket.org/ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{name: "https with user", url: "https://user@bitbucket.org/ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{name: "https with password", url: "https://user:secret@bitbucket.org/ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{name: "ssh", url: "ssh://git@bitbucket.org/ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{name: "ssh with port", url: "ssh://git@bitbucket.org:22/ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{name: "alias scp form", url: "git@bitbucket-work:ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{name: "bare alias", url: "bitbucket-work:ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{name: "alias ssh", url: "ssh://git@bitbucket-work/ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{name: "alias mixed case", url: "git@BitBucket-Work:ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{name: "subdomain", url: "git@altssh.bitbucket.org:ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{name: "alias ssh with port", url: "ssh://git@bitbucket-work:22/ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{name: "http", url: "http://bitbucket.org/ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{name: "alias git+ssh", url: "git+ssh://git@bitbucket-work/ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{name: "trailing slash after .git", url: "git@bitbucket-work:ws/repo.git/", repository: "ws/repo", workspace: "ws"},
+		{name: "trailing slash without .git", url: "https://bitbucket.org/ws/repo/", repository: "ws/repo", workspace: "ws"},
+		{name: "alias with dot", url: "git@bitbucket.work:ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{name: "alias with underscore", url: "git@bitbucket_personal:ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{name: "self-hosted name", url: "https://bitbucket.example.com/ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{name: "extra leading path segment", url: "https://bitbucket.org/scm/ws/repo.git", repository: "ws/repo", workspace: "ws"},
+		{name: "escaped path kept raw", url: "https://bitbucket.org/ws/a%2Fb.git", repository: "ws/a%2Fb", workspace: "ws"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, name := range []string{"origin", ""} {
+				r, err := remote.GetRemoteFromReader(context.Background(), strings.NewReader(remoteSection("origin", tt.url)), name)
+				require.NoError(t, err, "remote name %q", name)
+				assert.Equal(t, tt.url, r.URL)
+				assert.Equal(t, "+refs/heads/*:refs/remotes/origin/*", r.Fetch)
+				assert.Equal(t, tt.repository, r.RepositoryName())
+				assert.Equal(t, tt.workspace, r.WorkspaceName())
+			}
+		})
+	}
+}
+
+func TestGetRemoteFromReaderRejectsNonBitbucketHosts(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{name: "github repo named bitbucket-cli", url: "git@github.com:me/bitbucket-cli.git"},
+		{name: "github owner named bitbucket", url: "https://github.com/bitbucket/repo.git"},
+		{name: "github repo named bitbucket.org", url: "https://github.com/me/bitbucket.org.git"},
+		{name: "gitlab owner named bitbucket", url: "git@gitlab.com:bitbucket/x.git"},
+		{name: "scp form github owner named bitbucket", url: "github.com:bitbucket/x"},
+		{name: "at sign in path", url: "https://evil.com/@bitbucket/x.git"},
+		{name: "relative local path", url: "../bitbucket-x/repo"},
+		{name: "absolute local path with colon", url: "/srv/bitbucket:repo"},
+		{name: "local path with slash before colon", url: "bitbucket-mirror/x:y"},
+		{name: "empty", url: ""},
+		{name: "host ending in bitbucket.org", url: "git@evilbitbucket.org:ws/repo.git"},
+		{name: "alias containing bitbucket", url: "git@my-bitbucket:ws/repo.git"},
+		{name: "unparseable url", url: "https://bitbucket.org:notaport/ws/repo.git"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Run("named", func(t *testing.T) {
+				_, err := remote.GetRemoteFromReader(context.Background(), strings.NewReader(remoteSection("origin", tt.url)), "origin")
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "argument remote is invalid")
+			})
+			t.Run("unnamed", func(t *testing.T) {
+				_, err := remote.GetRemoteFromReader(context.Background(), strings.NewReader(remoteSection("origin", tt.url)), "")
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "no remote found")
+			})
+		})
+	}
+}
+
+func TestGetRemoteFromReaderUnnamedSkipsNonBitbucketRemote(t *testing.T) {
+	payload := remoteSection("github", "git@github.com:me/bitbucket-cli.git") + remoteSection("work", "git@bitbucket-work:ws/repo.git")
+	r, err := remote.GetRemoteFromReader(context.Background(), strings.NewReader(payload), "")
+	require.NoError(t, err)
+	assert.Equal(t, "git@bitbucket-work:ws/repo.git", r.URL)
+}
+
+func TestRemoteRepositoryNameReturnsUnrecognizedURLUnchanged(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{name: "no colon", url: "repo"},
+		{name: "local path", url: "/srv/bitbucket:repo"},
+		{name: "unparseable url", url: "https://bitbucket.org:notaport/ws/repo.git"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.url, remote.Remote{URL: tt.url}.RepositoryName())
+		})
+	}
+}
