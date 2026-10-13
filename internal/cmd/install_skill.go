@@ -6,13 +6,14 @@ import (
 	"os"
 	"path/filepath"
 
+	bitbucketcli "github.com/avitsrimer/bitbucket-cli"
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
-	"github.com/avitsrimer/bitbucket-cli/skill"
 	"github.com/spf13/cobra"
 )
 
-// skillName is the directory name the embedded skill tree lives under (skill/bitbucket-cli in
-// the source checkout) and the name it is installed as under <to>/skills/.
+// skillName is the directory name the embedded skill tree lives under
+// (plugins/bitbucket-cli/skills/bitbucket-cli in the source checkout) and the name it is installed
+// as under <to>/skills/.
 const skillName = "bitbucket-cli"
 
 // installSkillUnsupportedFlags are the root-persistent flags that install-skill inherits but has
@@ -26,7 +27,8 @@ var installSkillUnsupportedFlags = []string{
 var installSkillCmd = &cobra.Command{
 	Use:   "install-skill [flags]",
 	Short: "install the bitbucket-cli Claude skill",
-	Long: "Write the embedded bitbucket-cli Claude skill to <to>/skills/bitbucket-cli, defaulting " +
+	Long: "Write the bitbucket-cli Claude skill embedded in this binary (the same skill the " +
+		"bitbucket-cli Claude Code plugin ships) to <to>/skills/bitbucket-cli, defaulting " +
 		"to $CLAUDE_CONFIG_DIR (or ~/.claude if that's unset) when --to is unset. Re-running always " +
 		"overwrites the destination directory " +
 		"wholesale -- any files added under it since the last install are deleted along with it, " +
@@ -113,6 +115,35 @@ func stageSkillTree(skillsDir string) (staged string, err error) {
 	return staged, nil
 }
 
+// writeSkillTree copies the tree rooted at root in fsys into target, which must already exist:
+// target and every directory below root are set to dirMode and every file is written at 0o600.
+func writeSkillTree(fsys fs.FS, root, target string) error {
+	err := fs.WalkDir(fsys, root, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		dst := filepath.Join(target, filepath.FromSlash(path[len(root):]))
+		if d.IsDir() {
+			if mkErr := os.MkdirAll(dst, dirMode); mkErr != nil {
+				return fmt.Errorf("create dir %s: %w", dst, mkErr)
+			}
+			return chmodDir(dst)
+		}
+		data, readErr := fs.ReadFile(fsys, path)
+		if readErr != nil {
+			return fmt.Errorf("read embedded %s: %w", path, readErr)
+		}
+		if writeErr := os.WriteFile(dst, data, 0o600); writeErr != nil {
+			return fmt.Errorf("write %s: %w", dst, writeErr)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("write skill tree: %w", err)
+	}
+	return nil
+}
+
 // installSkillProcess resolves --to (defaulting to $CLAUDE_CONFIG_DIR or os.UserHomeDir()/.claude),
 // then writes the embedded skill tree to <to>/skills/bitbucket-cli, replacing any existing content
 // there so re-installs are idempotent.
@@ -149,31 +180,7 @@ func installSkillProcess(cmd *cobra.Command, _ []string) error {
 	}
 	defer func() { _ = os.RemoveAll(staged) }() // no-op once the rename below has moved staged to dest
 
-	err = fs.WalkDir(skill.Files, skillName, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		rel := path[len(skillName):]
-		target := filepath.Join(staged, filepath.FromSlash(rel))
-		if d.IsDir() {
-			if mkErr := os.MkdirAll(target, dirMode); mkErr != nil {
-				return fmt.Errorf("create dir %s: %w", target, mkErr)
-			}
-			if chmodErr := chmodDir(target); chmodErr != nil {
-				return chmodErr
-			}
-			return nil
-		}
-		data, readErr := skill.Files.ReadFile(path)
-		if readErr != nil {
-			return fmt.Errorf("read embedded %s: %w", path, readErr)
-		}
-		if writeErr := os.WriteFile(target, data, 0o600); writeErr != nil {
-			return fmt.Errorf("write %s: %w", target, writeErr)
-		}
-		return nil
-	})
-	if err != nil {
+	if err := writeSkillTree(bitbucketcli.SkillFiles, skillName, staged); err != nil {
 		return fmt.Errorf("install skill: %w", err)
 	}
 

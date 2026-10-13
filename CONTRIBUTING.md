@@ -45,9 +45,9 @@ inherited from upstream (`repository`, `project`, `workspace`, `issue`, `pipelin
 deliberately. **New top-level command groups are out of scope** for this fork; contributions
 should extend the existing command trees (new subcommands, flags, or columns), not reintroduce a
 removed resource or add a new one. `bb install-skill` is the one sanctioned exception: it ships
-the embedded Claude Code skill (`skill/bitbucket-cli/`), not a Bitbucket resource, so it doesn't
-reintroduce anything upstream removed. Packages now live under `internal/` (Go 1.26 minimum), not
-`cmd/`.
+the embedded Claude Code skill (`plugins/bitbucket-cli/skills/bitbucket-cli/`), not a Bitbucket
+resource, so it doesn't reintroduce anything upstream removed. Packages now live under `internal/`
+(Go 1.26 minimum), not `cmd/`.
 * **Resources and commands:**  
 `bb` is built as a modern CLI using subcommands. Ensure new features follow this pattern (e.g., `bb <resource> <subresource...> <command>`).  
 Commands should be verbs (e.g., `list`, `create`, `delete`) and support the standard CRUD operations (Create -> `create`, Read -> `list` and `get`, Update -> `update`, Delete -> `delete`) where applicable, within the scope above.
@@ -70,7 +70,8 @@ If you add JSON paylods in the tests, make sure to add them in the `testdata` di
 Please ensure that the payloads are anonymized enough and do not contain any sensitive information.  
 You can run all tests with `make test`.
 * **CI gate**:  
-Every Pull Request must pass `go test -race ./...` and `golangci-lint run` (pinned to the version `.github/workflows/ci.yml` uses) before it can merge — this is the same gate CI enforces, so running both locally first avoids a red PR.
+Every Pull Request must pass `go test -race ./...` and `golangci-lint run` (pinned to the version `.github/workflows/ci.yml` uses) before it can merge — this is the same gate CI enforces, so running both locally first avoids a red PR.  
+If you change `.claude-plugin/` or `plugins/`, also run `make plugin-validate` (needs the `claude` CLI on `PATH`; CI does not run it).
 
 ---
 
