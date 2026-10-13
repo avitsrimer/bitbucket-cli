@@ -141,3 +141,7 @@ embed_test.go                                       # moved from skill/embed_tes
   The tracked `docs/plans/20260810-inline-comment-anchor-fix.md` still says `skill/...`; left as a historical record.
 - Lint initially reported 25 issues from a stale golangci-lint cache (paths into deleted worktrees);
   `golangci-lint cache clean` left one real finding in the new test (unwrapped error), fixed.
+- planning:exec review phases run after implementation: phase 1 comprehensive (5 reviewers) → 16 findings, all
+  fixed (aaf2c03), critical re-check clean; phase 2 smells → 7 minor, all fixed (ef3e1ad); phase 3 codex skipped
+  (not installed); phase 4 critical clean. Visible change: install-skill errors now read
+  `install skill: write skill tree: ...`.
