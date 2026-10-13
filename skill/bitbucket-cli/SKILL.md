@@ -117,10 +117,10 @@ neither, it errors `argument profile is missing`.
   than looping over `bb repo list`. No repository is resolved at all, so it works from any
   directory (including a non-Bitbucket checkout) as long as the workspace resolves via
   `--workspace` > Bitbucket git remote (an ssh Host alias starting with `bitbucket`, e.g.
-  `git@bitbucket-work:ws/repo.git`, counts too) > profile `--default-workspace`. Passing `--repository`
-  explicitly is rejected with an error rather than silently ignored. `--author` and `--mine` are
-  mutually exclusive with each other and with `--commit`; `--state`/`--query`/`--source`/
-  `--destination` all still apply and compose exactly as above.
+  `git@bitbucket-work:ws/repo.git`, counts too) > profile `--default-workspace`. Passing
+  `--repository` explicitly is rejected with an error rather than silently ignored. `--author`
+  and `--mine` are mutually exclusive with each other and with `--commit`;
+  `--state`/`--query`/`--source`/`--destination` all still apply and compose exactly as above.
   `--author` takes a **UUID in braces** (`'{01234567-89ab-cdef-0123-456789abcdef}'` — braces
   required, quote it so the shell doesn't eat them), an Atlassian account ID, or, per Bitbucket's
   API docs, a username. Prefer the UUID: usernames are largely legacy post-GDPR, and the nicknames
@@ -377,9 +377,12 @@ build-time output).
 - **Workspace/repository resolution** for every command follows the same order: the
   `--workspace`/`--repository` flag, then a Bitbucket git remote in the current directory
   (a remote through an ssh Host alias whose name starts with `bitbucket`, e.g.
-  `git@bitbucket-work:ws/repo.git`, is detected too), then the profile's `--default-workspace`/`--default-repository`. `--repository` (or
-  `--default-repository`) may itself be `workspace/repository`, which overrides whatever
-  `--workspace` would otherwise resolve to. If all three rungs are empty the error names all
+  `git@bitbucket-work:ws/repo.git`, is detected too; detection goes by host name only, so a
+  self-hosted server whose name starts with `bitbucket` is picked up as well -- pass
+  `--workspace`/`--repository` to override it), then the profile's
+  `--default-workspace`/`--default-repository`. `--repository` (or `--default-repository`) may
+  itself be `workspace/repository`, which overrides whatever `--workspace` would otherwise
+  resolve to. If all three rungs are empty the error names all
   three ways to supply the value.
 - **Narrowly-scoped tokens work fine.** `bb` does not require `read:workspace` for ordinary
   repository/pull-request/pipeline workflows — a token scoped to only the specific
