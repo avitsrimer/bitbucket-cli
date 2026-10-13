@@ -20,11 +20,14 @@ import (
 //go:embed plugins/bitbucket-cli/skills
 var embedded embed.FS
 
+// skillsDir is the embed directive's path, which fs.Sub roots SkillFiles at.
+const skillsDir = "plugins/bitbucket-cli/skills"
+
 // SkillFiles is the embedded plugin skills directory, rooted so each skill tree lives under its
 // own name (e.g. "bitbucket-cli/SKILL.md"). install-skill writes the bitbucket-cli tree to
 // <to>/skills/.
 var SkillFiles = func() fs.FS {
-	sub, err := fs.Sub(embedded, "plugins/bitbucket-cli/skills")
+	sub, err := fs.Sub(embedded, skillsDir)
 	if err != nil {
 		panic(fmt.Sprintf("embedded skills tree: %v", err))
 	}

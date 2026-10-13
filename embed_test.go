@@ -129,42 +129,59 @@ func TestPluginSkillsAreInstallable(t *testing.T) {
 		"install-skill writes only the bitbucket-cli skill; teach it about any other skill under %s", skillsDir)
 }
 
+// embedSkips reports whether go:embed's default directory matching leaves name out of the binary.
+func embedSkips(name string) bool {
+	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")
+}
+
+// collectFiles maps every file under fsys to its content, skipping the names go:embed skips.
+func collectFiles(t *testing.T, fsys fs.FS) map[string]string {
+	t.Helper()
+	files := map[string]string{}
+	require.NoError(t, fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if p != "." && embedSkips(path.Base(p)) {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		data, err := fs.ReadFile(fsys, p)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", p, err)
+		}
+		files[p] = string(data)
+		return nil
+	}))
+	return files
+}
+
 // TestEmbeddedSkillMatchesPluginTree proves the binary embeds exactly the plugin's skills
 // directory, file for file, so install-skill and the plugin route can never ship different content.
 func TestEmbeddedSkillMatchesPluginTree(t *testing.T) {
-	collect := func(fsys fs.FS, fromDisk bool) map[string]string {
-		files := map[string]string{}
-		require.NoError(t, fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			name := path.Base(p)
-			if fromDisk && p != "." {
-				if name == ".DS_Store" {
-					return nil // gitignored finder metadata, never shipped
-				}
-				if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
-					t.Errorf("%s is not embedded: go:embed skips names starting with \".\" or \"_\"; rename it", p)
-					if d.IsDir() {
-						return fs.SkipDir
-					}
-					return nil
-				}
-			}
-			if d.IsDir() {
-				return nil
-			}
-			data, err := fs.ReadFile(fsys, p)
-			if err != nil {
-				return fmt.Errorf("read %s: %w", p, err)
-			}
-			files[p] = string(data)
-			return nil
-		}))
-		return files
-	}
+	disk := os.DirFS(filepath.Join(filepath.FromSlash(pluginDir), "skills"))
 
-	want := collect(os.DirFS(filepath.Join(filepath.FromSlash(pluginDir), "skills")), true)
+	require.NoError(t, fs.WalkDir(disk, ".", func(p string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		name := path.Base(p)
+		if p == "." || name == ".DS_Store" || !embedSkips(name) {
+			return nil // .DS_Store is gitignored finder metadata, never shipped
+		}
+		t.Errorf("%s is not embedded: go:embed skips names starting with \".\" or \"_\"; rename it", p)
+		if d.IsDir() {
+			return fs.SkipDir
+		}
+		return nil
+	}))
+
+	want := collectFiles(t, disk)
 	require.NotEmpty(t, want)
-	assert.Equal(t, want, collect(bitbucketcli.SkillFiles, false))
+	assert.Equal(t, want, collectFiles(t, bitbucketcli.SkillFiles))
 }

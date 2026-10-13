@@ -139,7 +139,7 @@ func TestWriteSkillTreeNested(t *testing.T) {
 	for _, dir := range []string{"references", filepath.Join("references", "deep")} {
 		info, err := os.Stat(filepath.Join(target, dir))
 		require.NoError(t, err)
-		assert.Equalf(t, os.FileMode(dirMode), info.Mode().Perm(), "%s should be 0o750", dir)
+		assert.Equalf(t, os.FileMode(dirMode), info.Mode().Perm(), "%s should be %#o", dir, dirMode)
 	}
 	assert.NoFileExists(t, filepath.Join(target, "ignored.md"))
 }

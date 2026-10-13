@@ -11,8 +11,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// skillName is the directory name the embedded skill tree lives under (plugins/bitbucket-cli/skills/bitbucket-cli in
-// the source checkout) and the name it is installed as under <to>/skills/.
+// skillName is the directory name the embedded skill tree lives under
+// (plugins/bitbucket-cli/skills/bitbucket-cli in the source checkout) and the name it is installed
+// as under <to>/skills/.
 const skillName = "bitbucket-cli"
 
 // installSkillUnsupportedFlags are the root-persistent flags that install-skill inherits but has
@@ -115,7 +116,7 @@ func stageSkillTree(skillsDir string) (staged string, err error) {
 }
 
 // writeSkillTree copies the tree rooted at root in fsys into target, which must already exist:
-// every directory below root is created at dirMode and every file is written at 0o600.
+// target and every directory below root are set to dirMode and every file is written at 0o600.
 func writeSkillTree(fsys fs.FS, root, target string) error {
 	err := fs.WalkDir(fsys, root, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -138,7 +139,7 @@ func writeSkillTree(fsys fs.FS, root, target string) error {
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("install skill: %w", err)
+		return fmt.Errorf("write skill tree: %w", err)
 	}
 	return nil
 }
@@ -180,7 +181,7 @@ func installSkillProcess(cmd *cobra.Command, _ []string) error {
 	defer func() { _ = os.RemoveAll(staged) }() // no-op once the rename below has moved staged to dest
 
 	if err := writeSkillTree(bitbucketcli.SkillFiles, skillName, staged); err != nil {
-		return err
+		return fmt.Errorf("install skill: %w", err)
 	}
 
 	if err := os.RemoveAll(dest); err != nil {
