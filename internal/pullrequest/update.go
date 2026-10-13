@@ -10,7 +10,6 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
 	"github.com/avitsrimer/bitbucket-cli/internal/project"
-	prcommon "github.com/avitsrimer/bitbucket-cli/internal/pullrequest/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/avitsrimer/bitbucket-cli/internal/user"
 	"github.com/avitsrimer/bitbucket-cli/internal/workspace"
@@ -23,7 +22,7 @@ var updateCmd = &cobra.Command{
 	Aliases:           []string{"edit"},
 	Short:             "update a pullrequest by its <pullrequest-id>.",
 	Args:              cobra.ExactArgs(1),
-	ValidArgsFunction: updateValidArgs,
+	ValidArgsFunction: allPullRequestIDsCompletion,
 	RunE:              updateProcess,
 }
 
@@ -63,19 +62,6 @@ func registerDraftStateFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("ready", false, "Mark the pullrequest as ready for review (clears its draft status). Mutually exclusive with --draft")
 	cmd.Flags().Bool("draft", false, "Mark the pullrequest as a draft. Mutually exclusive with --ready")
 	cmd.MarkFlagsMutuallyExclusive("ready", "draft")
-}
-
-func updateValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) != 0 {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-
-	ids, err := prcommon.CompletePullRequestIDsWithState(cmd.Context(), cmd, "ALL")
-	if err != nil {
-		cobra.CompErrorln(err.Error())
-		return []string{}, cobra.ShellCompDirectiveError
-	}
-	return common.FilterValidArgs(ids, args, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
 func updateProcess(cmd *cobra.Command, args []string) error {

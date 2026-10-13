@@ -6,7 +6,6 @@ import (
 	"github.com/avitsrimer/bitbucket-cli/internal/commit"
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
-	prcommon "github.com/avitsrimer/bitbucket-cli/internal/pullrequest/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
@@ -16,7 +15,7 @@ var commitsCmd = &cobra.Command{
 	Use:               "commits [flags] [<pullrequest-id>]",
 	Short:             "Lists the commits of a pullrequest by its <pullrequest-id>",
 	Args:              cobra.MaximumNArgs(1),
-	ValidArgsFunction: commitsValidArgs,
+	ValidArgsFunction: openPullRequestIDsCompletion,
 	RunE:              commitsProcess,
 }
 
@@ -24,19 +23,6 @@ func init() {
 	Command.AddCommand(commitsCmd)
 
 	common.RegisterListFlags(commitsCmd, commit.Columns(), "commits")
-}
-
-func commitsValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) != 0 {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-
-	ids, err := prcommon.CompletePullRequestIDsWithState(cmd.Context(), cmd, "OPEN")
-	if err != nil {
-		cobra.CompErrorln(err.Error())
-		return []string{}, cobra.ShellCompDirectiveError
-	}
-	return common.FilterValidArgs(ids, args, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
 func commitsProcess(cmd *cobra.Command, args []string) (err error) {

@@ -3,6 +3,7 @@ package pullrequest
 import (
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/testutil"
@@ -29,27 +30,47 @@ func threePageHandler(requests *[]*http.Request) http.HandlerFunc {
 	}
 }
 
-// TestPullRequestIDCompletionIsBounded proves every pull request id ValidArgsFunction of the
+// pullRequestIDCompletionCommands lists every command of the real pullrequest tree completing a
+// <pullrequest-id> positional, with the state its completion queries.
+var pullRequestIDCompletionCommands = []struct {
+	name  string
+	state string
+}{
+	{"get", "ALL"},
+	{"update", "ALL"},
+	{"commits", "OPEN"},
+	{"activities", "OPEN"},
+	{"approve", "OPEN"},
+	{"unapprove", "OPEN"},
+	{"decline", "OPEN"},
+	{"request-changes", "OPEN"},
+	{"remove-request-changes", "OPEN"},
+	{"merge", "OPEN"},
+	{"patch", "OPEN"},
+	{"merge-status", "OPEN"},
+	{"diff", "OPEN"},
+}
+
+// completionOf returns the ValidArgsFunction wired on the real pullrequest subcommand name.
+func completionOf(t *testing.T, name string) cobra.CompletionFunc {
+	t.Helper()
+	for _, sub := range Command.Commands() {
+		if sub.Name() == name {
+			if sub.ValidArgsFunction == nil {
+				t.Fatalf("pullrequest %s has no ValidArgsFunction", name)
+			}
+			return sub.ValidArgsFunction
+		}
+	}
+	t.Fatalf("pullrequest %s command not found", name)
+	return nil
+}
+
+// TestPullRequestIDCompletionIsBounded proves every pull request id ValidArgsFunction wired on the
 // pullrequest command tree issues exactly one bounded request (the 50 most recently updated pull
 // requests of its state) and never follows "next", whatever --limit/--page-length cmd carries.
 func TestPullRequestIDCompletionIsBounded(t *testing.T) {
-	tests := []struct {
-		name        string
-		validArgsFn func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective)
-		state       string
-	}{
-		{"get", getValidArgs, "ALL"},
-		{"update", updateValidArgs, "ALL"},
-		{"commits", commitsValidArgs, "OPEN"},
-		{"activities", activitiesValidArgs, "OPEN"},
-		{"approve and other actions", openPullRequestIDsCompletion, "OPEN"},
-		{"merge", mergeValidArgs, "OPEN"},
-		{"patch", validPatchArgs, "OPEN"},
-		{"merge-status", mergeStatusValidArgs, "OPEN"},
-		{"diff", validDiffArgs, "OPEN"},
-	}
-
-	for _, tt := range tests {
+	for _, tt := range pullRequestIDCompletionCommands {
 		t.Run(tt.name, func(t *testing.T) {
 			var requests []*http.Request
 			cmd := setupTestNamed(t, "bounded-completion", threePageHandler(&requests), false)
@@ -59,7 +80,7 @@ func TestPullRequestIDCompletionIsBounded(t *testing.T) {
 				}
 			}
 
-			ids, directive := tt.validArgsFn(cmd, nil, "")
+			ids, directive := completionOf(t, tt.name)(cmd, nil, "")
 			if directive != cobra.ShellCompDirectiveNoFileComp {
 				t.Errorf("directive = %v, want %v", directive, cobra.ShellCompDirectiveNoFileComp)
 			}
@@ -84,5 +105,54 @@ func TestPullRequestIDCompletionIsBounded(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestPullRequestIDCompletionError proves an API failure yields no candidates, the error
+// directive, a single request, and the failure reported to the shell via CompErrorln.
+func TestPullRequestIDCompletionError(t *testing.T) {
+	for _, tt := range pullRequestIDCompletionCommands {
+		t.Run(tt.name, func(t *testing.T) {
+			var requests int
+			cmd := setupTestNamed(t, "completion-error", func(w http.ResponseWriter, _ *http.Request) {
+				requests++
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte(`{"type":"error","error":{"message":"boom"}}`))
+			}, false)
+
+			var ids []string
+			var directive cobra.ShellCompDirective
+			stderr := testutil.CaptureStderr(t, func() {
+				ids, directive = completionOf(t, tt.name)(cmd, nil, "")
+			})
+			if ids == nil || len(ids) != 0 {
+				t.Errorf("ids = %#v, want an empty non-nil slice", ids)
+			}
+			if directive != cobra.ShellCompDirectiveError {
+				t.Errorf("directive = %v, want %v", directive, cobra.ShellCompDirectiveError)
+			}
+			if requests != 1 {
+				t.Errorf("got %d requests, want exactly 1", requests)
+			}
+			if want := "cannot get " + tt.state + " pullrequests: "; !strings.Contains(stderr, want) || !strings.Contains(stderr, "boom") {
+				t.Errorf("stderr = %q, want it to contain %q and the API message", stderr, want)
+			}
+		})
+	}
+}
+
+func TestPullRequestIDCompletionFiltersByPrefix(t *testing.T) {
+	cmd := setupTestNamed(t, "completion-prefix", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"values":[{"id":42},{"id":7},{"id":4}]}`))
+	}, false)
+
+	ids, directive := completionOf(t, "get")(cmd, nil, "4")
+	if directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Errorf("directive = %v, want %v", directive, cobra.ShellCompDirectiveNoFileComp)
+	}
+	if want := []string{"4", "42"}; !slices.Equal(ids, want) {
+		t.Errorf("ids = %v, want %v", ids, want)
 	}
 }

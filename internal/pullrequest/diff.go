@@ -7,7 +7,6 @@ import (
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
-	prcommon "github.com/avitsrimer/bitbucket-cli/internal/pullrequest/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
@@ -17,7 +16,7 @@ var diffCmd = &cobra.Command{
 	Use:               "diff [flags] [<pullrequest-id>]",
 	Short:             "show the diff of a pull request by its <pullrequest-id>. If not provided, it will try to show the diff of the only open pullrequest.",
 	Args:              cobra.MaximumNArgs(1),
-	ValidArgsFunction: validDiffArgs,
+	ValidArgsFunction: openPullRequestIDsCompletion,
 	RunE:              diffProcess,
 }
 
@@ -29,19 +28,6 @@ func init() {
 	Command.AddCommand(diffCmd)
 
 	diffCmd.Flags().BoolVar(&diffOptions.Stat, "stat", false, "show only the diffstat")
-}
-
-func validDiffArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) != 0 {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-
-	ids, err := prcommon.CompletePullRequestIDsWithState(cmd.Context(), cmd, "OPEN")
-	if err != nil {
-		cobra.CompErrorln(err.Error())
-		return []string{}, cobra.ShellCompDirectiveError
-	}
-	return common.FilterValidArgs(ids, args, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
 func diffProcess(cmd *cobra.Command, args []string) error {

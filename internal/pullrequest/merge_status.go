@@ -5,7 +5,6 @@ import (
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
-	prcommon "github.com/avitsrimer/bitbucket-cli/internal/pullrequest/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/repository"
 	"github.com/go-pkgz/lgr"
 	"github.com/spf13/cobra"
@@ -15,7 +14,7 @@ var mergeStatusCmd = &cobra.Command{
 	Use:               "merge-status [flags] [<pullrequest-id>]",
 	Short:             "Get the status of a pull request merge task",
 	Args:              cobra.MaximumNArgs(1),
-	ValidArgsFunction: mergeStatusValidArgs,
+	ValidArgsFunction: openPullRequestIDsCompletion,
 	RunE:              mergeStatusProcess,
 }
 
@@ -28,19 +27,6 @@ func init() {
 
 	mergeStatusCmd.Flags().StringVar(&mergeStatusOptions.TaskID, "task-id", "", "ID of the merge task to check the status of")
 	_ = mergeStatusCmd.MarkFlagRequired("task-id")
-}
-
-func mergeStatusValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) != 0 {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-
-	ids, err := prcommon.CompletePullRequestIDsWithState(cmd.Context(), cmd, "OPEN")
-	if err != nil {
-		cobra.CompErrorln(err.Error())
-		return []string{}, cobra.ShellCompDirectiveError
-	}
-	return common.FilterValidArgs(ids, args, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
 func mergeStatusProcess(cmd *cobra.Command, args []string) (err error) {

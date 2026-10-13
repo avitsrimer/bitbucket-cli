@@ -3,8 +3,9 @@ package prcommon
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"slices"
 	"strconv"
-	"strings"
 
 	"github.com/avitsrimer/bitbucket-cli/internal/common"
 	"github.com/avitsrimer/bitbucket-cli/internal/profile"
@@ -39,9 +40,14 @@ func GetPullRequestIDsFromRepositoryWithState(context context.Context, cmd *cobr
 		return []string{}, err
 	}
 
-	ids = common.Map(pullrequests, func(pullrequest PullRequestID) string { return strconv.Itoa(pullrequest.ID) })
-	common.Sort(ids, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
-	return ids, nil
+	return pullRequestIDStrings(pullrequests), nil
+}
+
+// pullRequestIDStrings renders the ids of pullrequests as strings, sorted lexicographically.
+func pullRequestIDStrings(pullrequests []PullRequestID) []string {
+	ids := common.Map(pullrequests, func(pullrequest PullRequestID) string { return strconv.Itoa(pullrequest.ID) })
+	slices.Sort(ids)
+	return ids
 }
 
 // completionLimit is the number of pullrequest ids a shell completion offers per state: the
@@ -64,15 +70,11 @@ func CompletePullRequestIDsWithState(ctx context.Context, cmd *cobra.Command, st
 
 	lgr.Printf("[DEBUG] getting up to %d %s pullrequests for completion", completionLimit, state)
 	var page profile.PaginatedResources[PullRequestID]
-	uripath := repo.GetPath("pullrequests?state=" + state + "&sort=-updated_on&pagelen=" + strconv.Itoa(completionLimit))
-	if err := currentProfile.Get(ctx, uripath, &page); err != nil {
-		lgr.Printf("[ERROR] failed to get %s pullrequests: %v", state, err)
+	query := url.Values{"state": {state}, "sort": {"-updated_on"}, "pagelen": {strconv.Itoa(completionLimit)}}
+	if err := currentProfile.Get(ctx, repo.GetPath("pullrequests")+"?"+query.Encode(), &page); err != nil {
 		return []string{}, fmt.Errorf("cannot get %s pullrequests: %w", state, err)
 	}
-
-	ids := common.Map(page.Values, func(pullrequest PullRequestID) string { return strconv.Itoa(pullrequest.ID) })
-	common.Sort(ids, func(a, b string) bool { return strings.ToLower(a) < strings.ToLower(b) })
-	return ids, nil
+	return pullRequestIDStrings(page.Values), nil
 }
 
 // CompletePullRequestIDs gets pullrequest ids for shell completion: the bounded open ones, or,

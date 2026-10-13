@@ -17,7 +17,7 @@ import (
 // WhatIf -> single API verb call -> print result" skeleton.
 //
 // merge keeps its own command definition (extra flags, async handling, Location-header
-// parsing) but reuses openPullRequestIDsCompletion for its ValidArgsFunction.
+// parsing) but shares openPullRequestIDsCompletion as its ValidArgsFunction.
 type actionSpec struct {
 	name     string   // command name, e.g. "approve"
 	aliases  []string // command aliases, if any
@@ -43,20 +43,30 @@ func newActionCommand(spec actionSpec) *cobra.Command {
 	return cmd
 }
 
-// openPullRequestIDsCompletion completes <pullrequest-id> from the most recently updated open
-// pullrequests of the current repository.
-func openPullRequestIDsCompletion(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) != 0 {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
+// openPullRequestIDsCompletion and allPullRequestIDsCompletion complete <pullrequest-id> from the
+// most recently updated open, respectively any-state, pullrequests of the current repository.
+var (
+	openPullRequestIDsCompletion = pullRequestIDsCompletion("OPEN")
+	allPullRequestIDsCompletion  = pullRequestIDsCompletion("ALL")
+)
 
-	ids, err := prcommon.CompletePullRequestIDsWithState(cmd.Context(), cmd, "OPEN")
-	if err != nil {
-		cobra.CompErrorln(err.Error())
-		return []string{}, cobra.ShellCompDirectiveError
+// pullRequestIDsCompletion builds a ValidArgsFunction completing <pullrequest-id> from the bounded
+// list of the most recently updated pullrequests in state, offering nothing once the positional
+// is already filled.
+func pullRequestIDsCompletion(state string) cobra.CompletionFunc {
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) != 0 {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+
+		ids, err := prcommon.CompletePullRequestIDsWithState(cmd.Context(), cmd, state)
+		if err != nil {
+			cobra.CompErrorln(err.Error())
+			return []string{}, cobra.ShellCompDirectiveError
+		}
+		lgr.Printf("[DEBUG] fetched %d pullrequest ids", len(ids))
+		return common.FilterValidArgs(ids, args, toComplete), cobra.ShellCompDirectiveNoFileComp
 	}
-	lgr.Printf("[DEBUG] fetched %d pullrequest ids", len(ids))
-	return common.FilterValidArgs(ids, args, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
 // runAction resolves the profile, repository and pullrequest id, gates on WhatIf, then calls

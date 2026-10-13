@@ -15,7 +15,7 @@ var mergeCmd = &cobra.Command{
 	Use:               "merge [flags] [<pullrequest-id>]",
 	Short:             "merge a pullrequest by its <pullrequest-id> (asks for an interactive y/N confirmation; there is no --force). If not provided, it will try to merge the only open pullrequest.",
 	Args:              cobra.MaximumNArgs(1),
-	ValidArgsFunction: mergeValidArgs,
+	ValidArgsFunction: openPullRequestIDsCompletion,
 	RunE:              mergeProcess,
 }
 
@@ -35,10 +35,6 @@ func init() {
 	mergeCmd.Flags().BoolVar(&mergeOptions.Async, "async", false, "Perform the merge asynchronously")
 	mergeCmd.Flags().Var(mergeOptions.MergeStrategy, "merge-strategy", "Merge strategy to use. Possible values are \"merge_commit\", \"squash\" or \"fast_forward\"")
 	_ = mergeCmd.RegisterFlagCompletionFunc(mergeOptions.MergeStrategy.CompletionFunc("merge-strategy"))
-}
-
-func mergeValidArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	return openPullRequestIDsCompletion(cmd, args, toComplete)
 }
 
 func mergeProcess(cmd *cobra.Command, args []string) (err error) {
