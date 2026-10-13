@@ -1,12 +1,13 @@
 package cmd_test
 
 import (
+	"io/fs"
 	"regexp"
 	"strings"
 	"testing"
 
+	bitbucketcli "github.com/avitsrimer/bitbucket-cli"
 	"github.com/avitsrimer/bitbucket-cli/internal/cmd"
-	"github.com/avitsrimer/bitbucket-cli/skill"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -83,7 +84,7 @@ func extractFromWords(words []string) [][]string {
 // zero leftover args plus an exact CommandPath match is what actually catches a renamed,
 // removed, or reflagged command that SKILL.md still describes in its old shape.
 func TestSkillDocCommandsMatchRealCommandTree(t *testing.T) {
-	data, err := skill.Files.ReadFile("bitbucket-cli/SKILL.md")
+	data, err := fs.ReadFile(bitbucketcli.SkillFiles, "bitbucket-cli/SKILL.md")
 	require.NoError(t, err)
 
 	paths := extractBBCommandPaths(string(data))

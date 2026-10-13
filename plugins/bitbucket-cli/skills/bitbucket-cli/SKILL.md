@@ -6,7 +6,7 @@ description: Drive Bitbucket Cloud from the terminal via the bb CLI. Use when th
 # bitbucket-cli
 
 Drive Bitbucket Cloud from the terminal with `bb`. Requires `bb` installed (`brew tap
-avitsrimer/apps && brew install --cask bb`, or `make install`) and a profile (`bb profile create` /
+avitsrimer/apps && brew install --cask bitbucket-cli`, or `make install`) and a profile (`bb profile create` /
 `bb profile authorize`) before anything else works.
 
 `bb` resolves the workspace and repository itself from the current git checkout or the

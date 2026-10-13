@@ -1,0 +1,12 @@
+{
+  "name": "bitbucket-cli",
+  "description": "Drive Bitbucket Cloud from Claude Code through the bb CLI: pull requests, reviews, pipelines, repositories, branches, commits and artifacts. Requires the bb binary (brew install --cask avitsrimer/apps/bitbucket-cli).",
+  "author": {
+    "name": "Aleksandr Vits-Rimer",
+    "url": "https://github.com/avitsrimer"
+  },
+  "homepage": "https://github.com/avitsrimer/bitbucket-cli",
+  "repository": "https://github.com/avitsrimer/bitbucket-cli",
+  "license": "MIT",
+  "keywords": ["bitbucket", "pull-request", "pipelines", "cli"]
+}

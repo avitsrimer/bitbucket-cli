@@ -1,0 +1,16 @@
+{
+  "name": "avitsrimer-bitbucket-cli",
+  "description": "Claude Code plugin for bb, the Bitbucket Cloud CLI: pull requests, pipelines, repositories and artifacts from the terminal.",
+  "owner": {
+    "name": "Aleksandr Vits-Rimer",
+    "url": "https://github.com/avitsrimer"
+  },
+  "plugins": [
+    {
+      "name": "bitbucket-cli",
+      "source": "./plugins/bitbucket-cli",
+      "description": "Skill that drives Bitbucket Cloud through the bb CLI. Requires the bb binary.",
+      "category": "development"
+    }
+  ]
+}

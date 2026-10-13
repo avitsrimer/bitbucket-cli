@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/avitsrimer/bitbucket-cli/skill"
+	bitbucketcli "github.com/avitsrimer/bitbucket-cli"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -81,20 +81,20 @@ func TestInstallSkillEveryEmbeddedFileLandsByteIdentical(t *testing.T) {
 // assertEmbeddedFilesLandByteIdentical walks the ENTIRE embedded skill tree, at any depth, via
 // fs.WalkDir and asserts every file it contains landed at dest with byte-identical content. A
 // single top-level ReadDir would silently stop proving anything for a file nested under a
-// subdirectory (e.g. skill/bitbucket-cli/references/foo.md), so the tree is always walked in
+// subdirectory (e.g. bitbucket-cli/references/foo.md), so the tree is always walked in
 // full instead.
 func assertEmbeddedFilesLandByteIdentical(t *testing.T, dest string) {
 	t.Helper()
 	const root = "bitbucket-cli"
 	fileCount := 0
-	err := fs.WalkDir(skill.Files, root, func(path string, d fs.DirEntry, walkErr error) error {
+	err := fs.WalkDir(bitbucketcli.SkillFiles, root, func(path string, d fs.DirEntry, walkErr error) error {
 		require.NoError(t, walkErr)
 		if d.IsDir() {
 			return nil
 		}
 		fileCount++
 		rel := path[len(root):]
-		want, readErr := skill.Files.ReadFile(path)
+		want, readErr := fs.ReadFile(bitbucketcli.SkillFiles, path)
 		require.NoError(t, readErr)
 		got, statErr := os.ReadFile(filepath.Join(dest, filepath.FromSlash(rel)))
 		require.NoError(t, statErr)
@@ -121,7 +121,7 @@ func TestInstallSkillOverwritesStaleDestination(t *testing.T) {
 	_, err := os.Stat(stale)
 	assert.True(t, os.IsNotExist(err), "stale file should be removed by the RemoveAll+Rename swap")
 
-	embedded, err := skill.Files.ReadFile("bitbucket-cli/SKILL.md")
+	embedded, err := fs.ReadFile(bitbucketcli.SkillFiles, "bitbucket-cli/SKILL.md")
 	require.NoError(t, err)
 	got, err := os.ReadFile(skillPath)
 	require.NoError(t, err)
